@@ -3,3 +3,7 @@
 .claude/api-key
 scratch/
 .lake/
+.venv/
+sysid/*.csv
+sysid/*.npy
+sysid/__pycache__/
