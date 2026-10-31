@@ -60,4 +60,3 @@ Modelling assumptions: no wind; the aircraft is a point (touchdown and terrain c
 - `Vibecheck/` the verified core (core Lean only, no Mathlib).
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
-- `proofs/`: Mathlib package relating each sim step to the idealized continuous ODE (`make proofs`).

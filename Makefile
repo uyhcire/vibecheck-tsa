@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test clean
+.PHONY: install run build verify test clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -29,9 +29,6 @@ run: build
 verify:
 	lake build $(LAKE_OPTS) Vibecheck
 	lake env lean Tools/Audit.lean
-
-proofs:
-	cd proofs && lake exe cache get && lake build
 
 test: build
 	lake build $(LAKE_OPTS) simtest
