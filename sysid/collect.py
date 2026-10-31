@@ -21,20 +21,40 @@ DIAG = ['mass', 'cgx', 'cgz', 'iyy', 'rho', 'grav', 'qbar_s', 'fxa', 'fza', 'ma'
         'hp', 'vind', 'cl', 'cd', 'cmal', 'tmach', 'ct', 'jadv', 'ua', 'wa']
 COLS = BASE + HID + DIAG
 
-def make(seed_rng):
+CFG = dict(style='mixed', vmin=65.0, vmax=110.0, hmin=2000.0, hmax=4000.0, ep0=0, load=0, meta='')   # key=value args override
+STYLES = ['gentle', 'aggr', 'stall']                 # regime pilots for style=regimes (cycled by episode index)
+
+def set_load(fdm, rng):
+    """Random loadout at or under max gross: occupants, baggage, fuel (lbs)."""
+    w = [rng.uniform(100, 250), rng.choice([0, rng.uniform(100, 220)]), rng.choice([0, rng.uniform(80, 200)]),
+         rng.choice([0, rng.uniform(80, 200)]), rng.choice([0, rng.uniform(10, 120)])]
+    for i, v in enumerate(w):
+        fdm[f'inertia/pointmass-weight-lbs{"" if i == 0 else f"[{i}]"}'] = v
+    fuel = [rng.uniform(15, 185), rng.uniform(15, 185)]
+    for i, v in enumerate(fuel):
+        fdm[f'propulsion/tank{"" if i == 0 else f"[{i}]"}/contents-lbs'] = v
+    return dict(payload=sum(w), fuel=sum(fuel))
+
+def make(seed_rng, style='mixed'):
     fdm = jsbsim.FGFDMExec(None)
     fdm.set_debug_level(0)
     fdm.load_model('c172p')
-    fdm['ic/h-sl-ft'] = seed_rng.uniform(2000, 4000)
+    h0, v0 = seed_rng.uniform(CFG['hmin'], CFG['hmax']), seed_rng.uniform(CFG['vmin'], CFG['vmax'])
+    if style == 'stall':
+        v0 = seed_rng.uniform(52, 66)
+    fdm['ic/h-sl-ft'] = h0
     fdm['ic/terrain-elevation-ft'] = 0
-    fdm['ic/vc-kts'] = seed_rng.uniform(65, 110)
+    fdm['ic/vc-kts'] = v0
     fdm['ic/gamma-deg'] = 0
     fdm['ic/psi-true-deg'] = 90
     fdm.set_dt(1 / 128)
     fdm.run_ic()
     fdm['propulsion/set-running'] = -1
     fdm['fcs/mixture-cmd-norm'] = 0.9
-    return fdm
+    info = dict(h0=h0, v0=v0)
+    if CFG['load']:
+        info.update(set_load(fdm, seed_rng))
+    return fdm, info
 
 def leveler(fdm):
     phi = fdm['attitude/phi-rad']
@@ -77,22 +97,30 @@ def world_accel(fdm):
     c, s = math.cos(th), math.sin(th)
     return c * bx + s * bz, s * bx - c * bz
 
-def pilot(rng, aggressive):
+def pilot(rng, aggressive, style='mixed'):
     """Piecewise-constant random stick/throttle targets."""
     while True:
         hold = rng.randint(8, 64)
         span = 1.0 if aggressive else 0.5
         stick = rng.uniform(-span, span)
         thr = rng.choice([0.0, 1.0, rng.random(), rng.random()])
+        if style == 'gentle':
+            hold, stick, thr = rng.randint(32, 96), rng.uniform(-0.2, 0.2), rng.uniform(0.3, 0.8)
+        elif style == 'stall':
+            stick, thr = rng.uniform(0.0, 1.0), rng.uniform(0.0, 0.4)
         for _ in range(hold):
             yield stick, thr
 
+META = []
+
 def episode(ep, rng, writer, ticks):
-    fdm = make(rng)
-    aggressive = ep % 3 == 0
+    style = STYLES[ep % 3] if CFG['style'] == 'regimes' else CFG['style']
+    fdm, info = make(rng, style)
+    META.append(dict(ep=ep, style=style, **info))
+    aggressive = ep % 3 == 0 or style == 'aggr'
     elev = 0.0
     x = 0.0
-    gen = pilot(rng, aggressive)
+    gen = pilot(rng, aggressive, style)
     s0 = snapshot(fdm, 0.0)
     hist = [(s0['vx'], s0['vz'], *world_accel(fdm), s0['udot'], s0['wdot'])] * 3      # per-substep (vx, vz, a_h, a_up), newest last
     for k in range(ticks):
@@ -127,14 +155,24 @@ def episode(ep, rng, writer, ticks):
 def main():
     global RUDDER_OFF
     out, n_ep, ticks, seed = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
-    RUDDER_OFF = len(sys.argv) > 5 and sys.argv[5] == 'rud0'
+    RUDDER_OFF = 'rud0' in sys.argv[5:]
+    for a in sys.argv[5:]:
+        if '=' in a:
+            k, v = a.split('=')
+            CFG[k] = type(CFG[k])(v)
     rng = random.Random(seed)
     with open(out, 'w', newline='') as f:
         w = csv.DictWriter(f, COLS)
         w.writeheader()
         total = 0
-        for ep in range(n_ep):
+        for ep in range(CFG['ep0'], CFG['ep0'] + n_ep):
             total += episode(ep, rng, w, ticks)
+    if CFG['meta']:
+        with open(CFG['meta'], 'w', newline='') as mf:
+            keys = sorted({k for m in META for k in m}, key=lambda k: (k != 'ep', k))
+            mw = csv.DictWriter(mf, keys)
+            mw.writeheader()
+            mw.writerows(META)
     print(f'{n_ep} episodes, {total} ticks -> {out}')
 
 if __name__ == '__main__':
