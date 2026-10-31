@@ -1,6 +1,7 @@
 import Envelope.Proofs
 
-/-! Concrete instances: satisfiable hypotheses, the filter passing and overriding, spec rejections. -/
+/-! Concrete instances: satisfiable hypotheses, the filter passing, overriding and handing back,
+checked substeps, spec rejections. -/
 
 namespace Envelope.Checks
 open Envelope
@@ -56,31 +57,49 @@ def climbPilot : Nat → Stick := fun _ => .dive
 /-- Climbing at 4 m/s and 50 m/s from 280 m. -/
 def climbTraj (n : Nat) : State := ⟨n * (25/4), 280 + n * (1/2), 50, 4, 55⟩
 
-theorem climb_applied : ∀ n, appliedAt (filter P0) climbTraj climbPilot n = .escape n := by
-  have h0 : appliedAt (filter P0) climbTraj climbPilot 0 = .escape 0 := by
-    have : escapeClear P0 (climbTraj 0) .dive = false := by decide +kernel
-    simp [appliedAt, modeAt, filter, climbPilot, this]
-  intro n
-  induction n with
-  | zero => exact h0
-  | succ n ih =>
-    simp only [appliedAt, modeAt] at ih ⊢
-    rw [ih]; rfl
+/-- The climb obeys the envelope whatever mode the filter applies. -/
+theorem climb_allowed_any (m : Mode) (n : Nat) :
+    Allowed P0 m (climbTraj n) .dive (climbTraj (n + 1)) := by
+  have hp : (P0.perf 55).pull = 3 ∧ (P0.perf 55).climb = 4 := by decide +kernel
+  cases m with
+  | free =>
+    simp only [Allowed, vzFloor, VFloor, climbTraj]
+    simp only [P0]
+    push_cast; grind
+  | escape k =>
+    simp only [Allowed, vzFloor, VFloor, vzEsc, VEsc, climbTraj, hp]
+    simp only [P0]
+    by_cases hk : k < 4 <;> simp only [hk, ↓reduceIte] <;> push_cast <;> grind
 
 theorem climb_allowed (n : Nat) :
     Allowed P0 (appliedAt (filter P0) climbTraj climbPilot n) (climbTraj n) (climbPilot n)
-      (climbTraj (n + 1)) := by
-  have hp : (P0.perf 55).pull = 3 ∧ (P0.perf 55).climb = 4 := by decide +kernel
-  rw [climb_applied]
-  simp only [Allowed, vzFloor, VFloor, vzEsc, VEsc, climbTraj, hp]
-  simp only [P0]
-  by_cases hn : n < 4 <;> simp only [hn, ↓reduceIte] <;> push_cast <;> grind
+      (climbTraj (n + 1)) :=
+  climb_allowed_any _ n
+
+/-- The filter overrides the dive at the start of the climb. -/
+example : appliedAt (filter P0) climbTraj climbPilot 0 = .escape 0 := by decide +kernel
 
 theorem climb_init : Init P0 (climbTraj 0) := by decide +kernel
 
 /-- `never_hit` applied with every hypothesis discharged. -/
 example : ∀ n, TickClear P0 (climbTraj n) (climbTraj (n + 1)) :=
   never_hit P0 P0_wf climbPilot climbTraj climb_init climb_allowed
+
+/-! ### Substeps: the within-tick assumption checked on a discrete plant -/
+
+/-- One substep per tick, halfway along, at the tick's starting altitude. -/
+def climbSubs (n : Nat) : List State := [⟨(n + 1/2) * (25/4), 280 + n * (1/2), 50, 4, 55⟩]
+
+/-- `never_hit_substeps` with every hypothesis discharged: each substep clears terrain + margin. -/
+example : ∀ n, ∀ p ∈ climbSubs n, P0.terrain.heightAt p.x + P0.margin < p.h :=
+  never_hit_substeps P0 P0_wf climbPilot climbTraj climb_init climb_allowed climbSubs fun n => by
+    simp only [substepOK, climbSubs, climbTraj, P0, List.all_cons, List.all_nil, Bool.and_true]
+    push_cast; grind
+
+/-- `substepOK` rejects a substep that sags more than `sag` below the tick's endpoints. -/
+example : substepOK P0 (climbTraj 0) (climbTraj 1) [⟨3, 279, 50, 4, 55⟩] = false := by decide +kernel
+/-- ... and one outside the tick's along-track interval. -/
+example : substepOK P0 (climbTraj 0) (climbTraj 1) [⟨7, 281, 50, 4, 55⟩] = false := by decide +kernel
 
 /-! ### The specification rejects bad behaviour -/
 
@@ -133,5 +152,22 @@ def demo := runLoop P0 holdThenDive 400 0 .free s0
 #guard demo.all fun (_, _, s, s') => tickOK P0 (Box.point s) (Box.point s') -- and clears terrain
 #guard (demo.findIdx? fun (_, a, _, _) => a != .free) == some 16 -- the filter overrides the dive
 #guard demo.getLast?.map (·.2.2.2.x) |>.any (800 < ·) -- past the ridge
+
+/-! ### Hand-back: the filter returns control once the pilot's input is certified again -/
+
+/-- From an escape, a certified input is passed: here holding level flight at `s0`. -/
+example : filter P0 (.escape 5) s0 .hold = .free := by decide +kernel
+/-- An uncertified input keeps the escape. -/
+example : filter P0 (.escape 5) s0 .dive = .escape 5 := by decide +kernel
+
+/-- Hold, dive for 4 ticks (overridden), then hold again. -/
+def diveBriefly (t : Nat) : Stick := if 16 ≤ t ∧ t < 20 then .dive else .hold
+
+def demo2 := runLoop P0 diveBriefly 400 0 .free s0
+
+#guard demo2.all fun (t, a, s, s') => monitor P0 a s (diveBriefly t) s'
+#guard demo2.all fun (_, _, s, s') => tickOK P0 (Box.point s) (Box.point s')
+#guard (demo2.findIdx? fun (_, a, _, _) => a != .free) == some 16 -- the dive is overridden
+#guard (demo2.findIdx? fun (t, a, _, _) => 16 < t && a == .free) == some 20 -- control comes back
 
 end Envelope.Checks

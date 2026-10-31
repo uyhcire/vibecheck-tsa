@@ -10,6 +10,12 @@ def TickClear (P : Params ι) (s s' : State) : Prop :=
   ∀ x, min s.x s'.x ≤ x → x ≤ max s.x s'.x →
     P.terrain.heightAt x + P.margin < min s.h s'.h - P.sag
 
+/-- Host-side check of the within-tick assumption for a plant that moves in discrete substeps: each
+substep state lies in the tick's along-track interval, no lower than `min h h' − sag`. -/
+def substepOK (P : Params ι) (s s' : State) (subs : List State) : Bool :=
+  subs.all fun p =>
+    decide (min s.x s'.x ≤ p.x ∧ p.x ≤ max s.x s'.x ∧ min s.h s'.h - P.sag ≤ p.h)
+
 /-- Mode carried into tick `n` of the closed loop with filter `flt` (free at the start). -/
 def modeAt (flt : Mode → State → ι → Mode) (s : Nat → State) (pilot : Nat → ι) : Nat → Mode
   | 0 => .free

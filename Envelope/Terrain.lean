@@ -1,4 +1,5 @@
-/-! Terrain as a 1D max-height grid, with a swept maximum over an along-track interval. -/
+/-! Terrain as a 1D max-height grid, with a swept maximum over an along-track interval
+and a maximum over everything ahead of a point. -/
 
 namespace Envelope
 
@@ -36,8 +37,11 @@ def maxOver (T : Terrain) (lo hi : Rat) : Rat :=
   let j := T.clampIdx (T.cellOf hi)
   T.maxFrom i (j - i).toNat
 
-/-- Upper bound on terrain height everywhere. -/
-def top (T : Terrain) : Rat := T.maxFrom (-1) (T.cells.size + 1)
+/-- Upper bound on terrain height at and after `lo`: a max over the cells from `lo`'s to the end
+of the grid, and `beyond`. -/
+def maxAhead (T : Terrain) (lo : Rat) : Rat :=
+  let i := T.clampIdx (T.cellOf lo)
+  T.maxFrom i (T.cells.size - i).toNat
 
 theorem cellOf_mono (T : Terrain) (hw : 0 < T.w) {x y : Rat} (h : x ≤ y) :
     T.cellOf x ≤ T.cellOf y := by
@@ -79,8 +83,10 @@ theorem heightAt_le_maxOver (T : Terrain) (hw : 0 < T.w) {lo hi x : Rat} (h1 : l
   rw [← cellHeight_clamp]
   apply le_maxFrom <;> simp only [clampIdx] <;> omega
 
-theorem heightAt_le_top (T : Terrain) (x : Rat) : T.heightAt x ≤ T.top := by
-  unfold heightAt top
+theorem heightAt_le_maxAhead (T : Terrain) (hw : 0 < T.w) {lo x : Rat} (h : lo ≤ x) :
+    T.heightAt x ≤ T.maxAhead lo := by
+  have a := T.cellOf_mono hw h
+  unfold heightAt maxAhead
   rw [← cellHeight_clamp]
   apply le_maxFrom <;> simp only [clampIdx] <;> omega
 

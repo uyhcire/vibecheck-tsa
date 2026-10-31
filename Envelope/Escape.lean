@@ -63,21 +63,22 @@ def SafeFrom (P : Params ι) (k : Nat) (b : Box) : Prop :=
 def tickOK (P : Params ι) (b c : Box) : Bool :=
   decide (P.terrain.maxOver (min b.xlo c.xlo) (max b.xhi c.xhi) + P.margin < min b.hLo c.hLo - P.sag)
 
-/-- The escape is past its delay, climbing at the guaranteed rate, and above all terrain. -/
-def escDone (P : Params ι) (top : Rat) (k : Nat) (b : Box) : Bool :=
-  decide (P.delayTicks ≤ k ∧ P.base.climb ≤ b.vzLo ∧ top + P.margin < b.hLo - P.sag)
+/-- The escape is past its delay, climbing at the guaranteed rate, and above all terrain ahead of the box. -/
+def escDone (P : Params ι) (k : Nat) (b : Box) : Bool :=
+  decide (P.delayTicks ≤ k ∧ P.base.climb ≤ b.vzLo ∧
+    P.terrain.maxAhead b.xlo + P.margin < b.hLo - P.sag)
 
 /-- Run the worst-case escape for at most `n` ticks until it is done. -/
-def escLoop (P : Params ι) (top : Rat) : Nat → Nat → Box → Bool
+def escLoop (P : Params ι) : Nat → Nat → Box → Bool
   | n, k, b =>
-    escDone P top k b ||
+    escDone P k b ||
       match n with
       | 0 => false
-      | n + 1 => let c := b.esc P k; tickOK P b c && escLoop P top n (k + 1) c
+      | n + 1 => let c := b.esc P k; tickOK P b c && escLoop P n (k + 1) c
 
 /-- The worst-case escape from box `b`, committed now, is certified clear. -/
 def escapeOK (P : Params ι) (b : Box) : Bool :=
-  decide (P.vMin ≤ b.VLo) && escLoop P P.terrain.top P.horizon 0 b
+  decide (P.vMin ≤ b.VLo) && escLoop P P.horizon 0 b
 
 /-- After one free tick under `u`, the tick is clear and an escape from the worst state is certified. -/
 def escapeClear (P : Params ι) (s : State) (u : ι) : Bool :=

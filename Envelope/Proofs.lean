@@ -1,7 +1,7 @@
 import Envelope.Filter
 import Envelope.Spec
 
-/-! Proofs: comparison lemma, escape-check soundness, `never_hit`, passthrough. -/
+/-! Proofs: comparison lemma, escape-check soundness, `never_hit`, passthrough and hand-back, substeps. -/
 
 namespace Envelope
 variable {ι : Type}
@@ -155,11 +155,23 @@ theorem tickOK_sound (P : Params ι) (hw : 0 < P.terrain.w) {b c : Box} (h : tic
   simp only [tickOK, decide_eq_true_eq] at h
   grind
 
-theorem escDone_step (P : Params ι) (hP : P.WellFormed) {top : Rat}
-    (htop : ∀ x, P.terrain.heightAt x ≤ top) {k : Nat} {b : Box} (h : escDone P top k b = true) :
-    escDone P top (k + 1) (b.esc P k) = true ∧ BoxTickClear P b (b.esc P k) := by
-  obtain ⟨hdt, _, _, hpull, hslack⟩ := hP
-  simp only [escDone, decide_eq_true_eq] at h ⊢
+/-- Semantic form of `escDone`: past the delay, climbing, and above all terrain from `b.xlo` on. -/
+def DoneInv (P : Params ι) (k : Nat) (b : Box) : Prop :=
+  P.delayTicks ≤ k ∧ P.base.climb ≤ b.vzLo ∧
+    ∀ x, b.xlo ≤ x → P.terrain.heightAt x + P.margin < b.hLo - P.sag
+
+theorem escDone_inv (P : Params ι) (hw : 0 < P.terrain.w) {k : Nat} {b : Box}
+    (h : escDone P k b = true) : DoneInv P k b := by
+  simp only [escDone, decide_eq_true_eq] at h
+  obtain ⟨hk, hvz, hh⟩ := h
+  refine ⟨hk, hvz, fun x hx => ?_⟩
+  have := P.terrain.heightAt_le_maxAhead hw hx
+  grind
+
+/-- Once done, the escape stays done (it climbs and only moves forward) and its next tick is clear. -/
+theorem doneInv_step (P : Params ι) (hP : P.WellFormed) {k : Nat} {b : Box} (h : DoneInv P k b) :
+    DoneInv P (k + 1) (b.esc P k) ∧ BoxTickClear P b (b.esc P k) := by
+  obtain ⟨hdt, _, _, hpull, hslack, hvx⟩ := hP
   obtain ⟨hk, hvz, hh⟩ := h
   have hp := perf_base P b.VLo
   have hv' : P.base.climb ≤ vzEsc P k b.vzLo b.VLo := by
@@ -170,36 +182,36 @@ theorem escDone_step (P : Params ι) (hP : P.WellFormed) {top : Rat}
   have hmin : P.base.climb ≤ min b.vzLo (vzEsc P k b.vzLo b.VLo) := by grind
   have := Rat.mul_le_mul_of_nonneg_left hmin hdt
   have hrise : b.hLo ≤ (b.esc P k).hLo := by simp only [Box.esc, Box.adv]; grind
-  refine ⟨⟨by omega, hv', ?_⟩, ?_⟩
-  · grind
-  · intro x _ _
-    have := htop x
-    simp only [Box.esc] at hrise ⊢
+  have hfwd : b.xlo ≤ (b.esc P k).xlo := by
+    have : 0 ≤ P.dt * P.vxMin := Rat.mul_nonneg hdt hvx
+    simp only [Box.esc, Box.adv]; grind
+  refine ⟨⟨by omega, hv', fun x hx => ?_⟩, fun x hx _ => ?_⟩
+  · have := hh x (Rat.le_trans hfwd hx)
+    grind
+  · have := hh x (by grind)
     grind
 
-theorem escDone_safe (P : Params ι) (hP : P.WellFormed) {top : Rat}
-    (htop : ∀ x, P.terrain.heightAt x ≤ top) :
-    ∀ (j k : Nat) (b : Box), escDone P top k b = true →
+theorem doneInv_safe (P : Params ι) (hP : P.WellFormed) :
+    ∀ (j k : Nat) (b : Box), DoneInv P k b →
       BoxTickClear P (escIter P k b j) (escIter P k b (j + 1))
-  | 0, _, _, h => (escDone_step P hP htop h).2
-  | j + 1, k, _, h => escDone_safe P hP htop j (k + 1) _ (escDone_step P hP htop h).1
+  | 0, _, _, h => (doneInv_step P hP h).2
+  | j + 1, k, _, h => doneInv_safe P hP j (k + 1) _ (doneInv_step P hP h).1
 
-theorem escLoop_sound (P : Params ι) (hP : P.WellFormed) {top : Rat}
-    (htop : ∀ x, P.terrain.heightAt x ≤ top) :
-    ∀ (n k : Nat) (b : Box), escLoop P top n k b = true → SafeFrom P k b := by
+theorem escLoop_sound (P : Params ι) (hP : P.WellFormed) :
+    ∀ (n k : Nat) (b : Box), escLoop P n k b = true → SafeFrom P k b := by
   intro n
   induction n with
   | zero =>
     intro k b h
     unfold escLoop at h
     simp only [Bool.or_false] at h
-    exact fun j => escDone_safe P hP htop j k b h
+    exact fun j => doneInv_safe P hP j k b (escDone_inv P hP.2.1 h)
   | succ n ih =>
     intro k b h
     unfold escLoop at h
     simp only [Bool.or_eq_true, Bool.and_eq_true] at h
     rcases h with h | ⟨h1, h2⟩
-    · exact fun j => escDone_safe P hP htop j k b h
+    · exact fun j => doneInv_safe P hP j k b (escDone_inv P hP.2.1 h)
     · have hs := ih (k + 1) _ h2
       intro j
       cases j with
@@ -209,7 +221,7 @@ theorem escLoop_sound (P : Params ι) (hP : P.WellFormed) {top : Rat}
 theorem escapeOK_sound (P : Params ι) (hP : P.WellFormed) {b : Box} (h : escapeOK P b = true) :
     SafeFrom P 0 b := by
   simp only [escapeOK, Bool.and_eq_true] at h
-  exact escLoop_sound P hP P.terrain.heightAt_le_top _ _ _ h.2
+  exact escLoop_sound P hP _ _ _ h.2
 
 /-! ### The closed loop -/
 
@@ -229,24 +241,27 @@ theorem escape_tick (P : Params ι) (hP : P.WellFormed) {k : Nat} {s s' : State}
     rw [esc_eq_next P k u]; exact next_contains P hP.1 (Box.point_contains _) hA
   exact ⟨tickClear_of_box P (hI 0) hc, safeFrom_anti P hP.1 (safeFrom_tail P hI) hc⟩
 
+/-- A free tick certified by `escapeClear` is clear and leaves an escape from phase 0 clear. -/
+theorem free_tick (P : Params ι) (hP : P.WellFormed) {s s' : State} {u : ι}
+    (hclear : escapeClear P s u = true) (hA : Allowed P .free s u s') :
+    TickClear P s s' ∧ SafeFrom P 0 (Box.point s') := by
+  simp only [escapeClear, Bool.and_eq_true] at hclear
+  have hc := next_contains P hP.1 (Box.point_contains _) hA
+  exact ⟨tickClear_of_box P (tickOK_sound P hP.2.1 hclear.1) hc,
+    safeFrom_anti P hP.1 (escapeOK_sound P hP hclear.2) hc⟩
+
 /-- One closed-loop tick preserves the invariant and clears terrain. -/
 theorem filter_tick (P : Params ι) (hP : P.WellFormed) {m : Mode} {s s' : State} {u : ι}
     (hI : LoopInv P m s) (hA : Allowed P (filter P m s u) s u s') :
     TickClear P s s' ∧ LoopInv P (filter P m s u).advance s' := by
-  cases m with
-  | escape k => exact escape_tick P hP hI hA
-  | free =>
-    simp only [filter] at hA ⊢
-    split
-    · rename_i hclear
-      simp only [hclear, ite_true] at hA
-      simp only [escapeClear, Bool.and_eq_true] at hclear
-      have hc := next_contains P hP.1 (Box.point_contains _) hA
-      exact ⟨tickClear_of_box P (tickOK_sound P hP.2.1 hclear.1) hc,
-        safeFrom_anti P hP.1 (escapeOK_sound P hP hclear.2) hc⟩
-    · rename_i hclear
-      simp only [hclear] at hA
-      exact escape_tick P hP hI hA
+  unfold filter at hA ⊢
+  by_cases hclear : escapeClear P s u = true
+  · simp only [hclear, ite_true] at hA ⊢
+    exact free_tick P hP hclear hA
+  · simp only [hclear] at hA ⊢
+    cases m with
+    | escape k => exact escape_tick P hP hI hA
+    | free => exact escape_tick P hP hI hA
 
 /-- Main theorem: with the filter in the loop, envelope-obeying trajectories clear terrain on every tick. -/
 theorem never_hit (P : Params ι) (hP : P.WellFormed) : NeverHits P (filter P) := by
@@ -267,17 +282,39 @@ theorem never_hit_tick (P : Params ι) (hP : P.WellFormed) (pilot : Nat → ι) 
   have := hP.2.2.1
   grind
 
-/-! ### Passthrough -/
+/-! ### Passthrough and hand-back -/
 
-/-- The pilot's input is applied whenever its worst case keeps the escape clear. -/
-theorem passthrough (P : Params ι) (s : State) (u : ι) (h : escapeClear P s u = true) :
-    filter P .free s u = .free := by
+/-- The pilot's input is applied whenever its worst case keeps the escape clear, in either mode
+(from an escape, this hands control back). -/
+theorem passthrough (P : Params ι) (m : Mode) (s : State) (u : ι) (h : escapeClear P s u = true) :
+    filter P m s u = .free := by
   simp [filter, h]
 
 /-- In free flight the filter overrides exactly when the pilot's worst case loses the escape. -/
 theorem filter_free (P : Params ι) (s : State) (u : ι) :
     filter P .free s u = (if escapeClear P s u then .free else .escape 0) := rfl
 
-/-- A committed escape is kept. -/
+/-- A committed escape is kept until the pilot's input is certified again. -/
 theorem filter_escape (P : Params ι) (k : Nat) (s : State) (u : ι) :
-    filter P (.escape k) s u = .escape k := rfl
+    filter P (.escape k) s u = (if escapeClear P s u then .free else .escape k) := rfl
+
+/-! ### Substeps -/
+
+/-- For a plant that moves in substeps: if the tick is clear and every substep passes `substepOK`,
+every substep is above terrain + margin. -/
+theorem substep_clear (P : Params ι) {s s' : State} {subs : List State} (hT : TickClear P s s')
+    (hS : substepOK P s s' subs = true) :
+    ∀ p ∈ subs, P.terrain.heightAt p.x + P.margin < p.h := by
+  intro p hp
+  simp only [substepOK, List.all_eq_true, decide_eq_true_eq] at hS
+  obtain ⟨h1, h2, h3⟩ := hS p hp
+  have := hT p.x h1 h2
+  grind
+
+/-- With the filter in the loop, every substep that passes `substepOK` is above terrain + margin. -/
+theorem never_hit_substeps (P : Params ι) (hP : P.WellFormed) (pilot : Nat → ι) (s : Nat → State)
+    (h0 : Init P (s 0))
+    (hA : ∀ n, Allowed P (appliedAt (filter P) s pilot n) (s n) (pilot n) (s (n + 1)))
+    (subs : Nat → List State) (hS : ∀ n, substepOK P (s n) (s (n + 1)) (subs n) = true) (n : Nat) :
+    ∀ p ∈ subs n, P.terrain.heightAt p.x + P.margin < p.h :=
+  substep_clear P (never_hit P hP pilot s h0 hA n) (hS n)

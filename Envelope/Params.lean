@@ -88,9 +88,10 @@ def addBand (V : Rat) (p : Perf) (b : Band) : Perf :=
 /-- Escape performance guaranteed at airspeed `V`. -/
 def perf (V : Rat) : Perf := P.bands.foldl (addBand V) P.base
 
-/-- Side conditions on the parameters used by the proof. -/
+/-- Side conditions on the parameters used by the proof (`0 ≤ vxMin`: the aircraft only moves forward). -/
 def WellFormed : Prop :=
-  0 ≤ P.dt ∧ 0 < P.terrain.w ∧ 0 ≤ P.sag ∧ 0 ≤ P.base.pull ∧ P.hSlack ≤ P.dt * P.base.climb
+  0 ≤ P.dt ∧ 0 < P.terrain.w ∧ 0 ≤ P.sag ∧ 0 ≤ P.base.pull ∧ P.hSlack ≤ P.dt * P.base.climb ∧
+    0 ≤ P.vxMin
 
 instance : Decidable P.WellFormed := by unfold WellFormed; infer_instance
 

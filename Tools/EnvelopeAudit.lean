@@ -34,9 +34,12 @@ elab "#spec_surface " id:ident : command => do
 #print axioms Envelope.comparison
 #print axioms Envelope.comparison_altitude
 #print axioms Envelope.passthrough
+#print axioms Envelope.substep_clear
+#print axioms Envelope.never_hit_substeps
 #print axioms Envelope.monitor_iff
 #print axioms Envelope.Checks.neverTrigger_unsafe
 #print axioms Envelope.Checks.climb_allowed
 #print axioms Envelope.Checks.P0_wf
 
 #spec_surface Envelope.never_hit
+#spec_surface Envelope.substep_clear
