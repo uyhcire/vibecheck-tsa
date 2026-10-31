@@ -1,5 +1,5 @@
 //! Headless acceptance harness.
-//! `cargo run --release --no-default-features --bin harness -- [episodes] [--threads N] [--quick] [--extended]`
+//! `cargo run --release --no-default-features --bin harness -- [episodes] [--threads N] [--quick] [--extended] [--coverage]`
 use cityflight::harness::*;
 use cityflight::world::World;
 use std::io::Write;
@@ -23,6 +23,12 @@ fn main() {
     let t0 = Instant::now();
     let world = World::new(1337);
     eprintln!("world: {} boxes, built in {:.2}s; {} threads", world.boxes.len(), t0.elapsed().as_secs_f64(), threads);
+    if args.iter().any(|a| a == "--coverage") {
+        let t = Instant::now();
+        print!("{}", format_coverage(&street_coverage(&world, 2000, threads)));
+        println!("({:.1}s)", t.elapsed().as_secs_f64());
+        return;
+    }
     let opts = HarnessOpts { episodes, threads, kamikaze_secs, extended };
     let rep = run_harness(&world, &opts, &|name, d, n| {
         if d == n || d % 10 == 0 {

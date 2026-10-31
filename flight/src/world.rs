@@ -5,28 +5,32 @@
 //! (each quad split along the same diagonal the renderer uses), buildings
 //! are axis-aligned boxes. Collisions are always checked against this.
 //!
-//! Safety map: a 5 m max-height raster of the truth, dilated sideways by
+//! Safety map: a 2.5 m max-height raster of the truth, dilated sideways by
 //! `LAT_CELLS` cells and raised by `VERT_MARGIN`. A point with
 //! `z - Hc(cell) >= 0` is at least `VERT_MARGIN` above anything within
-//! `LAT_CELLS*CELL` metres horizontally. Path segments are checked against
-//! every cell they cross (`swept_max`), so the guarantee covers the whole
-//! continuous path, not just samples. Off-map is a wall.
+//! `LAT_MARGIN` metres horizontally. Both margins are the aircraft radius
+//! plus a few metres for prediction error. Path segments are checked against
+//! every cell they cross, at the segment's own height inside that cell
+//! (`swept_clear`), so the check covers the whole continuous path, not just
+//! samples. Off-map is a wall.
 //!
 //! New plans are accepted against `hc_acc`, dilated one cell more than the
 //! `hc` map that invariant re-checks use, so a re-check of a path within one
-//! cell (5 m) of a verified one cannot fail on lateral grounds.
+//! cell of a verified one cannot fail on lateral grounds.
 
 use std::sync::OnceLock;
 
 pub const MAP_HALF: f64 = 3000.0;
-pub const CELL: f64 = 5.0;
-pub const NC: usize = 1200;
+pub const CELL: f64 = 2.5;
+pub const NC: usize = 2400;
 pub const TSP: f64 = 20.0;
 pub const TN: usize = 301;
+/// Lateral margin 7.5 m = aircraft radius 4.5 m + 3 m.
 pub const LAT_CELLS: usize = 3;
 /// Guaranteed lateral margin of the cell lookup.
 pub const LAT_MARGIN: f64 = LAT_CELLS as f64 * CELL;
-pub const VERT_MARGIN: f64 = 10.0;
+/// Vertical margin 6.5 m = aircraft radius 4.5 m + 2 m.
+pub const VERT_MARGIN: f64 = 6.5;
 pub const WALL: f32 = 1.0e5;
 /// Aircraft modelled as a sphere of this radius (half the wingspan).
 pub const R_BODY: f64 = 4.5;
@@ -37,7 +41,7 @@ const NB: usize = 150;
 
 /// Robust (Phase 3) maps: extra lateral dilation, in cells (check maps; the
 /// acceptance maps use one more cell each).
-pub const ROBUST_CELLS: [usize; 4] = [5, 7, 10, 13];
+pub const ROBUST_CELLS: [usize; 4] = [5, 8, 12, 18];
 
 // ---------------------------------------------------------------- RNG / noise
 
@@ -319,7 +323,7 @@ impl World {
     }
 
     fn rasterize(&mut self) {
-        // Terrain: cells are aligned with quarter-quads, so the triangulation
+        // Terrain: cells evenly subdivide the 20 m quads, so the triangulation
         // diagonal only meets cell corners; the max over a cell is the max of
         // its four corners.
         let np = NC + 1;
@@ -448,32 +452,39 @@ fn cell_at(map: &[f32], i: i64, j: i64) -> f64 {
     }
 }
 
-/// Max of the map over every cell the segment (x0,y0)-(x1,y1) crosses.
+/// Minimum clearance `z - Hc` over every cell the 3D segment
+/// (x0,y0,z0)-(x1,y1,z1) crosses, using the segment's lowest height inside
+/// each cell.
 #[inline]
-pub fn swept_max(map: &[f32], x0: f64, y0: f64, x1: f64, y1: f64) -> f64 {
+pub fn swept_clear(map: &[f32], x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1: f64) -> f64 {
     let (fx0, fy0) = ((x0 + MAP_HALF) / CELL, (y0 + MAP_HALF) / CELL);
     let (fx1, fy1) = ((x1 + MAP_HALF) / CELL, (y1 + MAP_HALF) / CELL);
     let (mut i, mut j) = (fx0.floor() as i64, fy0.floor() as i64);
     let (i1, j1) = (fx1.floor() as i64, fy1.floor() as i64);
-    let mut m = cell_at(map, i, j);
     let (dx, dy) = (fx1 - fx0, fy1 - fy0);
     let (si, sj) = (if dx > 0.0 { 1 } else { -1 }, if dy > 0.0 { 1 } else { -1 });
     let mut tmx = if dx != 0.0 { ((if si > 0 { i + 1 } else { i }) as f64 - fx0) / dx } else { f64::INFINITY };
     let mut tmy = if dy != 0.0 { ((if sj > 0 { j + 1 } else { j }) as f64 - fy0) / dy } else { f64::INFINITY };
     let tdx = if dx != 0.0 { 1.0 / dx.abs() } else { f64::INFINITY };
     let tdy = if dy != 0.0 { 1.0 / dy.abs() } else { f64::INFINITY };
+    let zt = |t: f64| z0 + (z1 - z0) * t;
     let n = (i1 - i).abs() + (j1 - j).abs();
+    let mut t0 = 0.0;
+    let mut c = f64::INFINITY;
     for _ in 0..n {
-        if tmx < tmy {
+        let step_x = tmx < tmy;
+        let tn = if step_x { tmx } else { tmy }.min(1.0);
+        c = c.min(zt(t0).min(zt(tn)) - cell_at(map, i, j));
+        t0 = tn;
+        if step_x {
             i += si;
             tmx += tdx;
         } else {
             j += sj;
             tmy += tdy;
         }
-        m = m.max(cell_at(map, i, j));
     }
-    m
+    c.min(zt(t0).min(z1) - cell_at(map, i, j))
 }
 
 /// Square (Chebyshev) max filter of radius `r` cells, out-of-map = wall,

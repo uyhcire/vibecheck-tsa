@@ -149,7 +149,64 @@ pub fn summarize(name: &str, filter_on: bool, rs: &[EpResult]) -> Summary {
     }
 }
 
+/// How much of street-level flight the filter can verify: random states on
+/// street centrelines, 20-90 m above the ground, flying along the street.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Coverage {
+    pub total: usize,
+    pub safe: usize,
+    pub below_roof: usize,
+    pub below_roof_safe: usize,
+}
+
+pub fn street_coverage(world: &World, n: usize, threads: usize) -> Coverage {
+    use crate::escape::{Pred, N_ESC};
+    let rs = par_map(
+        (0..n as u64).collect(),
+        threads,
+        |&i| {
+            let mut rng = Rng::new(i ^ 0x57EE7);
+            loop {
+                let k = 1 + (rng.f() * 19.0) as usize;
+                let along = rng.range(-1100.0, 1100.0);
+                let lat = street_x(k) + rng.range(-2.0, 2.0);
+                let dir = if rng.chance(0.5) { 1.0 } else { -1.0 };
+                let (x, y, psi) = if rng.chance(0.5) {
+                    (lat, along, if dir > 0.0 { std::f64::consts::FRAC_PI_2 } else { -std::f64::consts::FRAC_PI_2 })
+                } else {
+                    (along, lat, if dir > 0.0 { 0.0 } else { std::f64::consts::PI })
+                };
+                let ground = world.terrain(x, y);
+                let agl = rng.range(20.0, 90.0);
+                let s = trimmed(x, y, ground + agl, rng.range(40.0, 50.0), 0.0, psi, 0.64);
+                if world.true_clearance([x, y, s[2]]) <= 0.0 {
+                    continue;
+                }
+                let mut roof: f64 = 0.0;
+                for a in -5..=5 {
+                    for b in -5..=5 {
+                        roof = roof.max(world.surface(x + a as f64 * 5.0, y + b as f64 * 5.0) - ground);
+                    }
+                }
+                let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true };
+                let order: [usize; N_ESC] = [0, 1, 2, 3];
+                let h = pred.best(&s, None, &order, 0.0).0;
+                return (h >= 0.0, agl < roof);
+            }
+        },
+        |_, _| {},
+    );
+    let mut c = Coverage { total: rs.len(), ..Default::default() };
+    for (safe, below) in rs {
+        c.safe += safe as usize;
+        c.below_roof += below as usize;
+        c.below_roof_safe += (safe && below) as usize;
+    }
+    c
+}
+
 pub struct Report {
+    pub coverage: Coverage,
     pub rows: Vec<Summary>,
     pub kamikaze: Vec<(String, EpResult)>,
     pub nuisance_blend_ticks: u64,
@@ -286,7 +343,18 @@ pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usiz
         rows.len() >= 4,
         format!("P1 + mismatch: {} / {} crashed", rows[2].crashes, rows[2].episodes),
     ));
-    Report { rows, kamikaze, nuisance_blend_ticks: nb, nuisance_ticks: nt, checks }
+    let coverage = street_coverage(world, 2000, o.threads);
+    Report { coverage, rows, kamikaze, nuisance_blend_ticks: nb, nuisance_ticks: nt, checks }
+}
+
+pub fn format_coverage(c: &Coverage) -> String {
+    format!(
+        "\nStreet coverage (verified escape exists): {:.1}% of {} street states; {:.1}% of the {} below rooftop height\n",
+        100.0 * c.safe as f64 / c.total.max(1) as f64,
+        c.total,
+        100.0 * c.below_roof_safe as f64 / c.below_roof.max(1) as f64,
+        c.below_roof
+    )
 }
 
 pub fn format_report(r: &Report) -> String {
@@ -318,6 +386,7 @@ pub fn format_report(r: &Report) -> String {
             );
         }
     }
+    s += &format_coverage(&r.coverage);
     s += "\nKamikaze endurance (filter on):\n";
     for (n, k) in &r.kamikaze {
         s += &format!(

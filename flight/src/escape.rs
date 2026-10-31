@@ -13,7 +13,7 @@
 //! it stays clear forever.
 
 use crate::model::*;
-use crate::world::{hc_at, swept_max, World, CELL, LAT_CELLS, ROBUST_CELLS};
+use crate::world::{hc_at, swept_clear, World, CELL, LAT_CELLS, ROBUST_CELLS};
 use std::f64::consts::PI;
 
 pub const N_ESC: usize = 4;
@@ -90,9 +90,9 @@ pub struct Pred<'a> {
     pub accept: bool,
 }
 
-/// Margin a new plan needs; the slack against re-checks from shifted
-/// starting points (vertical change within one predictor step).
-pub const EPS_ACC: f64 = 3.0;
+/// Margin a new plan needs on top of the acceptance map; slack against
+/// re-checks from shifted starting points.
+pub const EPS_ACC: f64 = 1.0;
 
 impl<'a> Pred<'a> {
     #[inline]
@@ -122,23 +122,23 @@ impl<'a> Pred<'a> {
     /// Clearance `c = z - Hc(x,y)` of a predicted point `tau` s ahead.
     #[inline]
     pub fn clear(&self, x: f64, y: f64, z: f64, tau: f64) -> f64 {
-        self.seg(x, y, x, y, z, tau)
+        self.seg(x, y, z, x, y, z, tau)
     }
 
-    /// Clearance of the straight segment at height `z` (the lower end).
+    /// Clearance of the straight 3D segment.
     #[inline]
-    fn seg(&self, x0: f64, y0: f64, x1: f64, y1: f64, z: f64, tau: f64) -> f64 {
+    fn seg(&self, x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1: f64, tau: f64) -> f64 {
         let (m, extra) = self.map_for(tau);
         if self.swept {
-            z - swept_max(m, x0, y0, x1, y1) - extra
+            swept_clear(m, x0, y0, z0, x1, y1, z1) - extra
         } else {
-            z - hc_at(m, x1, y1).max(hc_at(m, 0.5 * (x0 + x1), 0.5 * (y0 + y1))) - extra
+            z0.min(z1) - hc_at(m, x1, y1).max(hc_at(m, 0.5 * (x0 + x1), 0.5 * (y0 + y1))) - extra
         }
     }
 
     #[inline]
     fn seg_clear(&self, a: &State, b: &State, tau: f64) -> f64 {
-        self.seg(a[X], a[Y], b[X], b[Y], a[Z].min(b[Z]), tau)
+        self.seg(a[X], a[Y], a[Z], b[X], b[Y], b[Z], tau)
     }
 
     /// Steady-helix terminal condition, and the clearance of the circle the
@@ -173,7 +173,7 @@ impl<'a> Pred<'a> {
             let th = th0 + dir * w.abs() * t;
             let px = cx + r * th.cos() + self.wind[0] * t;
             let py = cy + r * th.sin() + self.wind[1] * t;
-            let c = self.seg(qx, qy, px, py, s[Z], tau + t);
+            let c = self.seg(qx, qy, s[Z], px, py, s[Z], tau + t);
             if c < 0.0 {
                 return None;
             }
