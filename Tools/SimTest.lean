@@ -21,7 +21,13 @@ def main (args : List String) : IO Unit := do
   let which := (args.headD "1").toNat!
   let r := rw[which]!
   -- rolling start so the parked check doesn't end immediately
-  let s0 := { initState with vx := 1 }
+  let s0 := match args.drop 2 with
+    | [x, h, v] =>
+      let xi : Fx := ⟨x.toInt! * 65536⟩
+      let hi : Fx := ⟨h.toInt! * 65536⟩
+      let vi : Fx := ⟨v.toInt! * 65536⟩
+      { initState with x := xi, h := hi, vx := vi, phase := Phase.air, elev := (0.2 : Fx) }
+    | _ => { initState with vx := 1 }
   let _ ← runCtl r s0 0 (args.tail.headD "16").toNat!
   let t0 ← IO.monoNanosNow
   let ok := rolloutOK r horizon s0

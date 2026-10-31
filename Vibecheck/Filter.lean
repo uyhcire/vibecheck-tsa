@@ -14,10 +14,14 @@ def rolloutOK (r : Runway) : Nat → State → Bool
       | 0 => false
       | n + 1 => rolloutOK r n (step s (Autoland.control r s))
 
-def inS (s : State) : Bool := runways.any fun r => rolloutOK r horizon s
+/-- Runways ahead first (nearest first), then the rest: escapes keep flying forward. -/
+def preferred (s : State) : List Runway :=
+  runways.filter (fun r => s.x < r.start) ++ runways.filter (fun r => !(s.x < r.start))
+
+def inS (s : State) : Bool := (preferred s).any fun r => rolloutOK r horizon s
 
 def escapeRunway (s : State) : Option Runway :=
-  runways.find? fun r => rolloutOK r horizon s
+  (preferred s).find? fun r => rolloutOK r horizon s
 
 def escape (s : State) : Input :=
   match escapeRunway s with

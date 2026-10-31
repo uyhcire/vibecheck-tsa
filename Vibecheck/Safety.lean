@@ -113,18 +113,23 @@ theorem not_crashed_of_rollout (r : Runway) (n : Nat) (s : State) (h : rolloutOK
   · exact absurd h (by simp)
   · assumption
 
+theorem mem_preferred (s : State) (r : Runway) : r ∈ preferred s ↔ r ∈ runways := by
+  simp only [preferred, List.mem_append, List.mem_filter]
+  by_cases h : s.x < r.start <;> simp [h]
+
 theorem inS_iff (s : State) : inS s = true ↔ ∃ r ∈ runways, rolloutOK r horizon s = true := by
-  simp [inS]
+  simp only [inS, List.any_eq_true, mem_preferred]
 
 theorem escape_spec (s : State) (h : inS s = true) :
     ∃ r ∈ runways, rolloutOK r horizon s = true ∧ escape s = Autoland.control r s := by
   unfold escape escapeRunway
-  match hf : runways.find? (fun r => rolloutOK r horizon s) with
-  | some r => exact ⟨r, List.mem_of_find?_eq_some hf, by simpa using List.find?_some hf, rfl⟩
+  match hf : (preferred s).find? (fun r => rolloutOK r horizon s) with
+  | some r => exact ⟨r, (mem_preferred s r).1 (List.mem_of_find?_eq_some hf),
+      by simpa using List.find?_some hf, rfl⟩
   | none =>
     rw [List.find?_eq_none] at hf
     obtain ⟨r, hr, hok⟩ := (inS_iff s).1 h
-    exact absurd hok (by simpa using hf r hr)
+    exact absurd hok (by simpa using hf r ((mem_preferred s r).2 hr))
 
 theorem escape_admissible (s : State) : (escape s).Admissible := by
   unfold escape; split
