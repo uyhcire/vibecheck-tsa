@@ -65,9 +65,27 @@ Modelling assumptions: no wind; the aircraft is a point (touchdown and terrain c
 
 The velocity bounds are honest but loose (the box bounds each component separately). These are per-step statements: the safety theorem is about the sim, not about an aircraft flying the continuous ODE.
 
+## Envelope theorem (`Envelope/`)
+
+A second guarantee that assumes no physics model, only coarse performance bounds of the closed loop (after ACAS X, Auto-GCAS and ModelPlex), so that it can guard JSBSim. Core Lean, exact `Rat` arithmetic, no Mathlib.
+
+```lean
+theorem never_hit (P : Params ι) (hP : P.WellFormed) : NeverHits P (filter P)
+-- NeverHits P flt: ∀ pilot s, Init P (s 0) →
+--   (∀ n, Allowed P (appliedAt flt s pilot n) (s n) (pilot n) (s (n + 1))) →
+--   ∀ n, TickClear P (s n) (s (n + 1))
+```
+
+`Allowed` (`Envelope/Relation.lean`) is the envelope, one tick at a time: ground speed in `[vxMin, vxMax]` and distance covered in `dt·[vxMin, vxMax]`; altitude gain at least `dt · min vz vz' − hSlack`; vertical speed and airspeed at least `vzFloor`/`VFloor` (free flight: per-input worst drops; escape: a delay with a bounded drop, then `vz' ≥ min (vz + pull(V)·dt) climb(V)`, airspeed at least `max vMin (V − escVDrop)`). `monitor` checks it at runtime (`monitor_iff`), so on any flight where the monitor never fires, the theorem applies. `TickClear` asks terrain + margin to lie below `min h h' − sag` over the whole swept interval `[x, x']`: between-tick safety, given that the plant stays inside that box within a tick.
+
+Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (`Terrain`, `cellOf`, `cellHeight`, `heightAt`), `Envelope/Params.lean` (`State`, `Mode`, `Params`, `perf`, `WellFormed`), `Envelope/Relation.lean` (`vzEsc`, `VEsc`, `vzFloor`, `VFloor`, `Allowed`), `Envelope/Spec.lean` (`TickClear`, `modeAt`, `appliedAt`, `NeverHits`). The statement also mentions `filter` and `Init`, and through them the worst-case escape check (`Envelope/Escape.lean`); those need no review for meaning: `Init` only has to be satisfiable (`Envelope/Checks.lean` discharges it). `passthrough` proves the filter passes every input the escape check accepts; nothing proves the check accepts every input whose worst case is safe, so its strictness is only shown by the concrete examples. Assumptions outside Lean: the plant obeys `Allowed` (the monitor checks this), stays in the swept box within a tick, and the terrain grid really bounds the terrain.
+
+`make verify` builds it and prints the axioms of each main theorem (`Tools/EnvelopeAudit.lean`, which also lists the trusted surface).
+
 ## Layout
 
 - `Vibecheck/` the verified core (core Lean only, no Mathlib).
+- `Envelope/`: the performance-envelope filter and its theorem (core Lean only).
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Jsb/`: fixed-point Lean port of JSBSim's c172p longitudinal model (unverified; not imported by `Vibecheck/`), with residual tooling in `sysid/` and `Tools/JsbResid.lean`.
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
