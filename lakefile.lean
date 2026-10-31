@@ -6,6 +6,7 @@ package vibecheck
 lean_lib Vibecheck
 lean_lib App
 lean_lib Tools
+lean_lib Jsb
 
 /-- SDL3 install prefix; `make` passes `-K sdl=$(brew --prefix sdl3)`. -/
 def sdlPrefix : String := (get_config? sdl).getD "/opt/homebrew/opt/sdl3"
@@ -31,3 +32,9 @@ lean_exe filtertest where
 
 lean_exe disturb where
   root := `Tools.Disturb
+
+lean_exe jsbresid where
+  root := `Tools.JsbResid
+
+lean_exe jsbbench where
+  root := `Tools.Bench
