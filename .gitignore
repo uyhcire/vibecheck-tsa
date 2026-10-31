@@ -1,3 +1,6 @@
 /.lake/
 .claude/settings.local.json
 .claude/api-key
+
+# Rust demo build output
+flight/target/
