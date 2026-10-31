@@ -1,0 +1,9 @@
+name = "vibecheck"
+defaultTargets = ["vibecheck"]
+
+[[lean_lib]]
+name = "Vibecheck"
+
+[[lean_exe]]
+name = "vibecheck"
+root = "Main"
