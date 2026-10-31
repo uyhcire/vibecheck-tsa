@@ -7,17 +7,38 @@
 //! Escapes are Auto-GCAS-style: full power, climb angle scheduled on airspeed
 //! (a speed-hold through pitch, so a slow aircraft trades less energy), bank
 //! up to 45 deg but limited so the load factor stays below the stall limit.
+//! Each one climbs wings-level for 0, 3, 6, 10 or 15 s (up and out of a
+//! street canyon) and then makes a climbing turn left or right. During the
+//! climb it steers onto the nearest street direction (the grid is
+//! axis-aligned) if the nose is within 25 deg of it, so a few degrees of
+//! heading error don't drift it into a wall; the direction is fixed by the
+//! heading when the escape began.
 //! The terminal set is a steady climbing helix: after 360 deg of turn with
 //! speed, bank and climb settled, the aircraft repeats the same ground circle
 //! at ever greater height, so if that circle is clear at the current height
 //! it stays clear forever.
 
 use crate::model::*;
-use crate::world::{hc_at, swept_clear, World, CELL, LAT_CELLS, ROBUST_CELLS};
+use crate::world::{hc_at, swept_clear, World, CELL, LAT_CELLS, R_BODY, ROBUST_CELLS};
 use std::f64::consts::PI;
 
-pub const N_ESC: usize = 4;
-pub const ESC_NAMES: [&str; N_ESC] = ["climb-turn L", "climb-turn R", "pull-up, turn L", "pull-up, turn R"];
+/// Wings-level pull-up durations; each escape is (pull-up, turn direction).
+pub const PULLUPS: [f64; 5] = [0.0, 3.0, 6.0, 10.0, 15.0];
+pub const N_ESC: usize = 2 * PULLUPS.len();
+pub const ESC_NAMES: [&str; N_ESC] = [
+    "turn L",
+    "turn R",
+    "climb 3s, L",
+    "climb 3s, R",
+    "climb 6s, L",
+    "climb 6s, R",
+    "climb 10s, L",
+    "climb 10s, R",
+    "climb 15s, L",
+    "climb 15s, R",
+];
+/// Default evaluation order (the filter promotes whichever escape won last).
+pub const ESC_ORDER: [usize; N_ESC] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 pub const PHI_ESC: f64 = 45.0 * PI / 180.0;
 pub const V_T: f64 = 35.0;
@@ -26,14 +47,39 @@ pub const K_G: f64 = 1.2;
 pub const K_PHI: f64 = 2.5;
 pub const G_LO: f64 = -10.0 * PI / 180.0;
 pub const G_HI: f64 = 25.0 * PI / 180.0;
-pub const T_PU: f64 = 6.0;
 pub const N_ESC_MAX: f64 = 3.5;
+/// Pull-up heading hold: snap window, gain (bank per heading error), bank cap.
+pub const SNAP_WINDOW: f64 = 25.0 * PI / 180.0;
+pub const K_HDG: f64 = 3.0;
+pub const PHI_PU_MAX: f64 = 25.0 * PI / 180.0;
+/// Time allowed to reach the terminal helix, counted after the pull-up.
 pub const HORIZON: f64 = 40.0;
 pub const DTP: f64 = 0.1;
 
 /// Phase 3: growth of the required clearance along the prediction.
 pub const ROBUST_W_GUST: f64 = 1.0; // m/s lateral
 pub const ROBUST_VZ: f64 = 0.25; // m/s vertical
+
+#[inline]
+pub fn esc_pullup(i: usize) -> f64 {
+    PULLUPS[i / 2]
+}
+
+fn wrap_pi(a: f64) -> f64 {
+    (a + PI).rem_euclid(2.0 * PI) - PI
+}
+
+/// Pull-up heading for an escape that began at heading `psi0`: the nearest
+/// street axis if within `SNAP_WINDOW`, else `psi0` itself.
+#[inline]
+pub fn pullup_heading(psi0: f64) -> f64 {
+    let axis = (psi0 / (PI / 2.0)).round() * (PI / 2.0);
+    if wrap_pi(psi0 - axis).abs() <= SNAP_WINDOW {
+        axis
+    } else {
+        psi0
+    }
+}
 
 #[inline]
 pub fn esc_dir(i: usize) -> f64 {
@@ -50,16 +96,22 @@ pub struct LawOut {
     pub gam_c: f64,
 }
 
-/// Escape `i` evaluated at state `s`, `t_esc` seconds after it started.
+/// Escape `i` evaluated at state `s`, `t_esc` seconds after it started at
+/// heading `psi0`.
 #[inline]
-pub fn esc_law(p: &Params, s: &State, i: usize, t_esc: f64) -> LawOut {
+pub fn esc_law(p: &Params, s: &State, i: usize, t_esc: f64, psi0: f64) -> LawOut {
     let v = s[V].max(5.0);
     let nl = n_lift(p, v);
-    let pullup = i >= 2 && t_esc < T_PU;
+    let pullup = t_esc < esc_pullup(i);
     let n_safe = N_ESC_MAX.min(0.85 * nl);
     let cg = s[GAM].cos();
     let phi_lim = if n_safe <= cg { 0.0 } else { (cg / n_safe).acos() };
-    let phi_t = if pullup { 0.0 } else { esc_dir(i) * PHI_ESC.min(phi_lim) };
+    let phi_t = if pullup {
+        let cap = PHI_PU_MAX.min(phi_lim);
+        (K_HDG * wrap_pi(pullup_heading(psi0) - s[PSI])).clamp(-cap, cap)
+    } else {
+        esc_dir(i) * PHI_ESC.min(phi_lim)
+    };
     let (t, d) = thrust_drag(p, v, n_act(p, s), s[THR]);
     let sin_gc = ((t - d) / p.m + K_V * (v - V_T)) / G;
     let gam_c = sin_gc.clamp(-1.0, 1.0).asin().clamp(G_LO, G_HI);
@@ -90,9 +142,15 @@ pub struct Pred<'a> {
     pub accept: bool,
 }
 
-/// Margin a new plan needs on top of the acceptance map; slack against
+/// Margin a new plan needs on top of the acceptance checks; slack against
 /// re-checks from shifted starting points.
-pub const EPS_ACC: f64 = 1.0;
+pub const EPS_ACC: f64 = 0.5;
+/// Buildings: required gap between the aircraft sphere and any box, for
+/// re-checks, plus extra for accepting new plans.
+pub const M_BLD: f64 = 1.0;
+pub const ACC_BLD: f64 = 0.5;
+/// Boxes farther than this beyond the required distance are ignored.
+const BLD_QUERY_EXTRA: f64 = 10.0;
 
 impl<'a> Pred<'a> {
     #[inline]
@@ -125,15 +183,26 @@ impl<'a> Pred<'a> {
         self.seg(x, y, z, x, y, z, tau)
     }
 
-    /// Clearance of the straight 3D segment.
+    /// Clearance of the straight 3D segment: terrain via the map, buildings
+    /// via exact distance to their boxes.
     #[inline]
     fn seg(&self, x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1: f64, tau: f64) -> f64 {
         let (m, extra) = self.map_for(tau);
-        if self.swept {
+        let ct = if self.swept {
             swept_clear(m, x0, y0, z0, x1, y1, z1) - extra
         } else {
             z0.min(z1) - hc_at(m, x1, y1).max(hc_at(m, 0.5 * (x0 + x1), 0.5 * (y0 + y1))) - extra
+        };
+        let mut mb = M_BLD;
+        if self.accept {
+            mb += ACC_BLD;
         }
+        if self.robust {
+            mb += ROBUST_W_GUST * tau;
+        }
+        let need = R_BODY + mb;
+        let db = self.world.seg_building_dist([x0, y0, z0], [x1, y1, z1], need + BLD_QUERY_EXTRA);
+        ct.min(db - need)
     }
 
     #[inline]
@@ -144,7 +213,7 @@ impl<'a> Pred<'a> {
     /// Steady-helix terminal condition, and the clearance of the circle the
     /// helix will repeat (at the current height, which only grows).
     fn terminal(&self, s: &State, i: usize, tau: f64) -> Option<f64> {
-        let law = esc_law(&self.prm, s, i, 1e9);
+        let law = esc_law(&self.prm, s, i, 1e9, 0.0);
         if (s[V] - V_T).abs() > 1.5
             || (s[PHI] - law.phi_t).abs() > 0.05
             || law.phi_t.abs() < 0.3
@@ -231,22 +300,23 @@ impl<'a> Pred<'a> {
         let mut te = t_esc0;
         let psi_start = psi0.unwrap_or(s[PSI]);
         let dir = esc_dir(i);
+        let t_pu = esc_pullup(i);
         loop {
             if dir * (s[PSI] - psi_start) >= 2.0 * PI {
                 if let Some(cc) = self.terminal(&s, i, tau) {
                     return Roll { valid: true, pruned: false, h: minc.min(cc), t_end: tau };
                 }
             }
-            if te >= HORIZON - 1e-9 {
+            if te >= t_pu + HORIZON - 1e-9 {
                 return fail(minc, tau, false);
             }
             let mut dt = DTP;
-            if i >= 2 && te < T_PU && te + dt > T_PU - 1e-9 {
-                dt = T_PU - te;
+            if te < t_pu && te + dt > t_pu - 1e-9 {
+                dt = t_pu - te;
             }
             let prev = s;
             let prm = &self.prm;
-            rk4(prm, &mut s, dt, &self.wind, |st, off| esc_law(prm, st, i, te + off).cmd);
+            rk4(prm, &mut s, dt, &self.wind, |st, off| esc_law(prm, st, i, te + off, psi_start).cmd);
             te += dt;
             tau += dt;
             minc = minc.min(self.seg_clear(&prev, &s, tau));

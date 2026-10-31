@@ -34,7 +34,8 @@ Demo flags (handy for screenshots): `--scenario 1..4`, `--off`, `--kamikaze`,
 | A/D or ←/→ | roll. Release to hold flight path and bank (fly-by-wire) |
 | Q / E | throttle down / up |
 | Space | safety filter on/off |
-| F | filter: P1 blend+commit → P2 closed-form → P1+P3 robust → P2+P3 |
+| F | filter: P1 blend+commit → P2 closed-form → permissive |
+| G | Phase 3 robust margins on/off (works with any filter) |
 | B | escape paths (green valid, red invalid, yellow = committed plan) |
 | M | model mismatch: wind + gusts, weaker and slower aircraft |
 | C | camera: chase, cockpit, orbit, overhead |
@@ -48,14 +49,16 @@ orange = blending, red = committed escape, white = filter off.
 
 ## How it works
 
-**Clearance map** (`world.rs`). Terrain (piecewise-linear over a 20 m grid,
-the same triangles the renderer draws) and ~2,100 building boxes are rasterised
-into one 2.5 m max-height grid. It is dilated sideways by 7.5 m (the 4.5 m
-aircraft radius + 3 m) and raised by 6.5 m (radius + 2 m). Off-map counts as
-a wall. Each path segment is checked against every cell it crosses, at the
-segment's own height inside that cell (`swept_clear`), so the check covers
-the continuous path, not just samples. Cost doesn't depend on the number of
-buildings.
+**Clearance checks** (`world.rs`). **Buildings are checked exactly:** each
+predicted path segment's distance to every nearby box (exact segment-to-box
+distance, found through a bucket grid) must exceed the aircraft's 4.5 m
+radius plus 1 m. New plans need another 0.5 m plus 0.5 m of overall slack, so
+a verified plan can pass about 2 m from a wall. **Terrain** (piecewise-linear
+over a 20 m grid, the same triangles the renderer draws) uses a 2.5 m
+max-height map dilated sideways by 7.5 m and raised by 6.5 m. Each path
+segment is checked against every terrain cell it crosses, at the segment's
+own height inside that cell. Both checks cover the continuous path, not just
+samples. Off-map counts as a wall.
 
 **Aircraft** (`model.rs`). A point-mass 3D Dubins-style model with speed
 dynamics: thrust and drag, lift limited by airspeed (so stall emerges on its
@@ -63,20 +66,28 @@ own), and first-order lags on load factor, roll rate and throttle. The numbers
 are light-sport: stall 25 m/s, cruise 50 m/s. Physics runs at 100 Hz with RK4
 and the filter at 50 Hz. The predictor uses the same equations.
 
-**Escapes** (`escape.rs`). Four Auto-GCAS-style maneuvers, all at full power:
-climbing turn L/R at up to 45° bank, and a 6 s wings-level pull-up followed by
-a climbing turn L/R. The climb angle comes from a speed-hold through pitch, so
+**Escapes** (`escape.rs`). Ten Auto-GCAS-style maneuvers, all at full power:
+a pull-up of 0, 3, 6, 10 or 15 s (up and out of a street canyon), then a
+climbing turn left or right at up to 45° bank. During the pull-up the escape
+steers onto the nearest street direction if the nose is within 25° of it.
+That direction is fixed by the heading when the escape begins, so the
+predictor and the aircraft fly the same path. Each escape gets 40 s after its
+pull-up to reach the terminal helix. The climb angle comes from a speed-hold through pitch, so
 a slow aircraft trades less energy. Bank is limited so load factor stays under
 85% of the stall limit. Each escape is valid only once it reaches a *steady
 climbing helix after 360° of turn* whose ground circle is clear at the current
 height. From then on it only gains height over the same ground.
 `h_i(x)` is the worst clearance along escape `i` (−∞ if it never reaches the
-helix within 40 s); `h(x) = max_i h_i(x)`.
+helix in time); `h(x) = max_i h_i(x)`.
 
-**Phase 1 filter** (`filter.rs`, default). Each tick it predicts the pilot's
-command held for 0.5 s, then each escape. As that margin drops from 40 m to
-5 m it blends toward the best escape. It checks the blended command the same
-way; if that passes, it becomes the new committed plan. Otherwise it keeps
+**Phase 1 filter** (`filter.rs`, default). Each tick it asks how long the
+pilot could keep the current command and still escape. If the answer is at
+least 1 s, it leaves the pilot alone. Under 1 s it blends 35% toward the best
+escape, under 0.4 s 70%, and under 0.1 s fully. This is a time margin, not a
+distance margin: in a street canyon the walls are always close even when
+escape is easy, so a distance margin blends constantly. The blended command,
+held for 0.25 s and followed by an escape, must itself verify; if it does, it
+becomes the new committed plan. Otherwise it keeps
 flying the plan committed at the last tick that passed (gatekeeper). New plans
 must clear a map one cell wider (10 m) by 1 m. Every tick it re-checks the
 committed plan against the 7.5 m map and asserts that a verified escape exists.
@@ -86,6 +97,10 @@ committed plan against the 7.5 m map and asserts that a verified escape exists.
 `ḣ ≥ −α (h − 12 m)`, a scalar inequality solved in closed form. ḣ comes from
 finite differences of a bilinear (smooth) version of `h`. The Phase 1 check
 and committed fallback still run underneath as a safety net.
+
+**Permissive mode** (pure gatekeeper). It passes the pilot's command whenever
+"pilot for one tick, then the best escape" verifies, and otherwise flies the
+committed escape. It's the most permissive option, but it intervenes abruptly.
 
 **Phase 3 robustness**. The predictor uses the worst-case (mismatch)
 aircraft and an estimated mean wind. The required clearance grows along the
@@ -99,34 +114,60 @@ against boxes and terrain), never against the inflated map.
 
 | Config | Crashes / 200 | Invariant violations | Min true clearance | Filter active | Commit | ms / tick |
 |---|---|---|---|---|---|---|
-| **P1 filter ON** | **0** | **0** | 7.7 m | 78% | 0.0% | 0.68 |
+| **P1 filter ON** | **0** | **0** | 2.0 m | 64% | 0.3% | 1.72 |
 | filter OFF | 199 | – | crash | – | – | – |
-| P1 + mismatch | 23 | 44 eps | crash | 79% | 1.2% | 0.68 |
+| P1 + mismatch | 106 | 151 eps | crash | 64% | 5.0% | 1.68 |
 | OFF + mismatch | 200 | – | crash | – | – | – |
-| P2 closed-form | 0 | 0 | 5.6 m | 56% | 1.8% | 0.75 |
-| P1+P3 robust + mismatch | 2 | 32 eps | crash | 82% | 2.1% | 0.77 |
-| P2+P3 robust + mismatch | 4 | 69 eps | crash | 60% | 5.0% | 0.81 |
+| P2 closed-form | 0 | 0 | 2.8 m | 51% | 0.1% | 1.85 |
+| Permissive | 0 | 0 | 2.0 m | 32% | 32% | 0.63 |
+| P1+P3 robust + mismatch | 10 | 73 eps | crash | 68% | 5.1% | 2.23 |
+| P2+P3 robust + mismatch | 1 | 51 eps | crash | 54% | 3.4% | 2.15 |
 
 Minimum true clearance is the gap between the aircraft's 4.5 m sphere and
-the nearest building or terrain surface.
+the nearest building or terrain surface. The 2.0 m floor is exactly the
+margin new plans must keep (1 m + 0.5 m + 0.5 m slack), which shows the
+predictor and the aircraft agree.
 
-Street coverage: of 2,000 random states on street centrelines 20–90 m above
-the ground, 90.5% have a verified escape, and so do 66.8% of those below
-rooftop height (5.9% before the margins were tightened from 15 m / 10 m).
+**Flying between buildings.** Of 2,000 random states on street centrelines
+20–90 m above the ground, 92% of those below rooftop height have a verified
+escape, even with the nose 4° off the street axis. (It was 5.9% with the
+original margins and four escapes.) A street-following autopilot holding
+40 m on six streets spends this share of its time below rooftops:
+
+| Filter | Below rooftops | Mean intervention |
+|---|---|---|
+| off | 44.4% | – |
+| P1 (time margin) | 41.0% | 0.04 |
+| Permissive | 43.2% | 0.03 |
+| P2 | 17.7% | 0.23 |
+
+P2 keeps the barrier above a 12 m floor, which is conservative in streets.
 
 Kamikaze autopilot with the filter on survives 300 s in all four scenarios
-(minimum clearance 5.7 to 9.1 m). Straight flight well above obstacles shows
+(minimum clearance 2.0 to 2.1 m). Straight flight well above obstacles shows
 0 blended ticks out of 8,000. Episodes are 60 s from random starts inside the
 safe set. Pilots are a nose-down-biased random stick, with a kamikaze
 autopilot in a quarter of the episodes. Every configuration uses the same seeds.
 
-Phase 1 vs Phase 2: P2 intervenes less often (56% vs 78% of ticks) but less
-smoothly (command change per active tick 0.19 vs 0.07), and its fallback
-fires more.
-
 Timing: the `ms max` column in the harness (~100 ms) comes from 16 threads
-sharing the CPU. Single-threaded (`--threads 1`) the mean is 0.52 ms and the
-worst tick 2.2 ms.
+sharing the CPU. Single-threaded (`--threads 1`) P1 averages 1.3 ms and its
+worst tick is 5.2 ms, well inside the 20 ms filter period.
+
+## The trusted core
+
+The safety claim rests only on:
+1. **Every command sent to the aircraft is verified first:** the command for
+   a moment, then an escape whose whole path clears the inflated map and
+   reaches the terminal helix.
+2. **If that check fails, the aircraft flies the last verified plan**
+   (gatekeeper), so a verified escape always exists.
+3. **The clearance checks are conservative:** exact segment-to-box distance
+   for buildings; a dilated, swept height map for terrain.
+4. **The predictor uses the same equations as the aircraft.**
+
+The blending rules (P1, P2, permissive), the GUI and the autopilots only
+choose which candidate command to try. They sit outside the trusted core, so
+they can be tuned for feel without touching what needs certifying.
 
 ## What is assumed / trusted
 
@@ -136,7 +177,9 @@ worst tick 2.2 ms.
   the pull-up escapes. The 1 m acceptance margin and the one-cell (2.5 m)
   wider acceptance map absorb that and the sampling-phase effects.
 - With mismatch on, the guarantee no longer strictly holds. The harness
-  measures it: 23/200 crashes with P1, 2/200 with Phase 3 margins. The tight
-  nominal margins trade mismatch robustness for room between buildings.
+  measures it: 106/200 crashes with P1, and 10/200 (P1) or 1/200 (P2) with
+  Phase 3 margins (G). A 1 m building margin leaves no room for model error,
+  so turn on G whenever mismatch (M) is on.
 - The Phase 3 terminal check under wind clears one drifting lap, not "forever".
 - The safety argument is engineering-level and tested, not machine-checked.
+  The trusted core above is the part to prove formally.

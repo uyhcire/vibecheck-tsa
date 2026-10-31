@@ -643,13 +643,15 @@ impl App {
             self.rebuild();
         }
         if is_key_pressed(KeyCode::F) {
-            // P1 -> P2 -> P1+P3 -> P2+P3
-            (self.phase, self.robust) = match (self.phase, self.robust) {
-                (Phase::P1, false) => (Phase::P2, false),
-                (Phase::P2, false) => (Phase::P1, true),
-                (Phase::P1, true) => (Phase::P2, true),
-                (Phase::P2, true) => (Phase::P1, false),
+            self.phase = match self.phase {
+                Phase::P1 => Phase::P2,
+                Phase::P2 => Phase::Permissive,
+                Phase::Permissive => Phase::P1,
             };
+            self.rebuild();
+        }
+        if is_key_pressed(KeyCode::G) {
+            self.robust = !self.robust;
             self.rebuild();
         }
         if is_key_pressed(KeyCode::C) {
@@ -795,7 +797,19 @@ impl App {
                 if !self.sim.crashed {
                     self.cam_pos = self.cam_pos.lerp(desired, k);
                 }
-                (self.cam_pos, p + f * 25.0, Vec3::Z)
+                // Don't let the camera sit inside a building in a canyon:
+                // walk back from the aircraft and stop before any wall.
+                let mut cam = self.cam_pos;
+                let n = 24;
+                for i in 1..=n {
+                    let q = p.lerp(self.cam_pos, i as f32 / n as f32);
+                    let d = self.world.building_dist([q.x as f64, q.y as f64, q.z as f64], 3.0);
+                    if d < 1.5 {
+                        cam = p.lerp(self.cam_pos, (i - 1) as f32 / n as f32);
+                        break;
+                    }
+                }
+                (cam, p + f * 25.0, Vec3::Z)
             }
         };
         Camera3D { position: pos, target, up, fovy: 1.0, z_near: 0.5, z_far: 16000.0, ..Default::default() }
@@ -884,7 +898,7 @@ impl App {
         let bright = Color::new(0.97, 0.98, 1.0, 1.0);
         // Left panel.
         let agl = s[Z] - self.world.terrain(s[X], s[Y]);
-        let hv = if on { fs.h } else { Pred { accept: false, ..self.sim.pred() }.best(s, None, &[0, 1, 2, 3], f64::INFINITY).0 };
+        let hv = if on { fs.h } else { Pred { accept: false, ..self.sim.pred() }.best(s, None, &ESC_ORDER, f64::INFINITY).0 };
         let h_txt = if hv == f64::NEG_INFINITY { "none valid".to_string() } else { format!("{:.1} m", hv) };
         let esc = match (on, fs.mode) {
             (true, Mode::Blend) | (true, Mode::Commit) => fs.act_esc.map(|i| ESC_NAMES[i]).unwrap_or("-"),
@@ -936,12 +950,7 @@ impl App {
                 Mode::Blend => format!("blending {:.0} %", fs.lam * 100.0),
                 _ => "pilot in control".to_string(),
             };
-            let phase = match (self.phase, self.robust) {
-                (Phase::P1, false) => "P1 blend + commit",
-                (Phase::P2, false) => "P2 closed-form",
-                (Phase::P1, true) => "P1 + P3 robust",
-                (Phase::P2, true) => "P2 + P3 robust",
-            };
+            let phase = format!("{}{}", self.phase.name(), if self.robust { " + P3 robust" } else { "" });
             pills.push((format!("SAFETY FILTER ON · {phase}"), Color::new(0.10, 0.55, 0.28, 0.92), WHITE));
             let mc = if fs.mode == Mode::Commit {
                 Color::new(0.85, 0.2, 0.1, 0.92)
@@ -1009,12 +1018,13 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 14] = [
+        let lines: [(&str, &str); 15] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
             ("Space", "safety filter on / off"),
-            ("F", "filter: P1 blend+commit · P2 closed-form · +P3 robust"),
+            ("F", "filter: P1 blend+commit · P2 closed-form · permissive"),
+            ("G", "Phase 3 robust margins on / off"),
             ("B", "show escape paths (green valid, red not, yellow committed)"),
             ("M", "model mismatch: wind and a weaker, slower aircraft"),
             ("C", "camera: chase · cockpit · orbit · overhead"),

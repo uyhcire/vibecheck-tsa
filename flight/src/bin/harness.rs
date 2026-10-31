@@ -25,7 +25,8 @@ fn main() {
     eprintln!("world: {} boxes, built in {:.2}s; {} threads", world.boxes.len(), t0.elapsed().as_secs_f64(), threads);
     if args.iter().any(|a| a == "--coverage") {
         let t = Instant::now();
-        print!("{}", format_coverage(&street_coverage(&world, 2000, threads)));
+        print!("{}", format_coverage(&street_coverage(&world, 2000, threads, 0.0), ""));
+        print!("{}", format_coverage(&street_coverage(&world, 2000, threads, 4.0), " (4 deg heading error)"));
         println!("({:.1}s)", t.elapsed().as_secs_f64());
         return;
     }

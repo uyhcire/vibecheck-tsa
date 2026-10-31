@@ -2,25 +2,35 @@
 //!
 //! Phase 1 (blend and commit, after Singletary / Gurriet, with the gatekeeper
 //! committed-trajectory fallback): each tick, predict the pilot's command held
-//! for `T_LOOK` followed by each escape. As that margin shrinks, blend toward
-//! the best escape. Check the blended command the same way; if it passes it
-//! becomes the new committed plan, otherwise keep flying the plan committed at
-//! the last tick that passed.
+//! for a while followed by each escape. The margin is a time margin: if the
+//! pilot could keep the command for 1 s and still escape, leave them alone;
+//! the shorter that time, the harder it blends toward the best escape. (A
+//! distance margin blends all the time in a street canyon, where walls are
+//! always close even when escape is easy.) The blended command, held for
+//! `T_LOOK`, must itself verify; if it does it becomes the new committed plan,
+//! otherwise keep flying the plan committed at the last tick that passed.
 //!
 //! Phase 2 (closed-form bCBF, after van Wijk et al.): interpolate
 //! u = (1-b) u_pilot + b u_backup with the smallest b that satisfies
 //! dh/dt >= -alpha h, which is a scalar inequality in b. The same discrete-time
 //! verification and committed fallback run underneath as a safety net.
+//!
+//! Permissive (pure gatekeeper): pass the pilot's command whenever "pilot for
+//! one tick, then the best escape" verifies; otherwise fly the committed
+//! escape. Maximally permissive, but it intervenes abruptly.
 
 use crate::escape::*;
 use crate::model::*;
-use crate::world::smoothstep;
 use std::time::Instant;
 
-pub const T_LOOK: f64 = 0.5;
-pub const T_LOOK_STEPS: u64 = 50;
-pub const H_LO: f64 = 5.0;
-pub const H_HI: f64 = 40.0;
+pub const T_LOOK: f64 = 0.25;
+pub const T_LOOK_STEPS: u64 = 25;
+/// Time-margin blending: (pilot hold time, blend amount if that hold still
+/// verifies), tried in order. If none verifies, blend fully.
+pub const T_MARGIN: [(f64, f64); 3] = [(1.0, 0.0), (0.4, 0.35), (0.1, 0.7)];
+pub const T_FREE_STEPS: u64 = 100;
+/// Permissive mode stops searching once an escape keeps this much clearance.
+pub const PERM_ENOUGH: f64 = 20.0;
 pub const LAM_DECAY: f64 = 1.0;
 pub const ALPHA: f64 = 1.0;
 pub const P2_DELTA: f64 = 0.1;
@@ -31,6 +41,17 @@ pub const P2_HMIN: f64 = 12.0;
 pub enum Phase {
     P1,
     P2,
+    Permissive,
+}
+
+impl Phase {
+    pub fn name(self) -> &'static str {
+        match self {
+            Phase::P1 => "P1 blend + commit",
+            Phase::P2 => "P2 closed-form",
+            Phase::Permissive => "permissive",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -111,7 +132,7 @@ impl FilterState {
             tail_ok: true,
             fresh_ok: false,
             last_tail: None,
-            order: [0, 1, 2, 3],
+            order: ESC_ORDER,
         }
     }
 
@@ -146,6 +167,7 @@ impl FilterState {
         let (src, verified) = match self.cfg.phase {
             Phase::P1 => self.tick_p1(pred, s, k, u_p),
             Phase::P2 => self.tick_p2(pred, s, k, u_p),
+            Phase::Permissive => self.tick_perm(pred, s, k, u_p),
         };
         // Invariant: some verified escape exists from the current state.
         self.inv_ok = verified || self.tail_ok || self.fresh_ok;
@@ -163,11 +185,25 @@ impl FilterState {
     }
 
     fn tick_p1(&mut self, pred: &Pred, s: &State, k: u64, u_p: Cmd) -> (CmdSrc, bool) {
-        let (h_a, i_a) = pred.best(s, Some((u_p, T_LOOK)), &self.order, H_HI);
-        let lam_t = if h_a == f64::NEG_INFINITY { 1.0 } else { 1.0 - smoothstep(H_LO, H_HI, h_a) };
+        // How long could the pilot keep this command and still escape?
+        let mut lam_t = 1.0;
+        let (mut h_a, mut i_a) = (f64::NEG_INFINITY, self.order[0]);
+        for (n, &(hold, lam_v)) in T_MARGIN.iter().enumerate() {
+            let (h, i) = pred.best(s, Some((u_p, hold)), &self.order, PERM_ENOUGH);
+            if h >= EPS_ACC {
+                lam_t = lam_v;
+                if n == 0 {
+                    (h_a, i_a) = (h, i);
+                }
+                break;
+            }
+            if n == 0 {
+                i_a = i;
+            }
+        }
         let lam = lam_t.max(self.lam - LAM_DECAY * DT_F).clamp(0.0, 1.0);
         if lam <= 1e-3 && h_a >= EPS_ACC {
-            self.plan = Some(Plan { hold: u_p, hold_end: k + T_LOOK_STEPS, esc: i_a, psi0: None });
+            self.plan = Some(Plan { hold: u_p, hold_end: k + T_FREE_STEPS, esc: i_a, psi0: None });
             self.promote(i_a);
             self.lam = 0.0;
             self.mode = Mode::Free;
@@ -177,7 +213,7 @@ impl FilterState {
         }
         let (h_n, i_n) = pred.best(s, None, &self.order, f64::INFINITY);
         let i_b = if h_n > f64::NEG_INFINITY { i_n } else { i_a };
-        let u_b = esc_law(&pred.prm, s, i_b, 0.0).cmd;
+        let u_b = esc_law(&pred.prm, s, i_b, 0.0, s[PSI]).cmd;
         let u_l = lerp_cmd(&u_p, &u_b, lam);
         let (h_l, i_l) = pred.best(s, Some((u_l, T_LOOK)), &self.order, f64::INFINITY);
         self.h = h_n;
@@ -194,6 +230,21 @@ impl FilterState {
         }
     }
 
+    fn tick_perm(&mut self, pred: &Pred, s: &State, k: u64, u_p: Cmd) -> (CmdSrc, bool) {
+        let (h, i) = pred.best(s, Some((u_p, DT_F)), &self.order, PERM_ENOUGH);
+        self.h = h;
+        if h >= EPS_ACC {
+            self.plan = Some(Plan { hold: u_p, hold_end: k + STEPS_PER_TICK, esc: i, psi0: None });
+            self.promote(i);
+            self.lam = 0.0;
+            self.mode = Mode::Free;
+            self.act_esc = None;
+            (CmdSrc::Const(u_p), true)
+        } else {
+            self.commit()
+        }
+    }
+
     fn tick_p2(&mut self, pred: &Pred, s: &State, k: u64, u_p: Cmd) -> (CmdSrc, bool) {
         let (h0, i0) = pred.best(s, None, &self.order, f64::INFINITY);
         self.h = h0;
@@ -201,7 +252,7 @@ impl FilterState {
         if h0 == f64::NEG_INFINITY {
             return self.commit();
         }
-        let u_b = esc_law(&pred.prm, s, i0, 0.0).cmd;
+        let u_b = esc_law(&pred.prm, s, i0, 0.0, s[PSI]).cmd;
         // The closed form works on a smooth (bilinear) version of h_i0.
         let sm = Pred { swept: false, accept: false, ..*pred };
         let hs = sm.rollout(s, None, i0, 0.0, None, f64::NEG_INFINITY, None);

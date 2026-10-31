@@ -159,8 +159,21 @@ pub struct Coverage {
     pub below_roof_safe: usize,
 }
 
-pub fn street_coverage(world: &World, n: usize, threads: usize) -> Coverage {
-    use crate::escape::{Pred, N_ESC};
+fn below_roof(world: &World, x: f64, y: f64, z: f64) -> bool {
+    let ground = world.terrain(x, y);
+    let mut roof: f64 = 0.0;
+    for a in -5..=5 {
+        for b in -5..=5 {
+            roof = roof.max(world.surface(x + a as f64 * 5.0, y + b as f64 * 5.0) - ground);
+        }
+    }
+    z - ground < roof
+}
+
+/// `heading_err_deg`: the aircraft points this far off the street axis
+/// (random sign), as a keyboard pilot always does a little.
+pub fn street_coverage(world: &World, n: usize, threads: usize, heading_err_deg: f64) -> Coverage {
+    use crate::escape::{Pred, ESC_ORDER};
     let rs = par_map(
         (0..n as u64).collect(),
         threads,
@@ -171,27 +184,23 @@ pub fn street_coverage(world: &World, n: usize, threads: usize) -> Coverage {
                 let along = rng.range(-1100.0, 1100.0);
                 let lat = street_x(k) + rng.range(-2.0, 2.0);
                 let dir = if rng.chance(0.5) { 1.0 } else { -1.0 };
-                let (x, y, psi) = if rng.chance(0.5) {
+                let herr = heading_err_deg.to_radians() * if rng.chance(0.5) { 1.0 } else { -1.0 };
+                let (x, y, psi0) = if rng.chance(0.5) {
                     (lat, along, if dir > 0.0 { std::f64::consts::FRAC_PI_2 } else { -std::f64::consts::FRAC_PI_2 })
                 } else {
                     (along, lat, if dir > 0.0 { 0.0 } else { std::f64::consts::PI })
                 };
+                let psi = psi0 + herr;
                 let ground = world.terrain(x, y);
                 let agl = rng.range(20.0, 90.0);
                 let s = trimmed(x, y, ground + agl, rng.range(40.0, 50.0), 0.0, psi, 0.64);
                 if world.true_clearance([x, y, s[2]]) <= 0.0 {
                     continue;
                 }
-                let mut roof: f64 = 0.0;
-                for a in -5..=5 {
-                    for b in -5..=5 {
-                        roof = roof.max(world.surface(x + a as f64 * 5.0, y + b as f64 * 5.0) - ground);
-                    }
-                }
+                let below = below_roof(world, x, y, s[2]);
                 let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true };
-                let order: [usize; N_ESC] = [0, 1, 2, 3];
-                let h = pred.best(&s, None, &order, 0.0).0;
-                return (h >= 0.0, agl < roof);
+                let h = pred.best(&s, None, &ESC_ORDER, 0.0).0;
+                return (h >= 0.0, below);
             }
         },
         |_, _| {},
@@ -205,8 +214,51 @@ pub fn street_coverage(world: &World, n: usize, threads: usize) -> Coverage {
     c
 }
 
+/// A street-following autopilot tries to hold 40 m above the ground on the
+/// centreline of six streets for 30 s each. Returns (share of time below
+/// rooftop height, mean intervention, crashes).
+pub fn street_pilot(world: &World, filter_on: bool, phase: Phase) -> (f64, f64, usize) {
+    use std::f64::consts::PI;
+    let streets: [(usize, bool, f64); 6] = [(4, true, 1.0), (7, true, 1.0), (13, false, -1.0), (16, false, 1.0), (8, false, 1.0), (12, true, -1.0)];
+    let (mut below, mut total, mut lam, mut crashes) = (0usize, 0usize, 0.0, 0usize);
+    for &(k, ns, dir) in &streets {
+        let lat = street_x(k);
+        let start = -1100.0 * dir;
+        let psi = if ns { if dir > 0.0 { PI / 2.0 } else { -PI / 2.0 } } else if dir > 0.0 { 0.0 } else { PI };
+        let (x, y) = if ns { (lat, start) } else { (start, lat) };
+        let s0 = trimmed(x, y, world.terrain(x, y) + 40.0, 45.0, 0.0, psi, 0.6);
+        let cfg = SimCfg { filter_on, filter: FilterCfg { phase, robust: false }, mismatch: false, seed: k as u64 };
+        let mut sim = Sim::new(world, s0, cfg);
+        let mut fbw = Fbw::from_state(&s0);
+        for _ in 0..(30.0 / DT_F) as usize {
+            let st = sim.s;
+            let off = if ns { st[X] - lat } else { st[Y] - lat };
+            let lat_err = if ns { -off * dir } else { off * dir };
+            let herr = (psi - st[PSI] + PI).rem_euclid(2.0 * PI) - PI + (-0.02 * lat_err).clamp(-0.3, 0.3);
+            fbw.phi_ref = (1.5 * herr).clamp(-0.5, 0.5);
+            let agl = st[Z] - world.terrain(st[X], st[Y]);
+            fbw.g_ref = (0.02 * (40.0 - agl)).clamp(-0.2, 0.2);
+            fbw.thr = 0.65;
+            let u = fbw.cmd(&sim.prm_ctrl, &sim.s);
+            sim.tick(u);
+            total += 1;
+            lam += if sim.fs.mode == crate::filter::Mode::Commit { 1.0 } else { sim.fs.lam };
+            if below_roof(world, sim.s[X], sim.s[Y], sim.s[Z]) {
+                below += 1;
+            }
+            if sim.crashed {
+                crashes += 1;
+                break;
+            }
+        }
+    }
+    (below as f64 / total.max(1) as f64, lam / total.max(1) as f64, crashes)
+}
+
 pub struct Report {
     pub coverage: Coverage,
+    pub coverage_4deg: Coverage,
+    pub street: Vec<(String, (f64, f64, usize))>,
     pub rows: Vec<Summary>,
     pub kamikaze: Vec<(String, EpResult)>,
     pub nuisance_blend_ticks: u64,
@@ -254,6 +306,7 @@ pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usiz
     ];
     if o.extended {
         configs.push(("P2 closed-form ON", EpCfg { phase: Phase::P2, ..p1 }));
+        configs.push(("Permissive ON", EpCfg { phase: Phase::Permissive, ..p1 }));
         configs.push(("P1+P3 robust + mismatch", EpCfg { robust: true, mismatch: true, ..p1 }));
         configs.push(("P2+P3 robust + mismatch", EpCfg { phase: Phase::P2, robust: true, mismatch: true, ..p1 }));
     }
@@ -343,13 +396,21 @@ pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usiz
         rows.len() >= 4,
         format!("P1 + mismatch: {} / {} crashed", rows[2].crashes, rows[2].episodes),
     ));
-    let coverage = street_coverage(world, 2000, o.threads);
-    Report { coverage, rows, kamikaze, nuisance_blend_ticks: nb, nuisance_ticks: nt, checks }
+    let coverage = street_coverage(world, 2000, o.threads, 0.0);
+    let coverage_4deg = street_coverage(world, 2000, o.threads, 4.0);
+    let modes = [("filter OFF", false, Phase::P1), ("P1", true, Phase::P1), ("P2", true, Phase::P2), ("Permissive", true, Phase::Permissive)];
+    let street = par_map(
+        modes.to_vec(),
+        o.threads,
+        |&(n, on, ph)| (n.to_string(), street_pilot(world, on, ph)),
+        |d, n| progress("street pilot", d, n),
+    );
+    Report { coverage, coverage_4deg, street, rows, kamikaze, nuisance_blend_ticks: nb, nuisance_ticks: nt, checks }
 }
 
-pub fn format_coverage(c: &Coverage) -> String {
+pub fn format_coverage(c: &Coverage, label: &str) -> String {
     format!(
-        "\nStreet coverage (verified escape exists): {:.1}% of {} street states; {:.1}% of the {} below rooftop height\n",
+        "Street coverage{label}: {:.1}% of {} street states have a verified escape; {:.1}% of the {} below rooftop height\n",
         100.0 * c.safe as f64 / c.total.max(1) as f64,
         c.total,
         100.0 * c.below_roof_safe as f64 / c.below_roof.max(1) as f64,
@@ -386,7 +447,13 @@ pub fn format_report(r: &Report) -> String {
             );
         }
     }
-    s += &format_coverage(&r.coverage);
+    s += "\n";
+    s += &format_coverage(&r.coverage, "");
+    s += &format_coverage(&r.coverage_4deg, " (4 deg heading error)");
+    s += "Street autopilot (holds 40 m on 6 streets, 30 s each): time below rooftops\n";
+    for (n, (b, l, c)) in &r.street {
+        s += &format!("  {:<11} {:>5.1}%   mean intervention {:.2}   crashes {}\n", n, 100.0 * b, l, c);
+    }
     s += "\nKamikaze endurance (filter on):\n";
     for (n, k) in &r.kamikaze {
         s += &format!(

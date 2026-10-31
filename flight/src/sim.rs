@@ -172,7 +172,10 @@ impl<'w> Sim<'w> {
             CmdSrc::Const(u) => u,
             CmdSrc::FollowPlan => match self.fs.plan {
                 Some(pl) if self.k < pl.hold_end => pl.hold,
-                Some(pl) => esc_law(&self.prm_ctrl, &self.s, pl.esc, (self.k - pl.hold_end) as f64 * DT).cmd,
+                Some(pl) => {
+                    let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
+                    esc_law(&self.prm_ctrl, &self.s, pl.esc, (self.k - pl.hold_end) as f64 * DT, psi0).cmd
+                }
                 None => u_p,
             },
         };
@@ -204,7 +207,8 @@ impl<'w> Sim<'w> {
                     } else {
                         let te = (self.k - pl.hold_end) as f64 * DT;
                         let pc = self.prm_ctrl;
-                        rk4(&prm, &mut self.s, DT, &wind, |st, off| esc_law(&pc, st, pl.esc, te + off).cmd);
+                        let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
+                        rk4(&prm, &mut self.s, DT, &wind, |st, off| esc_law(&pc, st, pl.esc, te + off, psi0).cmd);
                     }
                 } else {
                     rk4(&prm, &mut self.s, DT, &wind, |_, _| u_p);
@@ -232,7 +236,7 @@ impl<'w> Sim<'w> {
 
 fn safe_h(world: &World, s: &State) -> f64 {
     let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true };
-    pred.best(s, None, &[0, 1, 2, 3], f64::INFINITY).0
+    pred.best(s, None, &ESC_ORDER, f64::INFINITY).0
 }
 
 pub const SCENARIOS: [&str; 4] = ["Tower run", "Dive", "Ridge", "Slow and low"];

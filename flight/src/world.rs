@@ -5,18 +5,19 @@
 //! (each quad split along the same diagonal the renderer uses), buildings
 //! are axis-aligned boxes. Collisions are always checked against this.
 //!
-//! Safety map: a 2.5 m max-height raster of the truth, dilated sideways by
-//! `LAT_CELLS` cells and raised by `VERT_MARGIN`. A point with
-//! `z - Hc(cell) >= 0` is at least `VERT_MARGIN` above anything within
-//! `LAT_MARGIN` metres horizontally. Both margins are the aircraft radius
-//! plus a few metres for prediction error. Path segments are checked against
-//! every cell they cross, at the segment's own height inside that cell
-//! (`swept_clear`), so the check covers the whole continuous path, not just
-//! samples. Off-map is a wall.
+//! Safety checks: buildings are checked exactly, as the distance from each
+//! predicted path segment to each nearby box (`seg_building_dist`). Terrain
+//! uses a 2.5 m max-height raster, dilated sideways by `LAT_CELLS` cells and
+//! raised by `VERT_MARGIN`: a point with `z - Hc(cell) >= 0` is at least
+//! `VERT_MARGIN` above any terrain within `LAT_MARGIN` metres horizontally.
+//! Path segments are checked against every terrain cell they cross, at the
+//! segment's own height inside that cell (`swept_clear`), so both checks
+//! cover the whole continuous path, not just samples. Off-map is a wall.
 //!
 //! New plans are accepted against `hc_acc`, dilated one cell more than the
 //! `hc` map that invariant re-checks use, so a re-check of a path within one
-//! cell of a verified one cannot fail on lateral grounds.
+//! cell of a verified one cannot fail on lateral grounds. (Building distance
+//! is continuous, so it only needs a small extra margin for new plans.)
 
 use std::sync::OnceLock;
 
@@ -138,14 +139,18 @@ pub struct World {
     /// Terrain vertex heights, `TN x TN`, index `j*TN + i`.
     pub terr: Vec<f32>,
     pub boxes: Vec<Building>,
-    /// Raw max height of the truth geometry per 5 m cell.
+    /// Raw max height of the truth geometry (terrain + buildings) per cell.
     pub raw: Vec<f32>,
+    /// Raw max terrain height per cell (the safety maps are built from it).
+    pub raw_terr: Vec<f32>,
     /// Base clearance map (dilated + vertical margin), used for re-checks.
     pub hc: Vec<f32>,
     /// One cell wider: used to accept new plans.
     pub hc_acc: Vec<f32>,
     robust: OnceLock<[Vec<Vec<f32>>; 2]>,
     buckets: Vec<Vec<u32>>,
+    /// Tallest box top in each bucket (to skip buckets a segment is above).
+    bucket_top: Vec<f32>,
     pub tallest: usize,
     pub parks: Vec<[f64; 4]>,
     pub street_w: Vec<f64>,
@@ -164,10 +169,12 @@ impl World {
             terr: vec![0.0; TN * TN],
             boxes: Vec::new(),
             raw: vec![0.0; NC * NC],
+            raw_terr: Vec::new(),
             hc: vec![0.0; NC * NC],
             hc_acc: Vec::new(),
             robust: OnceLock::new(),
             buckets: vec![Vec::new(); NB * NB],
+            bucket_top: vec![f32::MIN; NB * NB],
             tallest: 0,
             parks: Vec::new(),
             street_w: Vec::new(),
@@ -176,8 +183,8 @@ impl World {
         w.gen_terrain();
         w.gen_city();
         w.rasterize();
-        w.hc = dilate(&w.raw, LAT_CELLS, VERT_MARGIN as f32);
-        w.hc_acc = dilate(&w.raw, LAT_CELLS + 1, VERT_MARGIN as f32);
+        w.hc = dilate(&w.raw_terr, LAT_CELLS, VERT_MARGIN as f32);
+        w.hc_acc = dilate(&w.raw_terr, LAT_CELLS + 1, VERT_MARGIN as f32);
         w.build_buckets();
         w
     }
@@ -343,6 +350,7 @@ impl World {
                 self.raw[j * NC + i] = a;
             }
         }
+        self.raw_terr = self.raw.clone();
         for b in &self.boxes {
             let ci = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
             for j in ci(b.y0)..=ci(b.y1) {
@@ -360,6 +368,7 @@ impl World {
             for j in bi(b.y0)..=bi(b.y1) {
                 for i in bi(b.x0)..=bi(b.x1) {
                     self.buckets[j * NB + i].push(n as u32);
+                    self.bucket_top[j * NB + i] = self.bucket_top[j * NB + i].max(b.z1 as f32);
                 }
             }
         }
@@ -369,10 +378,45 @@ impl World {
     /// `[0]` for re-checks, `[1]` (one cell wider) for acceptance.
     pub fn robust_maps(&self, accept: bool) -> &Vec<Vec<f32>> {
         let m = self.robust.get_or_init(|| {
-            let mk = |extra: usize| ROBUST_CELLS.iter().map(|&r| dilate(&self.raw, r + extra, VERT_MARGIN as f32)).collect();
+            let mk = |extra: usize| ROBUST_CELLS.iter().map(|&r| dilate(&self.raw_terr, r + extra, VERT_MARGIN as f32)).collect();
             [mk(0), mk(1)]
         });
         &m[accept as usize]
+    }
+
+    /// Exact distance from the segment `a`-`b` to the nearest building box,
+    /// or infinity if none is within `q`.
+    #[inline]
+    pub fn seg_building_dist(&self, a: [f64; 3], b: [f64; 3], q: f64) -> f64 {
+        let (x0, x1) = (a[0].min(b[0]) - q, a[0].max(b[0]) + q);
+        let (y0, y1) = (a[1].min(b[1]) - q, a[1].max(b[1]) + q);
+        let (z0, z1) = (a[2].min(b[2]) - q, a[2].max(b[2]) + q);
+        let bi = |v: f64| (((v + MAP_HALF) / BUCKET).floor().max(0.0) as usize).min(NB - 1);
+        let mut d2 = q * q;
+        let mut hit = false;
+        for j in bi(y0)..=bi(y1) {
+            for i in bi(x0)..=bi(x1) {
+                if (self.bucket_top[j * NB + i] as f64) < z0 {
+                    continue;
+                }
+                for &n in &self.buckets[j * NB + i] {
+                    let bx = &self.boxes[n as usize];
+                    if bx.x1 < x0 || bx.x0 > x1 || bx.y1 < y0 || bx.y0 > y1 || bx.z1 < z0 || bx.z0 > z1 {
+                        continue;
+                    }
+                    let e = seg_aabb_dist2(a, b, [bx.x0, bx.y0, bx.z0], [bx.x1, bx.y1, bx.z1]);
+                    if e < d2 {
+                        d2 = e;
+                        hit = true;
+                    }
+                }
+            }
+        }
+        if hit {
+            d2.sqrt()
+        } else {
+            f64::INFINITY
+        }
     }
 
     /// Distance from `p` to the nearest building surface, capped at `cap`.
@@ -440,6 +484,54 @@ pub fn hc_at(map: &[f32], x: f64, y: f64) -> f64 {
     let c = get(ix, iy + 1);
     let d = get(ix + 1, iy + 1);
     (a * (1.0 - tx) + b * tx) * (1.0 - ty) + (c * (1.0 - tx) + d * tx) * ty
+}
+
+/// Exact squared distance between the segment `a`-`b` and the axis-aligned
+/// box [lo, hi]. Between the parameters where the segment crosses a slab
+/// boundary, each axis is either inside its slab or clamped to one face, so
+/// the squared distance is a quadratic in t; minimise it on each piece.
+#[inline]
+pub fn seg_aabb_dist2(a: [f64; 3], b: [f64; 3], lo: [f64; 3], hi: [f64; 3]) -> f64 {
+    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let mut ts = [0.0f64; 8];
+    ts[1] = 1.0;
+    let mut n = 2;
+    for ax in 0..3 {
+        if d[ax].abs() > 1e-12 {
+            for bound in [lo[ax], hi[ax]] {
+                let t = (bound - a[ax]) / d[ax];
+                if t > 0.0 && t < 1.0 {
+                    ts[n] = t;
+                    n += 1;
+                }
+            }
+        }
+    }
+    let ts = &mut ts[..n];
+    ts.sort_by(|p, q| p.partial_cmp(q).unwrap());
+    let mut best = f64::INFINITY;
+    for w in ts.windows(2) {
+        let (t0, t1) = (w[0], w[1]);
+        let tm = 0.5 * (t0 + t1);
+        let (mut qa, mut qb, mut qc) = (0.0, 0.0, 0.0);
+        for ax in 0..3 {
+            let p = a[ax] + d[ax] * tm;
+            let c = if p < lo[ax] {
+                lo[ax]
+            } else if p > hi[ax] {
+                hi[ax]
+            } else {
+                continue;
+            };
+            let e = a[ax] - c;
+            qa += d[ax] * d[ax];
+            qb += 2.0 * e * d[ax];
+            qc += e * e;
+        }
+        let t = if qa > 1e-15 { (-qb / (2.0 * qa)).clamp(t0, t1) } else { t0 };
+        best = best.min(qa * t * t + qb * t + qc);
+    }
+    best.max(0.0)
 }
 
 #[inline]
