@@ -38,3 +38,6 @@ lean_exe jsbresid where
 
 lean_exe jsbbench where
   root := `Tools.Bench
+
+lean_exe robustclimb where
+  root := `Tools.RobustClimb
