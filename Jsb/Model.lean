@@ -1,6 +1,6 @@
 import Jsb.C172Aero
 
-/-! Longitudinal port of JSBSim's `c172p` (wings level, no sideslip) in `Fx` fixed point.
+/-! Longitudinal port of JSBSim's `c172p` (wings level, no sideslip), generic over `Scalar`; `Fx` runs it.
 
 Units: m, s, rad, t, kN, kPa, kW, K.  One JSBSim step is `integrate` (FGPropagate runs first) followed by
 `evaluate` (atmosphere, auxiliary, FCS, propulsion, aerodynamics, accelerations).  `tickAB` runs 8 steps of
@@ -9,180 +9,181 @@ Units: m, s, rad, t, kN, kPa, kW, K.  One JSBSim step is `integrate` (FGPropagat
 namespace Jsb
 open Vibecheck Jsb.C172
 
+variable {α : Type} [Scalar α]
+
 /-- State at a step boundary, including every value JSBSim carries into the next step. -/
-structure State where
+structure StateOf (α : Type) where
   /-- along-track distance, m -/
-  x : Fx
+  x : α
   /-- altitude, m -/
-  h : Fx
+  h : α
   /-- ground speed, m/s -/
-  vx : Fx
+  vx : α
   /-- climb rate, m/s -/
-  vz : Fx
+  vz : α
   /-- body x axis as (horizontal, up) unit vector: (cos theta, sin theta) -/
-  dx : Fx
-  dz : Fx
+  dx : α
+  dz : α
   /-- pitch rate, rad/s -/
-  q : Fx
+  q : α
   /-- engine (= propeller) rpm -/
-  rpm : Fx
+  rpm : α
   /-- manifold pressure after its first-order lag, kPa -/
-  tmap : Fx
+  tmap : α
   /-- body-axis acceleration of the last step; feeds alpha-dot of the next step -/
-  udot : Fx
-  wdot : Fx
+  udot : α
+  wdot : α
   /-- stall hysteresis bit as 0 or 1 -/
-  stall : Fx
+  stall : α
   /-- derivatives from the last step: world horizontal/up acceleration and pitch acceleration -/
-  ah : Fx
-  au : Fx
-  qd : Fx
+  ah : α
+  au : α
+  qd : α
   /-- world acceleration one step earlier (Adams-Bashforth 2) -/
-  ah1 : Fx
-  au1 : Fx
+  ah1 : α
+  au1 : α
   /-- climb rate one and two steps earlier (Adams-Bashforth 3 for altitude) -/
-  pvz : Fx
-  pvz2 : Fx
+  pvz : α
+  pvz2 : α
   deriving Inhabited, Repr
+
+abbrev State := StateOf Fx
 
 /-- Elevator in our convention (+1 nose up, JSBSim command = -elev) and throttle in [0, 1].
 `beta` and `phi` are optional lateral disturbances (sideslip and bank, rad); 0 is wings level and coordinated. -/
-structure Input where
-  elev : Fx
-  thr : Fx
-  beta : Fx := 0
-  phi : Fx := 0
+structure InputOf (α : Type) where
+  elev : α
+  thr : α
+  beta : α
+  phi : α
   deriving Inhabited, Repr
+
+abbrev Input := InputOf Fx
 
 /-- `1 - x^2/2 + x^4/24`, accurate for |x| < 1. -/
-def cosSmall (x : Fx) : Fx := let x2 := x * x; 1 - x2 / 2 + (x2 * x2) / 24
+def cosSmall (x : α) : α := let x2 := x * x; 1 - x2 / 2 + (x2 * x2) / 24
 
 /-- `x - x^3/6 + x^5/120`, accurate for |x| < 1. -/
-def sinSmall (x : Fx) : Fx := let x2 := x * x; x - (x * x2) / 6 + (x * x2 * x2) / 120
+def sinSmall (x : α) : α := let x2 := x * x; x - (x * x2) / 6 + (x * x2 * x2) / 120
 
 /-- Mixture position fixed as in `sysid/collect.py`. -/
-def mixPos : Fx := (⟨58982⟩ : Fx)
+def mixPos : α := Scalar.lit 58982
+
+/-- `z` when `a = 0` and `b = 0`, else `e`. -/
+def ifZero2 (a b z e : α) : α :=
+  Scalar.selLe a 0 (Scalar.selLe 0 a (Scalar.selLe b 0 (Scalar.selLe 0 b z e) e) e) e
 
 /-- Intermediate quantities of one evaluation, for comparison with JSBSim's own properties. -/
-structure Probe where
-  rho : Fx
-  alpha : Fx
-  adot : Fx
-  qbar : Fx
-  fxA : Fx
-  fzA : Fx
-  mA : Fx
-  fxP : Fx
-  mP : Fx
-  hp : Fx
-  vind : Fx
-  thrustKN : Fx
-  cl : Fx
-  cd : Fx
-  tipMach : Fx
-  ct : Fx
-  adv : Fx
+structure ProbeOf (α : Type) where
+  rho : α
+  alpha : α
+  adot : α
+  qbar : α
+  fxA : α
+  fzA : α
+  mA : α
+  fxP : α
+  mP : α
+  hp : α
+  vind : α
+  thrustKN : α
+  cl : α
+  cd : α
+  tipMach : α
+  ct : α
+  adv : α
   deriving Inhabited, Repr
 
-/-- `a / 2^k` rounded to nearest. -/
-def shr (a : Fx) (k : Nat) : Fx := ⟨(a.raw + (1 <<< (k - 1))) >>> k⟩
+abbrev Probe := ProbeOf Fx
 
-def iter (n : Nat) (f : State → State) (s : State) : State :=
+def iter {β : Type} (n : Nat) (f : β → β) (s : β) : β :=
   match n with
   | 0 => s
   | n + 1 => iter n f (f s)
 
-/-- Linear interpolation in a 50 m spaced raw table starting at 0 m; clamped. -/
-def atmLookup (tab : Array Int) (h : Fx) : Fx :=
-  let span : Int := 50 * 65536
-  let i := (floorDiv (max 0 (min (span * 159) h.raw)) span).toNat
-  let f := max 0 (min span (h.raw - i * span))
-  ⟨tab[i]! + (floorDiv64 (Int64.ofInt (tab[i + 1]! - tab[i]!) * Int64.ofInt f) (Int64.ofInt span)).toInt⟩
-
 /-- JSBSim FGPropagate: Adams-Bashforth 3 altitude, Adams-Bashforth 2 velocity, rectangular Euler attitude/rate. -/
-def integrate (k : Nat) (ab : Bool) (s : State) : State :=
-  let h' := if ab then s.h + shr ⟨(23 * s.vz.raw - 16 * s.pvz.raw + 5 * s.pvz2.raw) / 12⟩ k else s.h + shr s.vz k
-  let vx' := if ab then s.vx + shr (3 * s.ah - s.ah1) (k + 1) else s.vx + shr s.ah k
-  let vz' := if ab then s.vz + shr (3 * s.au - s.au1) (k + 1) else s.vz + shr s.au k
-  let d := shr s.q k
-  let c := s.dx - mulR s.dz d
-  let sn := s.dz + mulR s.dx d
-  let n := (3 : Fx) / 2 - (c * c + sn * sn) / 2
-  { s with x := s.x + shr vx' k, h := h', vx := vx', vz := vz', q := s.q + shr s.qd k,
-           dx := mulR c n, dz := mulR sn n, ah1 := s.ah, au1 := s.au, pvz := s.vz, pvz2 := s.pvz }
+def integrate (k : Nat) (ab : Bool) (s : StateOf α) : StateOf α :=
+  let h' := if ab then s.h + Scalar.shr (Scalar.ab3 s.vz s.pvz s.pvz2) k else s.h + Scalar.shr s.vz k
+  let vx' := if ab then s.vx + Scalar.shr (3 * s.ah - s.ah1) (k + 1) else s.vx + Scalar.shr s.ah k
+  let vz' := if ab then s.vz + Scalar.shr (3 * s.au - s.au1) (k + 1) else s.vz + Scalar.shr s.au k
+  let d := Scalar.shr s.q k
+  let c := s.dx - Scalar.mulR s.dz d
+  let sn := s.dz + Scalar.mulR s.dx d
+  let n := (3 : α) / 2 - (c * c + sn * sn) / 2
+  { s with x := s.x + Scalar.shr vx' k, h := h', vx := vx', vz := vz', q := s.q + Scalar.shr s.qd k,
+           dx := Scalar.mulR c n, dz := Scalar.mulR sn n, ah1 := s.ah, au1 := s.au, pvz := s.vz, pvz2 := s.pvz }
 
 /-- Everything JSBSim computes after propagation: forces, moments, engine, derivatives. -/
-def evaluate (k : Nat) (inp : Input) (s : State) : State × Probe :=
-  let rho := atmLookup atmRho s.h
-  let pAmb := atmLookup atmP s.h
-  let tK := atmLookup atmT s.h
-  let aSnd := atmLookup atmA s.h
+def evaluate (k : Nat) (inp : InputOf α) (s : StateOf α) : StateOf α × ProbeOf α :=
+  let rho := Scalar.atm atmRho s.h
+  let pAmb := Scalar.atm atmP s.h
+  let tK := Scalar.atm atmT s.h
+  let aSnd := Scalar.atm atmA s.h
   let cphi := cosSmall inp.phi
   let sphi := sinSmall inp.phi
   let cbeta := cosSmall inp.beta
   -- body velocity: with bank and sideslip the lateral component b of the horizontal speed follows from beta
   let w0 := s.vx * s.dz - s.vz * s.dx
-  let b : Fx := if inp.beta.raw == 0 && inp.phi.raw == 0 then 0
-                else (sqrtFx (s.vx * s.vx + s.vz * s.vz) * sinSmall inp.beta - sphi * w0) / cphi
+  let b := ifZero2 inp.beta inp.phi 0 ((Scalar.sqrt (s.vx * s.vx + s.vz * s.vz) * sinSmall inp.beta - sphi * w0) / cphi)
   let a := s.vx - (b * b) / (s.vx + s.vx)
   let u := a * s.dx + s.vz * s.dz
   let w' := a * s.dz - s.vz * s.dx
   let w := cphi * w' - sphi * b
   let vb := cphi * b + sphi * w'
   let mUW := u * u + w * w
-  let vt := sqrtFx mUW
-  let vtot := sqrtFx (mUW + vb * vb)
-  let alpha := atan2Fx w u
-  let adot : Fx := if mUW.raw > 66 then (u * s.wdot - w * s.udot) / mUW else 0
+  let vt := Scalar.sqrt mUW
+  let vtot := Scalar.sqrt (mUW + vb * vb)
+  let alpha := Scalar.atan2 w u
+  let adot := Scalar.selLt (Scalar.lit 66) mUW ((u * s.wdot - w * s.udot) / mUW) 0
   let qbar := (rho * (mUW + vb * vb)) / 2000
   let mach := vtot / aSnd
   let ci2vel := wingChord / (vtot + vtot)
   -- flight control: pitch trim sum clipped to [-1, 1], then asymmetric travel
   let cmd := max (-1) (min 1 (-inp.elev))
-  let elevDeg := if cmd.raw ≥ 0 then cmd * elevTravelDown else cmd * elevTravelUp
+  let elevDeg := Scalar.selLe 0 cmd (cmd * elevTravelDown) (cmd * elevTravelUp)
   let elevRad := (elevDeg * 1745) / 100000
-  let stall : Fx := if alphaHystHi < alpha then 1 else if alpha < alphaHystLo then 0 else s.stall
+  let stall := Scalar.selLt alphaHystHi alpha 1 (Scalar.selLt alpha alphaHystLo 0 s.stall)
   -- piston engine (FGPiston)
   let y := (mach * mach) / 5
-  let pTot := pAmb * (1 + y * ((⟨229376⟩ : Fx) + y * ((⟨286720⟩ : Fx) + y * ((⟨71680⟩ : Fx) + y * (⟨17918⟩ : Fx)))))
+  let pTot := pAmb * (1 + y * (Scalar.lit 229376 + y * (Scalar.lit 286720 + y * (Scalar.lit 71680 + y * Scalar.lit 17918))))
   let zt := (1 - inp.thr) * (1 - inp.thr) * engZThrottle
-  let ze : Fx := if s.rpm.raw > 6554 then engZeNum / s.rpm else 999999
+  let ze := Scalar.selLt (Scalar.lit 6554) s.rpm (engZeNum / s.rpm) 999999
   let coef := ze / (ze + engZAirbox + zt)
-  let tmap := s.tmap - shr (s.tmap - pTot * coef) k
+  let tmap := s.tmap - Scalar.shr (s.tmap - pTot * coef) k
   let pmep := (tmap - pAmb) * engVolEff
-  let mratio := if tmap.raw > 0 then min engCompRatio (pAmb / tmap) else engCompRatio
-  let ve : Fx := (⟨15124⟩ : Fx) + (engCompRatio - mratio) / (⟨638976⟩ : Fx)
-  let mpsM := ((s.rpm * engStrokeIn) / 360) * (⟨19975⟩ : Fx)
+  let mratio := Scalar.selLt 0 tmap (min engCompRatio (pAmb / tmap)) engCompRatio
+  let ve := Scalar.lit 15124 + (engCompRatio - mratio) / Scalar.lit 638976
+  let mpsM := ((s.rpm * engStrokeIn) / 360) * Scalar.lit 19975
   let vdotL := ((engDispL * s.rpm) / 120) * engVolEff * ve
-  let mdotAir := vdotL * ((tmap * (⟨228110⟩ : Fx)) / tK)
-  let fa := ((⟨85197⟩ : Fx) * mixPos * (⟨6640435⟩ : Fx) / pAmb) / (⟨963379⟩ : Fx)
-  let me := tblMixEff.eval fa
-  let ihp : Fx := if s.rpm.raw ≥ 28836 then (((mdotAir * fa) * (⟨520130⟩ : Fx)) / engIsfc) * me - engStaticFriction
-                  else 0 - engStaticFriction
+  let mdotAir := vdotL * ((tmap * Scalar.lit 228110) / tK)
+  let fa := (Scalar.lit 85197 * mixPos * Scalar.lit 6640435 / pAmb) / Scalar.lit 963379
+  let me := Scalar.tbl1 tblMixEff fa
+  let ihp := Scalar.selLe (Scalar.lit 28836) s.rpm ((((mdotAir * fa) * Scalar.lit 520130) / engIsfc) * me - engStaticFriction)
+                (0 - engStaticFriction)
   let fmep := 0 - (engFmepDynamic * mpsM + engFmepStatic)
-  let hp := ihp + (((pmep + fmep) * engDispL) * (s.rpm / 1000)) / (⟨5864423⟩ : Fx)
-  let powKW := if s.rpm.raw ≤ 6554 then max 0 (hp * (⟨48870⟩ : Fx)) else hp * (⟨48870⟩ : Fx)
+  let hp := ihp + (((pmep + fmep) * engDispL) * (s.rpm / 1000)) / Scalar.lit 5864423
+  let powKW := Scalar.selLe s.rpm (Scalar.lit 6554) (max 0 (hp * Scalar.lit 48870)) (hp * Scalar.lit 48870)
   -- fixed-pitch propeller (FGPropeller)
   let rps := s.rpm / 60
   let vel := u + s.q * thrusterBodyZ
-  let mt := (rps * propDiameter * (⟨205887⟩ : Fx)) / aSnd
+  let mt := (rps * propDiameter * Scalar.lit 205887) / aSnd
   let mv := vel / aSnd
-  let tipM := sqrtFx (mt * mt + mv * mv)
-  let adv : Fx := if rps.raw > 655 then vel / (propDiameter * rps) else vel / propDiameter
-  let ct := tblCT.eval adv * tblCTMach.eval tipM
-  let cp := tblCP.eval adv * tblCPMach.eval tipM
+  let tipM := Scalar.sqrt (mt * mt + mv * mv)
+  let adv := Scalar.selLt (Scalar.lit 655) rps (vel / (propDiameter * rps)) (vel / propDiameter)
+  let ct := Scalar.tbl1 tblCT adv * Scalar.tbl1 tblCTMach tipM
+  let cp := Scalar.tbl1 tblCP adv * Scalar.tbl1 tblCPMach tipM
   let thrust := ((((ct * propD4) * rho) * rps) * rps) / 1000
   let powReq := ((((cp * propD5) * rho) * rps) * rps / 1000) * rps
   let pav := powKW - powReq
-  let rps' := rps + shr ((pav / (if rps.raw > 655 then rps else 1)) * (⟨733217⟩ : Fx)) k
+  let rps' := rps + Scalar.shr ((pav / Scalar.selLt (Scalar.lit 655) rps rps 1) * Scalar.lit 733217) k
   let rpm' := max 0 (rps' * 60)
-  let v2 := vel * Fx.abs vel + (2000 * thrust) / (rho * propArea)
-  let vind := if 0 < v2.raw then (sqrtFx v2 - vel) / 2 else (0 - vel - sqrtFx (0 - v2)) / 2
+  let v2 := vel * Scalar.abs vel + (2000 * thrust) / (rho * propArea)
+  let vind := Scalar.selLt 0 v2 ((Scalar.sqrt v2 - vel) / 2) ((0 - vel - Scalar.sqrt (0 - v2)) / 2)
   -- aerodynamics (generated functions)
-  let e : AeroIn := { adot := adot, alpha := alpha, ci2vel := ci2vel, elevRad := elevRad, flapDeg := 0,
-                      hbMac := (s.h + rpBodyX * s.dz - rpBodyZ * s.dx) / wingSpan, magBeta := Fx.abs inp.beta,
-                      magElevRad := Fx.abs elevRad, qAero := s.q, qbar := qbar, rho := rho,
-                      stallHyst := stall, uAero := u, vInd := vind }
+  let e : AeroIn α := { adot := adot, alpha := alpha, ci2vel := ci2vel, elevRad := elevRad, flapDeg := 0,
+                        hbMac := (s.h + rpBodyX * s.dz - rpBodyZ * s.dx) / wingSpan, magBeta := Scalar.abs inp.beta,
+                        magElevRad := Scalar.abs elevRad, qAero := s.q, qbar := qbar, rho := rho,
+                        stallHyst := stall, uAero := u, vInd := vind }
   let drag := dragForce e
   let lift := liftForce e
   let cosA := u / vt
@@ -204,16 +205,16 @@ def evaluate (k : Nat) (inp : Input) (s : State) : State × Probe :=
      mP := thrusterBodyZ * thrust, hp := hp, vind := vind, thrustKN := thrust, cl := f_CLwbh e, cd := f_CDwbh e,
      tipMach := tipM, ct := ct, adv := adv })
 
-def step (k : Nat) (ab : Bool) (inp : Input) (s : State) : State :=
+def step (k : Nat) (ab : Bool) (inp : InputOf α) (s : StateOf α) : StateOf α :=
   (evaluate k inp (integrate k ab s)).1
 
 /-- One 1/16 s tick as JSBSim runs it: 8 steps of 1/128 s, Adams-Bashforth histories carried in the state. -/
-def tickAB (inp : Input) (s : State) : State := iter 8 (step 7 true inp) s
+def tickAB (inp : InputOf α) (s : StateOf α) : StateOf α := iter 8 (step 7 true inp) s
 
 /-- One 1/16 s tick as 4 forward-Euler steps of 1/64 s (no history used). -/
-def tickEuler (inp : Input) (s : State) : State := iter 4 (step 6 false inp) s
+def tickEuler (inp : InputOf α) (s : StateOf α) : StateOf α := iter 4 (step 6 false inp) s
 
 /-- Quantities JSBSim logs for a state, recomputed by the model for that state (diagnostics only). -/
-def probe (inp : Input) (s : State) : State × Probe := evaluate 7 inp s
+def probe (inp : InputOf α) (s : StateOf α) : StateOf α × ProbeOf α := evaluate 7 inp s
 
 end Jsb
