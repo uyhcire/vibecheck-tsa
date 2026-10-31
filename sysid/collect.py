@@ -10,7 +10,8 @@ RUDDER_OFF = False           # `rud0` run mode: the original rudder law drives s
 LBF = 4.4482216152605    # N per lbf
 SLUG = 14.593902937      # kg per slug
 BASE = ['ep', 'k', 'x', 'h', 'vx', 'vz', 'theta', 'q', 'elev', 'thr',
-        'alpha', 'phi', 'beta', 'rpm', 'vt', 'ax0', 'az0', 'qd0', 'thrust']
+        'alpha', 'phi', 'beta', 'rpm', 'vt', 'ax0', 'az0', 'qd0', 'thrust',
+        'elevp', 'thrp']   # elevp/thrp: inputs of the previous tick, which produced the logged properties/derivatives
 # Hidden state at tick start (SI; manifold pressure Pa): everything JSBSim carries between steps that the Lean state needs.
 HID = ['map', 'stallh', 'udot', 'wdot', 'qdot', 'adot', 'psi', 'mix',
        'ah0', 'au0', 'ah1', 'au1',            # world-frame acceleration now / one 1/128 s step earlier
@@ -95,11 +96,12 @@ def episode(ep, rng, writer, ticks):
     gen = pilot(rng, aggressive)
     s0 = snapshot(fdm, 0.0)
     hist = [(s0['vx'], s0['vz'], *world_accel(fdm), s0['udot'], s0['wdot'])] * 3      # per-substep (vx, vz, a_h, a_up), newest last
+    elevp, thrp = 0.0, 0.0
     for k in range(ticks):
         stick, thr = next(gen)
         elev += max(-ELEV_STEP, min(ELEV_STEP, stick - elev))
         snap = snapshot(fdm, x)
-        row = dict(ep=ep, k=k, elev=elev, thr=thr, **snap)
+        row = dict(ep=ep, k=k, elev=elev, thr=thr, elevp=elevp if k else elev, thrp=thrp if k else thr, **snap)
         row.update(ah0=hist[-1][2], au0=hist[-1][3], ah1=hist[-2][2], au1=hist[-2][3],
                    hvx1=hist[-2][0], hvz1=hist[-2][1], hvx2=hist[-3][0], hvz2=hist[-3][1],
                    pudot=hist[-2][4], pwdot=hist[-2][5])
@@ -122,6 +124,7 @@ def episode(ep, rng, writer, ticks):
                 row.update(ax0=(s1['vx'] - snap['vx']) * 128, az0=(s1['vz'] - snap['vz']) * 128,
                            qd0=(s1['q'] - snap['q']) * 128)
         writer.writerow(row)
+        elevp, thrp = elev, thr
     return ticks
 
 def main():

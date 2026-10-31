@@ -1,6 +1,6 @@
 import Jsb.Model
 
-/-! `jsbresid CSV [--euler] [--skip N] [--phi MAX] [--beta MAX] [--lat] [--diag] [--dump FILE]`: one Lean tick from each logged state versus JSBSim's next logged state. -/
+/-! `jsbresid CSV [--euler] [--skip N] [--phi MAX] [--beta MAX] [--lat|--lat-beta|--lat-phi] [--diag [--diag-curin]] [--dump FILE]`: one Lean tick from each logged state versus JSBSim's next logged state. -/
 
 open Vibecheck Jsb
 
@@ -62,7 +62,8 @@ def main (args : List String) : IO UInt32 := do
   let lat := args.contains "--lat"
   let mkInput (r : Array Float) : Input :=
     { elev := toFx (g r "elev"), thr := toFx (g r "thr"),
-      beta := if lat then toFx (g r "beta") else 0, phi := if lat then toFx (g r "phi") else 0 }
+      beta := if lat || args.contains "--lat-beta" then toFx (g r "beta") else 0,
+      phi := if lat || args.contains "--lat-phi" then toFx (g r "phi") else 0 }
   -- pairs of consecutive ticks in one episode
   let mut pairs : Array (Array Float × Array Float) := #[]
   for i in [0:rows.size - 1] do
@@ -76,7 +77,8 @@ def main (args : List String) : IO UInt32 := do
                   "hp", "vind", "CLwbh kN", "CDwbh kN", "tip Mach", "CT", "J"]
     let mut cols : Array (Array Float) := (names.map fun _ => #[]).toArray
     for (a, _) in pairs do
-      let (_, p) := probe (mkInput a) { mkState a with udot := toFx (g a "pudot"), wdot := toFx (g a "pwdot") }
+      let dIn := if args.contains "--diag-curin" then mkInput a else { mkInput a with elev := toFx (g a "elevp"), thr := toFx (g a "thrp") }  -- logged properties came from the previous tick's inputs
+      let (_, p) := probe dIn { mkState a with udot := toFx (g a "pudot"), wdot := toFx (g a "pwdot") }
       let ref : List Float := [g a "alpha", g a "adot", g a "qbar_s", g a "fxa" / 1000, g a "fza" / 1000,
         g a "ma" / 1000, g a "fxp" / 1000, g a "mp" / 1000, g a "hp", g a "vind", g a "cl" * 4.4482216 / 1000,
         g a "cd" * 4.4482216 / 1000, g a "tmach", g a "ct", g a "jadv"]
@@ -113,7 +115,7 @@ def main (args : List String) : IO UInt32 := do
       res := res.set! j (res[j]!.push vals[j]!.abs)
   match args.dropWhile (· != "--dump") with
   | _ :: file :: _ =>
-    let mut out : Array String := #["ep,k,rx,rh,rvx,rvz,rth,rq,rrpm,rmap"]
+    let mut out : Array String := #["ep,k,rx,rh,rvx,rvz,rth,rq,rrpm,rmap,rstall"]
     for i in [0:pairs.size] do
       let (a, b) := pairs[i]!
       let n := preds[i]!
@@ -121,7 +123,7 @@ def main (args : List String) : IO UInt32 := do
       let vals : List Float := [n.x.toFloat - g b "x", n.h.toFloat - g b "h", n.vx.toFloat - g b "vx",
         n.vz.toFloat - g b "vz", th - g b "theta", n.q.toFloat - g b "q", n.rpm.toFloat - g b "rpm",
         n.tmap.toFloat * 1000 - g b "map"]
-      out := out.push s!"{g a "ep"},{g a "k"},{",".intercalate (vals.map toString)}"
+      out := out.push s!"{g a "ep"},{g a "k"},{",".intercalate (vals.map toString)},{n.stall.toFloat - g b "stallh"}"
     IO.FS.writeFile file ("\n".intercalate out.toList)
   | _ => pure ()
   let names := ["x m", "h m", "vx m/s", "vz m/s", "theta rad", "q rad/s", "rpm", "map Pa"]
