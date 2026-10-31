@@ -15,6 +15,9 @@ namespace Gfx
 /-- Save the next presented frame as a BMP. -/
 @[extern "fs_screenshot"] opaque screenshot (path : @& String) : IO Unit
 @[extern "fs_delay"] opaque delay (ms : UInt32) : IO Unit
+/-- Joystick axis `i` as of the last `poll`, in [-1, 1]; NaN when no joystick is connected.
+SDL numbers axes by HID usage: 0 X, 1 Y (stick pitch), 2 Z (T.Flight throttle lever). -/
+@[extern "fs_joy_axis"] opaque joyAxis (i : UInt32) : IO Float
 
 def keyUp : UInt32 := 1
 def keyDown : UInt32 := 2

@@ -55,6 +55,9 @@ structure Game where
   scripted : Bool := false
   shots : List Nat := []
   exitAt : Option Nat := none
+  joyPitchAxis : UInt32 := 1
+  joyThrAxis : UInt32 := 2
+  hotas : Bool := false
 
 def Game.new : Game := { s := initState, prev := initState }
 
@@ -63,6 +66,18 @@ def toFx (f : Float) : Fx := ⟨(f * 65536).round.toInt64.toInt⟩
 def clampF (lo hi x : Float) : Float := if x < lo then lo else if x > hi then hi else x
 
 def lerpF (a b t : Float) : Float := a + (b - a) * t
+
+/-- Stick from a joystick Y axis (SDL: +1 when pulled back = nose up), with a 5% dead zone. -/
+def joyStick (y : Float) : Float := if y.abs < 0.05 then 0 else clampF (-1) 1 y
+
+/-- Throttle from a lever axis that reads +1 at idle and -1 at full (T.Flight HOTAS One). -/
+def joyThrottle (z : Float) : Float := clampF 0 1 ((1 - z) / 2)
+
+#guard joyStick 0.02 == 0
+#guard joyStick (-1.2) == -1
+#guard joyThrottle 1 == 0
+#guard joyThrottle (-1) == 1
+#guard joyThrottle 0 == 0.5
 
 def pitchDeg (s : State) : Float := Float.atan2 s.dz.toFloat s.dx.toFloat * 57.29578
 
@@ -135,10 +150,11 @@ def physicsStep (g : Game) : IO Game := do
   if g.ghost && g.steps % 6 == 0 then g := refreshGhost g
   return g
 
-def handleInput (g : Game) (k : UInt32) (dtSec : Float) : Game := Id.run do
+def handleInput (g : Game) (k : UInt32) (dtSec : Float) (joy : Option (Float × Float)) : Game := Id.run do
   let mut g := g
   if Gfx.has k Gfx.pRestart then
-    return { Game.new with filterOn := g.filterOn, ghost := g.ghost, help := false }
+    return { Game.new with filterOn := g.filterOn, ghost := g.ghost, help := false,
+                           joyPitchAxis := g.joyPitchAxis, joyThrAxis := g.joyThrAxis }
   if Gfx.has k Gfx.pFilter then g := { g with filterOn := !g.filterOn }
   if Gfx.has k Gfx.pPause then g := { g with paused := !g.paused }
   if Gfx.has k Gfx.pGhost then g := { g with ghost := !g.ghost, ghostPath := #[] }
@@ -155,7 +171,21 @@ def handleInput (g : Game) (k : UInt32) (dtSec : Float) : Game := Id.run do
     if Gfx.has k Gfx.keyThrUp then g.throttle + 0.6 * dtSec
     else if Gfx.has k Gfx.keyThrDn then g.throttle - 0.6 * dtSec else g.throttle
   let brake := Gfx.has k Gfx.keyBrake
-  { g with stick := stick, throttle := clampF 0 1 thr, pilot := { g.pilot with brake := brake } }
+  -- A joystick sets stick and throttle directly; a held key still wins for that frame.
+  let (stick, thr) := match joy with
+    | some (y, z) =>
+      let keyPitch := Gfx.has k Gfx.keyUp || Gfx.has k Gfx.keyDown
+      let keyThr := Gfx.has k Gfx.keyThrUp || Gfx.has k Gfx.keyThrDn
+      (if keyPitch then stick else joyStick y, if keyThr then thr else joyThrottle z)
+    | none => (stick, thr)
+  { g with stick := stick, throttle := clampF 0 1 thr, hotas := joy.isSome,
+           pilot := { g.pilot with brake := brake } }
+
+/-- Pitch and throttle axes of the joystick, if one is connected. -/
+def readJoy (g : Game) : IO (Option (Float × Float)) := do
+  let y ← Gfx.joyAxis g.joyPitchAxis
+  if y.isNaN then return none
+  return some (y, ← Gfx.joyAxis g.joyThrAxis)
 
 def updateParticles (g : Game) (dtSec : Float) : Game :=
   { g with particles := g.particles.filterMap fun p =>
@@ -413,7 +443,8 @@ def drawHud (g : Game) : IO Unit := do
     Gfx.text 20 (H - 100) 1.75 "SPACE        brake"
     Gfx.text 20 (H - 80) 1.75 "F filter  A autoland  G escape path  T fast"
     Gfx.text 20 (H - 60) 1.75 "R restart   P pause   H help   ESC quit"
-    Gfx.text 20 (H - 36) 1.75 "Try to crash. The Lean-verified filter won't let you."
+    Gfx.text 20 (H - 36) 1.75 (if g.hotas then "HOTAS: stick pitch, lever throttle, trigger brake"
+      else "Try to crash. The Lean-verified filter won't let you.")
 
 def render (g : Game) (alpha : Float) : IO Unit := do
   let a := g.prev
@@ -448,7 +479,7 @@ partial def loop (g : Game) (last : UInt64) (acc : UInt64) : IO Unit := do
   let k ← Gfx.poll
   if Gfx.has k Gfx.pQuit then return
   let dtSec := frame.toFloat / 1e9
-  let mut g := handleInput g k dtSec
+  let mut g := handleInput g k dtSec (← readJoy g)
   let mut acc := if g.paused then 0 else acc + (if g.fast then frame * 2 else frame)
   if acc > 4 * stepNs then acc := 4 * stepNs
   while acc ≥ stepNs do
@@ -478,7 +509,11 @@ def run : IO Unit := do
   let exitAt := (← IO.getEnv "VC_EXIT").bind String.toNat?
   let filterOn := (← IO.getEnv "VC_NOFILTER").isNone
   let autoAt := (← IO.getEnv "VC_AUTOPILOT").bind String.toNat?
-  let g := { Game.new with scripted, shots, exitAt, filterOn, autoAt, help := !scripted }
+  -- ponytail: axis numbers for other sticks come from the environment, not a config file.
+  let joyPitchAxis := (((← IO.getEnv "VC_JOY_PITCH").bind String.toNat?).getD 1).toUInt32
+  let joyThrAxis := (((← IO.getEnv "VC_JOY_THR").bind String.toNat?).getD 2).toUInt32
+  let g := { Game.new with scripted, shots, exitAt, filterOn, autoAt, joyPitchAxis, joyThrAxis,
+                           help := !scripted }
   loop (refreshGhost g) t 0
   Gfx.quit
 

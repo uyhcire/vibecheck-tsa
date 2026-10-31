@@ -13,6 +13,8 @@ make run
 
 Controls: `UP`/`DOWN` pitch, `W`/`S` throttle, `SPACE` brake, `F` filter on/off, `G` show escape path, `T` 2× speed, `R` restart, `P` pause, `H` help, `ESC` quit.
 
+Joystick: plug in a HOTAS (tested: Thrustmaster T.Flight HOTAS One, base switch on **PC**) before or after launch. Stick pitches, the lever is the throttle, the trigger brakes; the keyboard keeps working. Other sticks: `VC_JOY_PITCH=<axis> VC_JOY_THR=<axis> make run` (SDL axis numbers). X-Plane setup for the same stick: [`hardware/hotas-one/`](hardware/hotas-one/).
+
 ## What is proved
 
 `Vibecheck/Safety.lean`:

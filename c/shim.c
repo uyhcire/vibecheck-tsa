@@ -1,6 +1,7 @@
 // Lean runs `main` off the main thread but Cocoa requires it, so this file owns `main`.
 #include <lean/lean.h>
 #include <SDL3/SDL.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,9 @@ static SDL_Window *win;
 static SDL_Renderer *ren;
 static uint32_t pressed;
 static int quit_requested;
+static SDL_Joystick *joy;      // first joystick seen; hot-plug aware
+static double joy_axis[8];     // sampled in do_poll, read by fs_joy_axis
+static int joy_present;
 
 enum { OP_COLOR, OP_CLEAR, OP_LINE, OP_RECT, OP_FILLRECT, OP_TRI, OP_TEXT };
 struct cmd { int op; float f[6]; uint8_t c[4]; char *text; };
@@ -83,7 +87,7 @@ struct init_args { int w, h; const char *title; int ok; };
 static void do_init(void *p) {
   struct init_args *a = p;
   a->ok = 0;
-  if (!SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return; }
+  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK)) { fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return; }
   if (!SDL_CreateWindowAndRenderer(a->title, a->w, a->h,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &win, &ren)) {
     fprintf(stderr, "SDL_CreateWindowAndRenderer: %s\n", SDL_GetError());
@@ -117,6 +121,10 @@ static void do_poll(void *p) {
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     if (e.type == SDL_EVENT_QUIT) quit_requested = 1;
+    if (e.type == SDL_EVENT_JOYSTICK_ADDED && !joy) joy = SDL_OpenJoystick(e.jdevice.which);
+    if (e.type == SDL_EVENT_JOYSTICK_REMOVED && joy && e.jdevice.which == SDL_GetJoystickID(joy)) {
+      SDL_CloseJoystick(joy); joy = NULL;
+    }
     if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
       switch (e.key.key) {
         case SDLK_F: pressed |= P_FILTER; break;
@@ -138,6 +146,10 @@ static void do_poll(void *p) {
   if (ks[SDL_SCANCODE_W] || ks[SDL_SCANCODE_RIGHT]) held |= K_THR_UP;
   if (ks[SDL_SCANCODE_S] || ks[SDL_SCANCODE_LEFT]) held |= K_THR_DN;
   if (ks[SDL_SCANCODE_SPACE] || ks[SDL_SCANCODE_B]) held |= K_BRAKE;
+  joy_present = joy != NULL;
+  for (int i = 0; i < 8; i++)
+    joy_axis[i] = joy && i < SDL_GetNumJoystickAxes(joy) ? SDL_GetJoystickAxis(joy, i) / 32767.0 : 0;
+  if (joy && SDL_GetJoystickButton(joy, 0)) held |= K_BRAKE;  // trigger
   *out = held | pressed | (quit_requested ? P_QUIT : 0);
   pressed = 0;
 }
@@ -147,6 +159,12 @@ lean_obj_res fs_poll(lean_obj_arg world) {
   uint32_t r = 0;
   run_on_main(do_poll, &r);
   return lean_io_result_mk_ok(lean_box_uint32(r));
+}
+
+// Axis `i` of the joystick as sampled by the last fs_poll, in [-1, 1]; NaN when none is connected.
+lean_obj_res fs_joy_axis(uint32_t i, lean_obj_arg world) {
+  double v = joy_present && i < 8 ? joy_axis[i] : NAN;
+  return lean_io_result_mk_ok(lean_box_float(v));
 }
 
 lean_obj_res fs_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a, lean_obj_arg world) {
