@@ -71,3 +71,5 @@ The velocity bounds are honest but loose (the box bounds each component separate
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
 - `proofs/`: the Mathlib fidelity package above.
+- `problems/`: open problems with checkable goals, for semi-independent work (start with `problems/robust-safety/`).
+- `sysid/`: unverified Python experiments against JSBSim (residuals, tube widths).
