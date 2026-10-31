@@ -12,11 +12,13 @@ python3 -m venv .venv && .venv/bin/pip install -r sysid/requirements.txt
 
 | Script | Measures |
 | --- | --- |
-| `collect.py` | flies c172p with random elevator/throttle and a wings-leveler; logs ticks |
+| `collect.py` | flies c172p with random elevator/throttle and a wings-leveler (`rud0`: rudder centred); logs ticks, hidden state and aero diagnostics |
 | `fit.py` | fits the 2D model's parameters; residual quantiles per component |
 | `regress.py`, `engine.py` | how small residuals can get with flexible regressions; engine thrust predictability |
 | `euler_floor.py`, `substep_floor.py` | integration-only error with JSBSim's exact forces |
 | `diag.py`, `resid_rate.py` | residual vs bank angle and pitch rate; residual autocorrelation |
+| `xml2lean.py` | generates `Jsb/C172Aero.lean` from JSBSim's c172p XML (see `Jsb/README.md`) |
+| `breach.py` | held-out breach rate of a residual bound, from `jsbresid --dump` output |
 | `tube.py`, `tvlqr_tube.py`, `lowpass_tube.py` | zonotope tube widths for the autoland and a TV-LQR controller under per-tick or bandwidth-limited disturbances |
 
 `tube.py` contains a float copy of the 2D model's flying branch for speed; the Lean model in `Vibecheck/Model.lean` is the reference.
