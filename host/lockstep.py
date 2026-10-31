@@ -134,7 +134,8 @@ def episode(ep, seed, filt, T, log):
             log.writerow(dict(ep=ep, k=k, x=x, h=o.pos[2], vx=o.vel[0], vz=o.vel[2], V=o.airspeed,
                               terrain=height_at(T, x), pilot_elev=p_elev, pilot_thr=p_thr, applied_kind=applied.kind,
                               verdict=vc.VERDICTS[info.verdict] if info else '', flags=info.monitor_flags if info else 0,
-                              margin=info.margin if info else '', us_lean=info.us_lean if info else ''))
+                              margin=info.margin if info else '', us_lean=info.us_lean if info else '',
+                              phase=info.escape_phase if info else ''))
         escaping = applied.kind == vc.CMD_ESCAPE
         fdm['fcs/throttle-cmd-norm'] = 1.0 if escaping else applied.throttle
         for _ in range(SUB):
@@ -174,7 +175,7 @@ def main():
     print(f'guarantee: {lib.vc_filter_guarantee(filt.h).decode()}  params: {a.params or "P0"}  episodes: {a.episodes}')
     out = open(a.csv, 'w', newline='') if a.csv else None
     log = csv.DictWriter(out, ['ep', 'k', 'x', 'h', 'vx', 'vz', 'V', 'terrain', 'pilot_elev', 'pilot_thr',
-                               'applied_kind', 'verdict', 'flags', 'margin', 'us_lean']) if out else None
+                               'applied_kind', 'verdict', 'flags', 'margin', 'us_lean', 'phase']) if out else None
     if log:
         log.writeheader()
     raw = [episode(ep, a.seed, None, T, None) for ep in range(a.episodes)]

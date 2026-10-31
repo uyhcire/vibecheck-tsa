@@ -6,7 +6,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIB_PATH = os.path.join(ROOT, '.lake', 'build', 'lib', 'libvcfilter.dylib')
 
 ABI_VERSION = 1
-FILTER_ENVELOPE = 1
+FILTER_ENVELOPE, FILTER_TUBE, FILTER_ROLLOUT = 1, 2, 3
 OK, ERR_BAD_OBS, ERR_NOT_INIT, ERR_INTERNAL, ERR_BAD_CONFIG, ERR_VERSION, ERR_UNSUPPORTED = 0, -1, -2, -3, -4, -5, -6
 PASS, ADJUSTED, ESCAPE, MONITOR_FAIL = 0, 1, 2, 3
 VERDICTS = {PASS: 'PASS', ADJUSTED: 'ADJUSTED', ESCAPE: 'ESCAPE', MONITOR_FAIL: 'MONITOR_FAIL'}

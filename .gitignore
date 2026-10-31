@@ -8,3 +8,4 @@ sysid/*.csv
 sysid/*.npy
 sysid/__pycache__/
 ext/
+host/__pycache__/
