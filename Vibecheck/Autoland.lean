@@ -9,7 +9,7 @@ def park : Input := { stick := 0, throttle := 0, brake := true }
 
 /-- Vertical-speed command (m/s) toward runway `r`. -/
 def vzCommand (r : Runway) (s : State) (up : Fx) : Fx :=
-  let aim := r.start + 120
+  let aim := r.start + 200
   let dist := aim - s.x
   let above := s.h - r.elev
   if r.start - 80 ≤ s.x ∧ above < max 8 (Fx.abs s.vz * 2.5) then

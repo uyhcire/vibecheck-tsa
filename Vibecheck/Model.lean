@@ -63,7 +63,12 @@ def maxTdPitch : Fx := 0.26
 def maxTdSpeed : Fx := 50
 /-- Max nose-up body pitch (`dz`) on the ground before tail strike limits it (12°). -/
 def maxGroundPitch : Fx := 0.208
+/-- Minimum height above terrain (m) away from runways. -/
+def clearance : Fx := 8
 end P
+
+/-- Required height above terrain at `x`: `clearance`, or 0 over a runway. -/
+def clearanceAt (x : Fx) : Fx := if (runwayAt x).isSome then 0 else P.clearance
 
 def dt (a : Fx) : Fx := Fx.div16 a
 
@@ -128,8 +133,9 @@ def stepAir (s : State) (u : Input) : State :=
       phase := .air }
   if Fx.abs A.aN > P.nMax then { s' with phase := .crashed .overstress }
   else if s'.u > P.vne then { s' with phase := .crashed .overspeed }
-  else if clipsBreakpoint s.x s.h s'.x s'.h then { s' with phase := .crashed .terrain }
-  else if s'.h ≤ terrain s'.x then
+  else if clipsBreakpoint s.x (s.h - P.clearance) s'.x (s'.h - P.clearance) then
+    { s' with phase := .crashed .terrain }
+  else if s'.h ≤ terrain s'.x + clearanceAt s'.x then
     match runwayAt s'.x with
     | none => { s' with phase := .crashed .terrain }
     | some r =>
