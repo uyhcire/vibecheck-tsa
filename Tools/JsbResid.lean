@@ -1,6 +1,6 @@
 import Jsb.Model
 
-/-! `jsbresid CSV [--euler] [--skip N] [--phi MAX] [--beta MAX] [--lat] [--diag] [--dump FILE]`: one Lean tick from each logged state versus JSBSim's next logged state. -/
+/-! `jsbresid CSV [--euler] [--skip N] [--phi MAX] [--beta MAX] [--lat] [--diag] [--dump FILE] [--rawdump FILE]`: one Lean tick from each logged state versus JSBSim's next logged state. -/
 
 open Vibecheck Jsb
 
@@ -123,6 +123,15 @@ def main (args : List String) : IO UInt32 := do
         n.tmap.toFloat * 1000 - g b "map"]
       out := out.push s!"{g a "ep"},{g a "k"},{",".intercalate (vals.map toString)}"
     IO.FS.writeFile file ("\n".intercalate out.toList)
+  | _ => pure ()
+  match args.dropWhile (· != "--rawdump") with
+  | _ :: file :: _ =>
+    let rawOf (n : State) : List Int := [n.x, n.h, n.vx, n.vz, n.dx, n.dz, n.q, n.rpm, n.tmap, n.udot, n.wdot, n.stall,
+      n.ah, n.au, n.qd, n.ah1, n.au1, n.pvz, n.pvz2].map (·.raw)
+    let eul := inits.map fun (s, i) => tickEuler i s
+    let prb := inits.map fun (s, i) => rawOf (probe i s).1
+    let lines := (List.range pairs.size).map fun i => s!"{rawOf preds[i]!} {rawOf eul[i]!} {prb[i]!}"
+    IO.FS.writeFile file ("\n".intercalate lines)
   | _ => pure ()
   let names := ["x m", "h m", "vx m/s", "vz m/s", "theta rad", "q rad/s", "rpm", "map Pa"]
   for j in [0:8] do
