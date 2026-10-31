@@ -20,6 +20,13 @@ class Scalar (α : Type) extends Add α, Sub α, Mul α, Div α, Neg α, Max α,
   atm : Array Int → α → α
   selLt : α → α → α → α → α
   selLe : α → α → α → α → α
+  /-- `mulR c (rnFactor c s)`: attitude renormalisation, a primitive so intervals can split `c` -/
+  rnC : α → α → α
+  rnS : α → α → α
+
+/-- First-order unit-length correction factor `3/2 - (c^2 + s^2)/2`. -/
+def rnFactor {α : Type} [Add α] [Sub α] [Mul α] [Div α] [OfNat α 2] [OfNat α 3] (c s : α) : α :=
+  (3 : α) / 2 - (c * c + s * s) / 2
 
 instance (priority := low) instOfNatScalar {α : Type} [Scalar α] {n : Nat} : OfNat α n := ⟨Scalar.lit ((n : Int) * 65536)⟩
 
@@ -52,5 +59,7 @@ instance instScalarFx : Scalar Fx where
   atm := atmLookup
   selLt a b t e := if a.raw < b.raw then t else e
   selLe a b t e := if a.raw ≤ b.raw then t else e
+  rnC c s := mulR c (@rnFactor Fx ⟨fun a b => ⟨a.raw + b.raw⟩⟩ ⟨fun a b => ⟨a.raw - b.raw⟩⟩ ⟨fmul⟩ ⟨fdiv⟩ ⟨⟨131072⟩⟩ ⟨⟨196608⟩⟩ c s)
+  rnS c s := mulR s (@rnFactor Fx ⟨fun a b => ⟨a.raw + b.raw⟩⟩ ⟨fun a b => ⟨a.raw - b.raw⟩⟩ ⟨fmul⟩ ⟨fdiv⟩ ⟨⟨131072⟩⟩ ⟨⟨196608⟩⟩ c s)
 
 end Jsb

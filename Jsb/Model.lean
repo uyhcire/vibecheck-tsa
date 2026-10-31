@@ -109,9 +109,8 @@ def integrate (k : Nat) (ab : Bool) (s : StateOf α) : StateOf α :=
   let d := Scalar.shr s.q k
   let c := s.dx - Scalar.mulR s.dz d
   let sn := s.dz + Scalar.mulR s.dx d
-  let n := (3 : α) / 2 - (c * c + sn * sn) / 2
   { s with x := s.x + Scalar.shr vx' k, h := h', vx := vx', vz := vz', q := s.q + Scalar.shr s.qd k,
-           dx := Scalar.mulR c n, dz := Scalar.mulR sn n, ah1 := s.ah, au1 := s.au, pvz := s.vz, pvz2 := s.pvz }
+           dx := Scalar.rnC c sn, dz := Scalar.rnS c sn, ah1 := s.ah, au1 := s.au, pvz := s.vz, pvz2 := s.pvz }
 
 /-- Everything JSBSim computes after propagation: forces, moments, engine, derivatives. -/
 def evaluate (k : Nat) (inp : InputOf α) (s : StateOf α) : StateOf α × ProbeOf α :=

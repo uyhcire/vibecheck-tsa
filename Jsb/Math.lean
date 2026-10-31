@@ -92,12 +92,15 @@ def isqrt (n : Nat) : Nat :=
 /-- Square root of a non-negative `Fx` (0 for negative input), truncated to the grid. -/
 def sqrtFx (a : Fx) : Fx := ⟨(isqrt (a.raw.toNat * 65536) : Nat)⟩
 
+/-- Horner coefficients of `atanS30` after the leading one, in 2^30 fixed point. -/
+def atanCoef : List Int := [-17357828, 46073847, -80841635, 114420763, -152566896, 214679118, -357911922, 1073741824]
+
 /-- Arctangent kernel on [-1, 1] in 2^30 fixed point (Abramowitz & Stegun 4.4.49, |error| ≤ 2e-8). -/
 def atanS30 (t : Int) : Int :=
   let t64 := Int64.ofInt t
   let t2 := (t64 * t64) >>> (30 : Int64)
   let step (acc : Int64) (c : Int) : Int64 := Int64.ofInt c + ((acc * t2) >>> (30 : Int64))
-  let p := [-17357828, 46073847, -80841635, 114420763, -152566896, 214679118, -357911922, 1073741824].foldl step 3077586
+  let p := atanCoef.foldl step 3077586
   ((t64 * p) >>> (30 : Int64)).toInt
 
 /-- `atan2 y x` for `x > 0` or `y ≠ 0`, rad; |error| < 1 LSB (2^-16) after rounding to the grid. -/
