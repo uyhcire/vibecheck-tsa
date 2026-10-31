@@ -7,6 +7,7 @@ lean_lib Vibecheck
 lean_lib App
 lean_lib Tools
 lean_lib Jsb
+lean_lib Envelope
 
 /-- SDL3 install prefix; `make` passes `-K sdl=$(brew --prefix sdl3)`. -/
 def sdlPrefix : String := (get_config? sdl).getD "/opt/homebrew/opt/sdl3"

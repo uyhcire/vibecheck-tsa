@@ -27,8 +27,9 @@ run: build
 	.lake/build/bin/vibecheck
 
 verify:
-	lake build $(LAKE_OPTS) Vibecheck
+	lake build $(LAKE_OPTS) Vibecheck Envelope
 	lake env lean Tools/Audit.lean
+	lake env lean Tools/EnvelopeAudit.lean
 
 proofs:
 	cd proofs && lake exe cache get && lake build && lake env lean Proofs/Audit.lean
