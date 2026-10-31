@@ -52,6 +52,13 @@ structure Input where
   thr : Fx
   beta : Fx := 0
   phi : Fx := 0
+  /-- measured roll and yaw rates, rad/s; used only when the matching `ext` bit is set -/
+  p : Fx := 0
+  r : Fx := 0
+  /-- measured body-y aerodynamic plus propeller force, kN -/
+  fy : Fx := 0
+  /-- lateral extensions: bit 0 theta-dot = q cos phi - r sin phi, 1 inertia coupling, 2 propeller gyro, 3 side force and track/heading geometry, 4 body rotation terms r v, p v in udot/wdot, 5 exact track/heading split of the body velocity, 6 bank advanced within the tick -/
+  ext : Nat := 0
   deriving Inhabited, Repr
 
 /-- `1 - x^2/2 + x^4/24`, accurate for |x| < 1. -/
@@ -100,11 +107,12 @@ def atmLookup (tab : Array Int) (h : Fx) : Fx :=
   ⟨tab[i]! + (floorDiv64 (Int64.ofInt (tab[i + 1]! - tab[i]!) * Int64.ofInt f) (Int64.ofInt span)).toInt⟩
 
 /-- JSBSim FGPropagate: Adams-Bashforth 3 altitude, Adams-Bashforth 2 velocity, rectangular Euler attitude/rate. -/
-def integrate (k : Nat) (ab : Bool) (s : State) : State :=
+def integrate (k : Nat) (ab : Bool) (inp : Input) (s : State) : State :=
   let h' := if ab then s.h + shr ⟨(23 * s.vz.raw - 16 * s.pvz.raw + 5 * s.pvz2.raw) / 12⟩ k else s.h + shr s.vz k
   let vx' := if ab then s.vx + shr (3 * s.ah - s.ah1) (k + 1) else s.vx + shr s.ah k
   let vz' := if ab then s.vz + shr (3 * s.au - s.au1) (k + 1) else s.vz + shr s.au k
-  let d := shr s.q k
+  let thdot := if inp.ext &&& 1 != 0 then s.q * cosSmall inp.phi - inp.r * sinSmall inp.phi else s.q
+  let d := shr thdot k
   let c := s.dx - mulR s.dz d
   let sn := s.dz + mulR s.dx d
   let n := (3 : Fx) / 2 - (c * c + sn * sn) / 2
@@ -122,9 +130,11 @@ def evaluate (k : Nat) (inp : Input) (s : State) : State × Probe :=
   let cbeta := cosSmall inp.beta
   -- body velocity: with bank and sideslip the lateral component b of the horizontal speed follows from beta
   let w0 := s.vx * s.dz - s.vz * s.dx
-  let b : Fx := if inp.beta.raw == 0 && inp.phi.raw == 0 then 0
-                else (sqrtFx (s.vx * s.vx + s.vz * s.vz) * sinSmall inp.beta - sphi * w0) / cphi
-  let a := s.vx - (b * b) / (s.vx + s.vx)
+  let vsb := sqrtFx (s.vx * s.vx + s.vz * s.vz) * sinSmall inp.beta
+  let b1 : Fx := if inp.beta.raw == 0 && inp.phi.raw == 0 then 0 else (vsb - sphi * w0) / cphi
+  let refine (bb : Fx) : Fx := (vsb - sphi * (sqrtFx (max 0 (s.vx * s.vx - bb * bb)) * s.dz - s.vz * s.dx)) / cphi
+  let b : Fx := if inp.ext &&& 32 != 0 then refine (refine (refine (refine b1))) else b1
+  let a := if inp.ext &&& 32 != 0 then sqrtFx (max 0 (s.vx * s.vx - b * b)) else s.vx - (b * b) / (s.vx + s.vx)
   let u := a * s.dx + s.vz * s.dz
   let w' := a * s.dz - s.vz * s.dx
   let w := cphi * w' - sphi * b
@@ -187,28 +197,50 @@ def evaluate (k : Nat) (inp : Input) (s : State) : State × Probe :=
   let lift := liftForce e
   let cosA := u / vt
   let sinA := w / vt
-  let fxA := lift * sinA - drag * cosA * cbeta
-  let fzA := 0 - drag * sinA * cbeta - lift * cosA
+  let yS : Fx := if inp.ext &&& 8 != 0 then inp.fy * sinSmall inp.beta else 0
+  let fxA := lift * sinA - drag * cosA * cbeta - yS * cosA
+  let fzA := 0 - drag * sinA * cbeta - lift * cosA - yS * sinA
   let mA := pitchMomentRP e + rpBodyZ * fxA - rpBodyX * fzA
   let axb := (fxA + thrust) / massT
   let azb := fzA / massT
   -- local-frame accelerations on a rotating spherical Earth (equator, eastward track)
   let rKm := earthRadiusKm + s.h / 1000
-  let ah := s.dx * axb + s.dz * azb * cphi - ((s.vz * s.vx) / 1000) / rKm - s.vz / omegaInv2
-  let au := s.dz * axb - s.dx * azb * cphi - (gravity0 - (s.h / 1000) / gravScaleHKm) + ((s.vx * s.vx) / 1000) / rKm + s.vx / omegaInv2 + omega2R0
-  let qd := (mA + thrusterBodyZ * thrust) / iyyT
-  let udot := s.dx * ah + s.dz * au - s.q * w
-  let wdot := s.dz * ah - s.dx * au + s.q * u
+  let ayb : Fx := if inp.ext &&& 8 != 0 then inp.fy / massT else 0
+  let gz := azb * cphi + ayb * sphi
+  let ahPsi := s.dx * axb + s.dz * gz
+  let ahT : Fx := if inp.ext &&& 8 != 0 && s.vx.raw > 655 then (a * ahPsi + b * (ayb * cphi - azb * sphi)) / s.vx else ahPsi
+  let ah := ahT - ((s.vz * s.vx) / 1000) / rKm - s.vz / omegaInv2
+  let au := s.dz * axb - s.dx * gz - (gravity0 - (s.h / 1000) / gravScaleHKm) + ((s.vx * s.vx) / 1000) / rKm + s.vx / omegaInv2 + omega2R0
+  let coup : Fx := if inp.ext &&& 2 != 0 then (⟨49615⟩ : Fx) * inp.p * inp.r else 0
+  let gyro : Fx := if inp.ext &&& 4 != 0 then inp.r * (((s.rpm * (⟨6863⟩ : Fx)) * propIxx) / 1000 / iyyT) else 0
+  let qd := (mA + thrusterBodyZ * thrust) / iyyT + coup + gyro
+  let rot : Bool := inp.ext &&& 16 != 0
+  let side : Bool := inp.ext &&& 8 != 0
+  -- heading-frame forward and right accelerations; the right one feeds body z through the bank angle
+  let af := ahPsi - ((s.vz * s.vx) / 1000) / rKm - s.vz / omegaInv2
+  let ar := ayb * cphi - azb * sphi
+  let udot := (if side then s.dx * af else s.dx * ah) + s.dz * au - s.q * w + (if rot then inp.r * vb else 0)
+  let wdot := (if side then cphi * (s.dz * af - s.dx * au) - sphi * ar else s.dz * ah - s.dx * au) + s.q * u - (if rot then inp.p * vb else 0)
   ({ s with rpm := rpm', tmap := tmap, udot := udot, wdot := wdot, stall := stall, ah := ah, au := au, qd := qd },
    { rho := rho, alpha := alpha, adot := adot, qbar := qbar, fxA := fxA, fzA := fzA, mA := mA, fxP := thrust,
      mP := thrusterBodyZ * thrust, hp := hp, vind := vind, thrustKN := thrust, cl := f_CLwbh e, cd := f_CDwbh e,
      tipMach := tipM, ct := ct, adv := adv })
 
 def step (k : Nat) (ab : Bool) (inp : Input) (s : State) : State :=
-  (evaluate k inp (integrate k ab s)).1
+  (evaluate k inp (integrate k ab inp s)).1
+
+/-- Steps with the bank angle advanced by phi-dot = p + tan theta (q sin phi + r cos phi) from measured p, r before each step. -/
+def iterPhi (n : Nat) (inp : Input) (s : State) : State :=
+  match n with
+  | 0 => s
+  | n + 1 =>
+    let phiDot := inp.p + (s.dz / s.dx) * (s.q * sinSmall inp.phi + inp.r * cosSmall inp.phi)
+    let inp' := { inp with phi := inp.phi + shr phiDot 7 }
+    iterPhi n inp' (step 7 true inp' s)
 
 /-- One 1/16 s tick as JSBSim runs it: 8 steps of 1/128 s, Adams-Bashforth histories carried in the state. -/
-def tickAB (inp : Input) (s : State) : State := iter 8 (step 7 true inp) s
+def tickAB (inp : Input) (s : State) : State :=
+  if inp.ext &&& 64 != 0 then iterPhi 8 inp s else iter 8 (step 7 true inp) s
 
 /-- One 1/16 s tick as 4 forward-Euler steps of 1/64 s (no history used). -/
 def tickEuler (inp : Input) (s : State) : State := iter 4 (step 6 false inp) s

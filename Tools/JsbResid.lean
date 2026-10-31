@@ -1,6 +1,6 @@
 import Jsb.Model
 
-/-! `jsbresid CSV [--euler] [--skip N] [--phi MAX] [--beta MAX] [--lat] [--diag] [--dump FILE]`: one Lean tick from each logged state versus JSBSim's next logged state. -/
+/-! `jsbresid CSV [--euler] [--skip N] [--phi MAX] [--beta MAX] [--lat [--kin] [--coup] [--gyro] [--side] [--rot] [--exact] [--phidot]] [--diag] [--dump FILE]`: one Lean tick from each logged state versus JSBSim's next logged state. -/
 
 open Vibecheck Jsb
 
@@ -60,9 +60,12 @@ def main (args : List String) : IO UInt32 := do
       stall := toFx (g r "stallh"), ah := toFx (g r "ah0"), au := toFx (g r "au0"), qd := toFx (g r "qdot"),
       ah1 := toFx (g r "ah1"), au1 := toFx (g r "au1"), pvz := toFx (g r "hvz1"), pvz2 := toFx (g r "hvz2") }
   let lat := args.contains "--lat"
+  let extBits := (if args.contains "--kin" then 1 else 0) + (if args.contains "--coup" then 2 else 0) + (if args.contains "--gyro" then 4 else 0) + (if args.contains "--side" then 8 else 0) + (if args.contains "--rot" then 16 else 0) + (if args.contains "--exact" then 32 else 0) + (if args.contains "--phidot" then 64 else 0)
   let mkInput (r : Array Float) : Input :=
     { elev := toFx (g r "elev"), thr := toFx (g r "thr"),
-      beta := if lat then toFx (g r "beta") else 0, phi := if lat then toFx (g r "phi") else 0 }
+      beta := if lat then toFx (g r "beta") else 0, phi := if lat then toFx (g r "phi") else 0,
+      p := if lat && extBits != 0 then toFx (g r "p") else 0, r := if lat && extBits != 0 then toFx (g r "r") else 0,
+      fy := if lat && extBits &&& 8 != 0 then toFx (g r "fy") else 0, ext := extBits }
   -- pairs of consecutive ticks in one episode
   let mut pairs : Array (Array Float × Array Float) := #[]
   for i in [0:rows.size - 1] do
