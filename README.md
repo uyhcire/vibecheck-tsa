@@ -55,8 +55,19 @@ Not trusted: `Autoland.lean`, `Filter.lean` (their correctness is what is proved
 
 Modelling assumptions: no wind; the aircraft is a point (touchdown and terrain clearance at the reference point); the plane flies left to right (runways behind it are not escape options).
 
+## How close is a sim step to the continuous physics?
+
+`proofs/` (Mathlib, `make proofs`) states an idealized model, the real-number ODE for the same forces with the elevator and throttle held over the step, and proves, about the exact `stepAir`:
+
+- **Code = Euler + rounding** (`stepAir_near_euler`): every component of the fixed-point step is within 2⁻¹⁶ m (position), 1/2048 m/s (velocity), 1/2048 rad/s (pitch rate) of one exact Euler step; the pitch vector is within 0.039, almost all of it the renormalization.
+- **Euler vs exact flow** (`flow_near_euler_box`): any exact solution that stays in a box is within an explicit componentwise bound of the Euler step after 1/16 s. In a cruise box (speeds ≤ 60 m/s, |q| ≤ 0.5 rad/s): 0.09 m in x, 0.11 m in h, 2 m/s in velocity, 0.25 rad/s in q.
+- **Combined** (`flow_near_code`, `flow_near_code_cruise`), with satisfiability examples and an axiom audit.
+
+The velocity bounds are honest but loose (the box bounds each component separately). These are per-step statements: the safety theorem is about the sim, not about an aircraft flying the continuous ODE.
+
 ## Layout
 
 - `Vibecheck/` the verified core (core Lean only, no Mathlib).
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
+- `proofs/`: the Mathlib fidelity package above.
