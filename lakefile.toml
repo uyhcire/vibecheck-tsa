@@ -7,3 +7,10 @@ name = "Vibecheck"
 [[lean_exe]]
 name = "vibecheck"
 root = "Main"
+
+[[lean_lib]]
+name = "Tools"
+
+[[lean_exe]]
+name = "simtest"
+root = "Tools.SimTest"
