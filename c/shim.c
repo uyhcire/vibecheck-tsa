@@ -109,7 +109,7 @@ lean_obj_res fs_quit(lean_obj_arg world) { run_on_main(do_quit, NULL); return io
 enum {
   K_UP = 1, K_DOWN = 2, K_THR_UP = 4, K_THR_DN = 8, K_BRAKE = 16,
   P_FILTER = 1 << 16, P_RESTART = 1 << 17, P_PAUSE = 1 << 18, P_GHOST = 1 << 19,
-  P_QUIT = 1 << 20, P_HELP = 1 << 21, P_FAST = 1 << 22
+  P_QUIT = 1 << 20, P_HELP = 1 << 21, P_FAST = 1 << 22, P_AUTO = 1 << 23
 };
 
 static void do_poll(void *p) {
@@ -125,6 +125,7 @@ static void do_poll(void *p) {
         case SDLK_G: pressed |= P_GHOST; break;
         case SDLK_H: pressed |= P_HELP; break;
         case SDLK_T: pressed |= P_FAST; break;
+        case SDLK_A: pressed |= P_AUTO; break;
         case SDLK_ESCAPE: case SDLK_Q: quit_requested = 1; break;
         default: break;
       }

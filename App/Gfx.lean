@@ -28,6 +28,7 @@ def pGhost : UInt32 := (1 : UInt32) <<< 19
 def pQuit : UInt32 := (1 : UInt32) <<< 20
 def pHelp : UInt32 := (1 : UInt32) <<< 21
 def pFast : UInt32 := (1 : UInt32) <<< 22
+def pAuto : UInt32 := (1 : UInt32) <<< 23
 
 def has (k bit : UInt32) : Bool := k &&& bit != 0
 

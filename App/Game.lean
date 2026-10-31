@@ -35,6 +35,9 @@ structure Game where
   ghost : Bool := true
   help : Bool := true
   fast : Bool := false
+  autopilot : Bool := false
+  autoAt : Option Nat := none
+  autoRunway : Option Runway := none
   ghostPath : Array (Float × Float) := #[]
   ghostRunway : Option Runway := none
   safeNow : Bool := true
@@ -90,13 +93,22 @@ def spawnExplosion (g : Game) : Game := Id.run do
 def scriptPilot (g : Game) : Game :=
   let t := g.steps.toFloat / 16
   let stick := if t < 6 then 0 else if t < 12 then 0.5 else if t < 30 then 0.05 else -1
-  { g with stick := stick, throttle := 1 }
+  let g := { g with stick := stick, throttle := 1 }
+  match g.autoAt with
+  | some a =>
+    if g.steps ≥ a * 16 && !g.autopilot then
+      { g with autopilot := true, autoRunway := escapeRunway g.s }
+    else g
+  | none => g
 
 def physicsStep (g : Game) : IO Game := do
   let g := if g.scripted then scriptPilot g else g
   if g.s.crashed then return { g with steps := g.steps + 1 }
   let t0 ← IO.monoNanosNow
-  let pilot : Input := { stick := toFx g.stick, throttle := toFx g.throttle, brake := g.pilot.brake }
+  let pilot : Input :=
+    match g.autopilot, g.autoRunway with
+    | true, some r => Autoland.control r g.s
+    | _, _ => { stick := toFx g.stick, throttle := toFx g.throttle, brake := g.pilot.brake }
   let safeU := inS (step g.s pilot.clampAdm)
   let applied := if g.filterOn then filter g.s pilot else pilot.clampAdm
   let overridden := g.filterOn && applied != pilot.clampAdm
@@ -132,6 +144,9 @@ def handleInput (g : Game) (k : UInt32) (dtSec : Float) : Game := Id.run do
   if Gfx.has k Gfx.pGhost then g := { g with ghost := !g.ghost, ghostPath := #[] }
   if Gfx.has k Gfx.pHelp then g := { g with help := !g.help }
   if Gfx.has k Gfx.pFast then g := { g with fast := !g.fast }
+  if Gfx.has k Gfx.pAuto then
+    g := if g.autopilot then { g with autopilot := false, autoRunway := none }
+      else { g with autopilot := true, autoRunway := escapeRunway g.s }
   let target : Float :=
     if Gfx.has k Gfx.keyUp then 1 else if Gfx.has k Gfx.keyDown then -1 else 0
   let rate := 3.0 * dtSec
@@ -171,16 +186,16 @@ def drawSky (c : Cam) : IO Unit := do
     Gfx.fillRect 0 (H * t) W (H / bands.toFloat + 1)
 
 def drawFarHills (c : Cam) : IO Unit := do
-  col 150 170 200
+  col 160 182 214
   let par := 0.25
   let n := 40
   for i in [0:n] do
-    let base := (c.x * par / 300).floor + i.toFloat - 4
-    let wx0 := base * 300
-    let h0 := 60 + 45 * Float.sin (base * 1.7) + 25 * Float.sin (base * 0.53)
-    let h1 := 60 + 45 * Float.sin ((base + 1) * 1.7) + 25 * Float.sin ((base + 1) * 0.53)
+    let base := (c.x * par / 150).floor + i.toFloat - 8
+    let wx0 := base * 150
+    let h0 := 70 + 55 * Float.sin (base * 2.3) + 35 * Float.sin (base * 0.71)
+    let h1 := 70 + 55 * Float.sin ((base + 1) * 2.3) + 35 * Float.sin ((base + 1) * 0.71)
     let sx0 := W * 0.33 + (wx0 - c.x * par) * c.z * 0.5
-    let sx1 := sx0 + 300 * c.z * 0.5
+    let sx1 := sx0 + 150 * c.z * 0.5
     let sy0 := H * 0.62 - h0 * c.z * 0.5 + (c.h - 50) * c.z * 0.15
     let sy1 := H * 0.62 - h1 * c.z * 0.5 + (c.h - 50) * c.z * 0.15
     if sx1 > -10 && sx0 < W + 10 then Gfx.quad sx0 sy0 sx1 sy1 sx1 H sx0 H
@@ -326,7 +341,7 @@ def drawHud (g : Game) : IO Unit := do
   Gfx.text 20 64 2 s!"CLIMB    {fmt1 s.vz.toFloat} m/s"
   Gfx.text 20 86 2 s!"PITCH {fmt0 (pitchDeg s)}  AOA {fmt0 (aoaDeg s)}"
   Gfx.text 20 112 2 "THR"
-  bar 80 112 240 14 g.throttle 255 170 60
+  bar 80 112 240 14 g.applied.throttle.toFloat 255 170 60
   Gfx.text 20 134 2 "FUEL"
   bar 80 134 240 14 (s.fuel.toFloat / P.fuelMax.toFloat) 90 200 255
   Gfx.text 20 158 2 "STICK"
@@ -344,25 +359,31 @@ def drawHud (g : Game) : IO Unit := do
     col 255 60 60
     Gfx.text 360 20 3 "STALL"
   col 0 0 0 110
-  Gfx.fillRect (W - 340) 10 330 112
+  Gfx.fillRect (W - 380) 10 370 112
   if g.filterOn then
     col 80 255 140
-    Gfx.text (W - 330) 20 2 "SAFETY FILTER: ON"
+    Gfx.text (W - 370) 20 2 "SAFETY FILTER: ON"
   else
     col 255 90 90
-    Gfx.text (W - 330) 20 2 "SAFETY FILTER: OFF"
+    Gfx.text (W - 370) 20 2 "SAFETY FILTER: OFF"
   if g.safeNow then
     col 80 255 140
-    Gfx.text (W - 330) 44 2 "your input: SAFE"
+    Gfx.text (W - 370) 44 2 "your input: SAFE"
   else
     col 255 180 60
-    Gfx.text (W - 330) 44 2 "your input: UNSAFE"
+    Gfx.text (W - 370) 44 2 "your input: UNSAFE"
   col 255 255 255
   let tgt := match g.ghostRunway with
     | some r => runwayNames[runwayIndex r]!
-    | none => "none!"
-  Gfx.text (W - 330) 68 2 s!"escape: land at {tgt}"
-  Gfx.text (W - 330) 92 1.5 s!"overrides {g.interventions}  step {fmt1 g.stepMs} ms"
+    | none => "NONE"
+  Gfx.text (W - 370) 68 2 s!"escape: land at {tgt}"
+  Gfx.text (W - 370) 92 1.5 s!"overrides {g.interventions}  step {fmt1 g.stepMs} ms"
+  if g.autopilot then
+    col 120 200 255
+    let name := match g.autoRunway with
+      | some r => runwayNames[runwayIndex r]!
+      | none => "?"
+    Gfx.text (W / 2 - 240) 140 2.5 s!"AUTOLAND TO {name} (A)"
   if g.overrideSteps > 0 then
     col 255 120 40 (if (g.steps / 3) % 2 == 0 then 255 else 150)
     Gfx.text (W / 2 - 300) 250 3 "VERIFIED FILTER: OVERRIDE"
@@ -390,7 +411,7 @@ def drawHud (g : Game) : IO Unit := do
     Gfx.text 20 (H - 140) 1.75 "UP/DOWN      pitch up / down"
     Gfx.text 20 (H - 120) 1.75 "W/S          throttle up / down"
     Gfx.text 20 (H - 100) 1.75 "SPACE        brake"
-    Gfx.text 20 (H - 80) 1.75 "F filter on/off   G escape path   T fast"
+    Gfx.text 20 (H - 80) 1.75 "F filter  A autoland  G escape path  T fast"
     Gfx.text 20 (H - 60) 1.75 "R restart   P pause   H help   ESC quit"
     Gfx.text 20 (H - 36) 1.75 "Try to crash. The Lean-verified filter won't let you."
 
@@ -456,7 +477,8 @@ def run : IO Unit := do
   let shots := ((← IO.getEnv "VC_SHOTS").getD "").splitOn "," |>.filterMap String.toNat?
   let exitAt := (← IO.getEnv "VC_EXIT").bind String.toNat?
   let filterOn := (← IO.getEnv "VC_NOFILTER").isNone
-  let g := { Game.new with scripted, shots, exitAt, filterOn, help := !scripted }
+  let autoAt := (← IO.getEnv "VC_AUTOPILOT").bind String.toNat?
+  let g := { Game.new with scripted, shots, exitAt, filterOn, autoAt, help := !scripted }
   loop (refreshGhost g) t 0
   Gfx.quit
 
