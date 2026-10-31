@@ -28,3 +28,6 @@ lean_exe simtest where
 
 lean_exe filtertest where
   root := `Tools.FilterTest
+
+lean_exe disturb where
+  root := `Tools.Disturb
