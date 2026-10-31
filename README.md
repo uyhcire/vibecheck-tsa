@@ -69,6 +69,7 @@ The velocity bounds are honest but loose (the box bounds each component separate
 
 - `Vibecheck/` the verified core (core Lean only, no Mathlib).
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
+- `Jsb/`: fixed-point Lean port of JSBSim's c172p longitudinal model (unverified; not imported by `Vibecheck/`), with residual tooling in `sysid/` and `Tools/JsbResid.lean`.
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
 - `proofs/`: the Mathlib fidelity package above.
 - `problems/`: open problems with checkable goals, for semi-independent work (start with `problems/robust-safety/`).
