@@ -180,12 +180,6 @@ theorem ratOf_eq (f : Float) : CitySafety.ratOf f = ratOfBits f.toBits := by
 theorem dyadic_zero (e : Int) : dyadic 0 e = 0 := by
   unfold dyadic; split <;> simp [Rat.div_def]
 
-theorem dyadic_neg (m e : Int) : dyadic (-m) e = -dyadic m e := by
-  unfold dyadic; split <;> simp only [Rat.intCast_neg] <;> grind
-
-theorem dyadic_add (a b k : Int) : dyadic a k + dyadic b k = dyadic (a + b) k := by
-  unfold dyadic; split <;> simp only [Rat.intCast_add] <;> grind
-
 theorem dyadic_mul (c m k : Int) : dyadic (c * m) k = c * dyadic m k := by
   unfold dyadic; split <;> simp only [Rat.intCast_mul] <;> grind
 
@@ -211,98 +205,266 @@ theorem dyadic_shift (m : Int) {k e : Int} (h : k ≤ e) :
       generalize ((2 ^ (e - k).toNat : Nat) : Rat) = A at hp ⊢
       grind
 
-/-- `ratOfBits` as a signed mantissa and a binary exponent. -/
-def decB (b : UInt64) : Option (Int × Int) :=
+theorem ediv_of {X q : Int} {d : Int} (hd : 0 < d) (h1 : d * q ≤ X) (h2 : X < d * q + d) : X / d = q :=
+  ((Int.ediv_emod_unique (r := X - d * q) hd).mpr ⟨by omega, by omega, by omega⟩).1
+
+/-- The table: `(X / den, -((-X) / den))` for `X = ±g1 ± g2`, `g1, g2 < den`. -/
+@[inline] def fcTab (s1 s2 : Bool) (g1 g2 den : Nat) : Int × Int :=
+  match s1, s2 with
+  | false, false => let t := g1 + g2
+    if t = 0 then (0, 0) else if t < den then (0, 1) else if t = den then (1, 1) else (1, 2)
+  | true, true => let t := g1 + g2
+    if t = 0 then (0, 0) else if t < den then (-1, 0) else if t = den then (-1, -1) else (-2, -1)
+  | false, true => if g1 = g2 then (0, 0) else if g2 < g1 then (0, 1) else (-1, 0)
+  | true, false => if g1 = g2 then (0, 0) else if g1 < g2 then (0, 1) else (-1, 0)
+
+@[inline] def sgnI (s : Bool) (g : Nat) : Int := if s then -(g : Int) else g
+
+theorem fcTab_eq (s1 s2 : Bool) {g1 g2 den : Nat} (h1 : g1 < den) (h2 : g2 < den) :
+    fcTab s1 s2 g1 g2 den = ((sgnI s1 g1 + sgnI s2 g2) / (den : Int), -((-(sgnI s1 g1 + sgnI s2 g2)) / (den : Int))) := by
+  have hd : (0 : Int) < den := by omega
+  cases s1 <;> cases s2 <;> simp only [fcTab, sgnI, Bool.false_eq_true, ↓reduceIte] <;> (repeat' split) <;>
+    (refine Prod.ext ?_ ?_ <;> simp only <;> first
+      | (rw [ediv_of hd] <;> omega)
+      | (rw [ediv_of hd (q := 1)] <;> omega)
+      | (rw [ediv_of hd (q := -1)] <;> omega)
+      | (rw [ediv_of hd (q := -2)] <;> omega)
+      | (rw [ediv_of hd (q := 0)] <;> omega)
+      | (rw [ediv_of hd (q := 2)] <;> omega))
+
+def sgn (s : Bool) (q : Rat) : Rat := if s then -q else q
+
+theorem dyadic_add4 (m e : Int) : dyadic m e * 16 = dyadic m (e + 4) := by
+  rw [dyadic_shift m (show e ≤ e + 4 by omega), show (e + 4 - e).toNat = 4 by omega, Int.mul_comm, dyadic_mul]
+  simp only [Nat.reducePow, Int.cast_ofNat_Int]; grind
+
+theorem nat_div_mod_rat (n d : Nat) (hd : 0 < d) : (n : Rat) / d = ((n / d : Nat) : Rat) + ((n % d : Nat) : Rat) / d := by
+  have h := Nat.div_add_mod n d
+  have hq := natRat_pos hd
+  conv => lhs; rw [← h]
+  simp only [Rat.natCast_add, Rat.natCast_mul]
+  grind
+
+/-- `2 ^ k` by a machine shift when it fits (`Nat.pow` goes through GMP). -/
+@[inline] def pow2 (k : Nat) : Nat := if k < 63 then ((1 : UInt64) <<< k.toUInt64).toNat else 2 ^ k
+
+theorem pow2_eq (k : Nat) : pow2 k = 2 ^ k := by
+  unfold pow2
+  split
+  · rename_i h
+    rw [UInt64.toNat_shiftLeft]
+    have hk : k.toUInt64.toNat = k := by simp; omega
+    rw [hk, Nat.mod_eq_of_lt (by omega : k < 64), Nat.shiftLeft_eq]
+    simp only [UInt64.reduceToNat, Nat.one_mul]
+    exact Nat.mod_eq_of_lt (Nat.pow_lt_pow_right (by decide) (by omega))
+  · rfl
+
+/-- `16·M·2^E` as `I + r/2^p`, `r < 2^p`. -/
+@[inline] def split16 (M : Nat) (E : Int) : Nat × Nat × Nat :=
+  if M = 0 then (0, 0, 0)
+  else if 0 ≤ E + 4 then (M * pow2 (E + 4).toNat, 0, 0)
+  else let p := (-(E + 4)).toNat; (M / pow2 p, M % pow2 p, p)
+
+theorem split16_eq (M : Nat) (E : Int) :
+    dyadic M E * S = ((split16 M E).1 : Rat) + ((split16 M E).2.1 : Rat) / ((2 ^ (split16 M E).2.2 : Nat) : Rat) ∧
+      (split16 M E).2.1 < 2 ^ (split16 M E).2.2 := by
+  unfold split16
+  simp only [pow2_eq]
+  split
+  · rename_i h; subst h; simp [dyadic_zero, Rat.div_def, Rat.add_zero]
+  · rw [show S = 16 from rfl, dyadic_add4]
+    split
+    · rename_i h
+      simp only [dyadic, h, ↓reduceIte, Rat.intCast_natCast, Rat.natCast_mul]
+      simp [Rat.div_def, Rat.add_zero]
+    · rename_i h
+      simp only [dyadic, h, ↓reduceIte, Rat.intCast_natCast]
+      exact ⟨nat_div_mod_rat _ _ (Nat.pow_pos (by decide)), Nat.mod_lt _ (Nat.pow_pos (by decide))⟩
+
+/-- `16·ft·M·2^E = 381·M·2^(E+4) / 1250` as `I + r/(1250·2^q)`, `r < 1250·2^q`. -/
+@[inline] def splitFt (M : Nat) (E : Int) : Nat × Nat × Nat :=
+  if M = 0 then (0, 0, 0)
+  else if 0 ≤ E + 4 then let n := 381 * M * pow2 (E + 4).toNat; (n / 1250, n % 1250, 0)
+  else let q := (-(E + 4)).toNat; let K := 1250 * pow2 q; (381 * M / K, 381 * M % K, q)
+
+theorem splitFt_eq (M : Nat) (E : Int) :
+    dyadic M E * CitySafety.ft * S =
+      ((splitFt M E).1 : Rat) + ((splitFt M E).2.1 : Rat) / ((1250 * 2 ^ (splitFt M E).2.2 : Nat) : Rat) ∧
+      (splitFt M E).2.1 < 1250 * 2 ^ (splitFt M E).2.2 := by
+  have hft : ∀ x : Rat, x * CitySafety.ft * S = x * 16 * 381 / 1250 := by
+    intro x; simp only [CitySafety.ft, S]; grind
+  unfold splitFt
+  simp only [pow2_eq]
+  split
+  · rename_i h; subst h; simp [dyadic_zero, Rat.div_def, Rat.add_zero]
+  · rw [hft, dyadic_add4]
+    split
+    · rename_i h
+      simp only [dyadic, h, ↓reduceIte, Rat.intCast_natCast, Nat.pow_zero, Nat.mul_one]
+      refine ⟨?_, Nat.mod_lt _ (by decide)⟩
+      rw [← nat_div_mod_rat _ _ (by decide)]
+      simp only [Rat.natCast_mul]; grind
+    · rename_i h
+      simp only [dyadic, h, ↓reduceIte, Rat.intCast_natCast]
+      have hK : 0 < 1250 * 2 ^ (-(E + 4)).toNat := Nat.mul_pos (by decide) (Nat.pow_pos (by decide))
+      refine ⟨?_, Nat.mod_lt _ hK⟩
+      rw [← nat_div_mod_rat _ _ hK]
+      have hp := two_pow_pos (-(E + 4)).toNat
+      simp only [Rat.natCast_mul]
+      generalize ((2 ^ (-(E + 4)).toNat : Nat) : Rat) = B at hp ⊢
+      grind
+
+/-- `(⌊v⌋, ⌈v⌉)` for `v = ±(I₁ + r₁/2^p) ± (I₂ + r₂/(1250·2^q))`, in scalar `Nat`/`Int` arithmetic. -/
+@[inline] def fc2 (s1 : Bool) (t1 : Nat × Nat × Nat) (s2 : Bool) (t2 : Nat × Nat × Nat) : Int × Int :=
+  let r := max t1.2.2 t2.2.2
+  let tab := fcTab s1 s2 (t1.2.1 * 1250 * pow2 (r - t1.2.2)) (t2.2.1 * pow2 (r - t2.2.2)) (1250 * pow2 r)
+  let P : Int := sgnI s1 t1.1 + sgnI s2 t2.1
+  (P + tab.1, P + tab.2)
+
+theorem fc2_eq (s1 s2 : Bool) (t1 t2 : Nat × Nat × Nat) (h1 : t1.2.1 < 2 ^ t1.2.2) (h2 : t2.2.1 < 1250 * 2 ^ t2.2.2) :
+    fc2 s1 t1 s2 t2 =
+      ((sgn s1 ((t1.1 : Rat) + (t1.2.1 : Rat) / ((2 ^ t1.2.2 : Nat) : Rat)) +
+          sgn s2 ((t2.1 : Rat) + (t2.2.1 : Rat) / ((1250 * 2 ^ t2.2.2 : Nat) : Rat))).floor,
+       (sgn s1 ((t1.1 : Rat) + (t1.2.1 : Rat) / ((2 ^ t1.2.2 : Nat) : Rat)) +
+          sgn s2 ((t2.1 : Rat) + (t2.2.1 : Rat) / ((1250 * 2 ^ t2.2.2 : Nat) : Rat))).ceil) := by
+  obtain ⟨I1, r1, p⟩ := t1
+  obtain ⟨I2, r2, q⟩ := t2
+  simp only at h1 h2 ⊢
+  have ep : 2 ^ max p q = 2 ^ p * 2 ^ (max p q - p) := by rw [← Nat.pow_add]; congr 1; omega
+  have eq : 2 ^ max p q = 2 ^ q * 2 ^ (max p q - q) := by rw [← Nat.pow_add]; congr 1; omega
+  have hA : 0 < 2 ^ (max p q - p) := Nat.pow_pos (by decide)
+  have hB : 0 < 2 ^ (max p q - q) := Nat.pow_pos (by decide)
+  have g1lt : r1 * 1250 * 2 ^ (max p q - p) < 1250 * 2 ^ max p q := by
+    have := Nat.mul_lt_mul_of_pos_right h1 (Nat.mul_pos (show 0 < 1250 by decide) hA)
+    rw [ep]; grind
+  have g2lt : r2 * 2 ^ (max p q - q) < 1250 * 2 ^ max p q := by
+    rw [eq, ← Nat.mul_assoc]
+    exact Nat.mul_lt_mul_of_pos_right h2 hB
+  have hden : 0 < 1250 * 2 ^ max p q := Nat.mul_pos (by decide) (Nat.pow_pos (by decide))
+  unfold fc2
+  dsimp only
+  simp only [pow2_eq]
+  rw [fcTab_eq s1 s2 g1lt g2lt]
+  generalize hX : sgnI s1 (r1 * 1250 * 2 ^ (max p q - p)) + sgnI s2 (r2 * 2 ^ (max p q - q)) = X
+  have hv : sgn s1 ((I1 : Rat) + (r1 : Rat) / ((2 ^ p : Nat) : Rat)) +
+      sgn s2 ((I2 : Rat) + (r2 : Rat) / ((1250 * 2 ^ q : Nat) : Rat)) =
+      (X : Rat) / ((1250 * 2 ^ max p q : Nat) : Rat) + ((sgnI s1 I1 + sgnI s2 I2 : Int) : Rat) := by
+    rw [← hX]
+    have e1 : ((2 ^ max p q : Nat) : Rat) = ((2 ^ p : Nat) : Rat) * ((2 ^ (max p q - p) : Nat) : Rat) := by
+      rw [ep, Rat.natCast_mul]
+    have e2 : ((2 ^ max p q : Nat) : Rat) = ((2 ^ q : Nat) : Rat) * ((2 ^ (max p q - q) : Nat) : Rat) := by
+      rw [eq, Rat.natCast_mul]
+    have a1 := two_pow_pos p
+    have a2 := two_pow_pos q
+    have a3 := natRat_pos hA
+    have a4 := natRat_pos hB
+    cases s1 <;> cases s2 <;> simp only [sgn, sgnI, Bool.false_eq_true, ↓reduceIte, Rat.intCast_add, Rat.intCast_neg,
+      Rat.intCast_natCast, Rat.natCast_mul] <;>
+    (generalize ((2 ^ max p q : Nat) : Rat) = M at *
+     generalize ((2 ^ p : Nat) : Rat) = P1 at *
+     generalize ((2 ^ q : Nat) : Rat) = Q1 at *
+     generalize ((2 ^ (max p q - p) : Nat) : Rat) = A at *
+     generalize ((2 ^ (max p q - q) : Nat) : Rat) = B at *
+     subst e1
+     grind)
+  rw [hv, Rat.floor_add_intCast, Rat.ceil_add_intCast, floor_int_div _ _ hden, Rat.ceil_eq_neg_floor_neg,
+    show -((X : Rat) / ((1250 * 2 ^ max p q : Nat) : Rat)) = ((-X : Int) : Rat) / ((1250 * 2 ^ max p q : Nat) : Rat) by
+      rw [Rat.intCast_neg]; grind, floor_int_div _ _ hden]
+  refine Prod.ext ?_ ?_ <;> simp only <;> omega
+
+theorem mantissa_toNat (b : UInt64) :
+    ((b &&& 0xFFFFFFFFFFFFF) + 0x10000000000000).toNat = 2 ^ 52 + (b &&& 0xFFFFFFFFFFFFF).toNat := by
+  have h : (b &&& 0xFFFFFFFFFFFFF).toNat ≤ 0xFFFFFFFFFFFFF := by
+    rw [UInt64.toNat_and]; exact Nat.and_le_right
+  rw [UInt64.toNat_add]
+  simp only [UInt64.reduceToNat]
+  omega
+
+/-- `ratOfBits` as sign, mantissa and binary exponent, all in scalar range (an `Int` mantissa would not be). -/
+@[inline] def decN (b : UInt64) : Option (Bool × Nat × Int) :=
   let e := ((b >>> 52) &&& 0x7FF).toNat
   let frac := (b &&& 0xFFFFFFFFFFFFF).toNat
   if e == 0x7FF then none
   else
-    let (m, ex) : Nat × Int := if e == 0 then (frac, -1074) else (frac + 2 ^ 52, (e : Int) - 1075)
-    some (if b >>> 63 == 1 then -(m : Int) else m, ex)
+    let (m, ex) : Nat × Int := if e == 0 then (frac, -1074)
+      else (((b &&& 0xFFFFFFFFFFFFF) + 0x10000000000000).toNat, (e : Int) - 1075)
+    some (b >>> 63 == 1, m, ex)
 
-theorem ratOfBits_dec (b : UInt64) : ratOfBits b = (decB b).map fun me => dyadic me.1 me.2 := by
-  unfold ratOfBits decB
+theorem ratOfBits_decN (b : UInt64) : ratOfBits b = (decN b).map fun x => sgn x.1 (dyadic x.2.1 x.2.2) := by
+  unfold ratOfBits decN
   dsimp only
+  rw [mantissa_toNat, Nat.add_comm]
   split
   · rfl
-  · simp only [Option.map_some]
-    split <;> simp [dyadic_neg]
+  · simp only [Option.map_some, sgn]
 
-/-- `⌊n·2^k / d⌋` and `⌈n·2^k / d⌉` in `Int`. -/
-def fcDy (n k : Int) (d : Nat) : Int × Int :=
-  if 0 ≤ k then let a := n * ((2 ^ k.toNat : Nat) : Int); (a / (d : Int), -((-a) / (d : Int)))
-  else let D : Nat := 2 ^ (-k).toNat * d; (n / (D : Int), -((-n) / (D : Int)))
+theorem fc_xy (sa : Bool) (a : Nat) (ea : Int) (sm : Bool) (m : Nat) (em : Int) :
+    fc2 sa (split16 a ea) sm (splitFt m em) =
+      (((sgn sa (dyadic a ea) + sgn sm (dyadic m em) * CitySafety.ft) * S).floor,
+       ((sgn sa (dyadic a ea) + sgn sm (dyadic m em) * CitySafety.ft) * S).ceil) := by
+  obtain ⟨e1, b1⟩ := split16_eq a ea
+  obtain ⟨e2, b2⟩ := splitFt_eq m em
+  rw [fc2_eq sa sm _ _ b1 b2, ← e1, ← e2]
+  have : (sgn sa (dyadic a ea) + sgn sm (dyadic m em) * CitySafety.ft) * S =
+      sgn sa (dyadic a ea * S) + sgn sm (dyadic m em * CitySafety.ft * S) := by
+    cases sa <;> cases sm <;> simp only [sgn, Bool.false_eq_true, ↓reduceIte] <;> grind
+  rw [this]
 
-theorem fcDy_eq (n k : Int) {d : Nat} (hd : 0 < d) :
-    fcDy n k d = ((dyadic n k / d).floor, (dyadic n k / d).ceil) := by
-  unfold fcDy dyadic
-  split
-  · rename_i hk
-    have e : (n : Rat) * ((2 ^ k.toNat : Nat) : Rat) = ((n * ((2 ^ k.toNat : Nat) : Int) : Int) : Rat) := by
-      simp only [Rat.intCast_mul, Rat.intCast_natCast]
-    have en : -(((n * ((2 ^ k.toNat : Nat) : Int) : Int) : Rat) / d) =
-        ((-(n * ((2 ^ k.toNat : Nat) : Int)) : Int) : Rat) / d := by rw [Rat.intCast_neg]; grind
-    simp only [e, Rat.ceil_eq_neg_floor_neg, en, floor_int_div _ _ hd]
-  · rename_i hk
-    have hD : 0 < 2 ^ (-k).toNat * d := Nat.mul_pos (Nat.pow_pos (by decide)) hd
-    have hp := two_pow_pos (-k).toNat
-    have hq := natRat_pos hd
-    have e : (n : Rat) / ((2 ^ (-k).toNat : Nat) : Rat) / (d : Rat) = (n : Rat) / ((2 ^ (-k).toNat * d : Nat) : Rat) := by
-      rw [Rat.natCast_mul]; grind
-    have en : -((n : Rat) / ((2 ^ (-k).toNat * d : Nat) : Rat)) = ((-n : Int) : Rat) / ((2 ^ (-k).toNat * d : Nat) : Rat) := by
-      rw [Rat.intCast_neg]; grind
-    simp only [e, Rat.ceil_eq_neg_floor_neg, en, floor_int_div _ _ hD]
+theorem fc_z (sh : Bool) (h : Nat) (eh : Int) :
+    fc2 false (0, 0, 0) sh (splitFt h eh) =
+      ((sgn sh (dyadic h eh) * CitySafety.ft * S).floor, (sgn sh (dyadic h eh) * CitySafety.ft * S).ceil) := by
+  have h0 : split16 0 0 = (0, 0, 0) := rfl
+  have := fc_xy false 0 0 sh h eh
+  rw [h0] at this
+  rw [this, show ((0 : Nat) : Int) = 0 from rfl, dyadic_zero]
+  have e : (sgn false 0 + sgn sh (dyadic h eh) * CitySafety.ft) * S = sgn sh (dyadic h eh) * CitySafety.ft * S := by
+    simp only [sgn, Bool.false_eq_true, ↓reduceIte]; grind
+  rw [e]
 
-/-- `16 (a·2^ea + m·2^em · ft)` as `n·2^k / 1250` (`ft = 381/1250`); a zero mantissa takes the other exponent so
-that `0 = 0·2^-1074` does not blow up the shift. -/
-def comb (a ea m em : Int) : Int × Int :=
-  let ea := if a = 0 then em else ea
-  let em := if m = 0 then ea else em
-  let k := min ea em
-  (20000 * (a * ((2 ^ (ea - k).toNat : Nat) : Int)) + 6096 * (m * ((2 ^ (em - k).toNat : Nat) : Int)), k)
+section
+open JsbExact JsbExact.S
 
-theorem comb_eq (a ea m em : Int) :
-    dyadic (comb a ea m em).1 (comb a ea m em).2 / ((1250 : Nat) : Rat) = (dyadic a ea + dyadic m em * CitySafety.ft) * S := by
-  have ha : dyadic a ea = dyadic a (if a = 0 then em else ea) := by
-    by_cases h : a = 0 <;> simp [h, dyadic_zero]
-  have hm : dyadic m em = dyadic m (if m = 0 then (if a = 0 then em else ea) else em) := by
-    by_cases h : m = 0 <;> simp [h, dyadic_zero]
-  rw [ha, hm]
-  unfold comb
-  dsimp only
-  generalize (if a = 0 then em else ea) = ea'
-  generalize (if m = 0 then ea' else em) = em'
-  rw [← dyadic_add, dyadic_mul 20000, dyadic_mul 6096, ← dyadic_shift a (Int.min_le_left ea' em'),
-    ← dyadic_shift m (Int.min_le_right ea' em')]
-  simp only [CitySafety.ft, S]
-  grind
+/-- `locDerive`'s radius minus `seaLevelRadius`, computing only the geocentric latitude it needs. -/
+@[inline] def hslOf (r : V3 Float) : Float :=
+  let a : Float := lit Gen.a
+  let ec := lit Gen.b / a
+  let radius := r.mag
+  let rxy := sqrt (mac r.x r.x (r.y * r.y))
+  let lat := sif eq radius zero then zero else atan2 r.z rxy
+  let e2 := one - ec * ec
+  let cl := cos lat
+  radius - a * ec / sqrt (nmac (e2 * cl) cl one)
 
-theorem comb_z (h eh : Int) : dyadic (6096 * h) eh / ((1250 : Nat) : Rat) = dyadic h eh * CitySafety.ft * S := by
-  rw [dyadic_mul]; simp only [CitySafety.ft, S]; grind
+theorem branch_float {β : Type} (j : β → β → β) (c : Bool) (t e : Unit → β) :
+    Scalar.branch (α := Float) j c t e = if c then t () else e () := rfl
+
+theorem hslOf_eq (r : V3 Float) : (locDerive r).radius - seaLevelRadius (locDerive r) = hslOf r := by
+  simp only [locDerive, seaLevelRadius, hslOf, S.br, branch_float]
+  split <;> rfl
 
 /-- The reported CG's east, north and altitude (ft), as `CitySafety.report` computes them, without its `Tb2l`. -/
-def posFt (s : JsbExact.State Float) : Float × Float × Float :=
-  let ce := JsbExact.S.cosS s.epa
-  let se := JsbExact.S.sinS s.epa
-  let ti2ec : JsbExact.M33 Float := JsbExact.M33.mk' ce se 0 (-se) ce 0 0 0 1
+@[inline] def posFt (s : State Float) : Float × Float × Float :=
+  let ce := cosS s.epa
+  let se := sinS s.epa
+  let ti2ec : M33 Float := M33.mk' ce se 0 (-se) ce 0 0 0 1
   let loc := ti2ec.mulV s.ri
-  let l := JsbExact.locDerive loc
-  (loc.y, loc.z, l.radius - JsbExact.seaLevelRadius l)
+  (loc.y, loc.z, hslOf loc)
+
+end
 
 theorem posFt_report (s : JsbExact.State Float) :
-    posFt s = ((CitySafety.report s).loc.y, (CitySafety.report s).loc.z, (CitySafety.report s).hsl) := rfl
+    posFt s = ((CitySafety.report s).loc.y, (CitySafety.report s).loc.z, (CitySafety.report s).hsl) := by
+  simp only [posFt, CitySafety.report, ← hslOf_eq]
 
-/-- `clearAt` in integers: the position's mantissas and exponents (`decB`) scaled exactly to units (`comb`, `fcDy`),
-and integer loops. -/
+/-- `clearAt` in scalar integers: the position's doubles as sign, mantissa and exponent (`decN`), scaled exactly to
+units by integer and remainder parts (`split16`, `splitFt`, `fc2`), and integer loops. -/
 def clearAtFast (extra : Float) (p : Plane) : Bool :=
   let (ly, lz, hs) := posFt p.st
-  match decB p.ox.toBits, decB ly.toBits, decB p.oy.toBits, decB lz.toBits, decB hs.toBits with
-  | some (a, ea), some (m, em), some (b, eb), some (n, en), some (h, eh) =>
-    let x := comb a ea m em
-    let y := comb b eb n en
-    let (xf, xc) := fcDy x.1 x.2 1250
-    let (yf, yc) := fcDy y.1 y.2 1250
-    let (zf, zc) := fcDy (6096 * h) eh 1250
+  match decN p.ox.toBits, decN ly.toBits, decN p.oy.toBits, decN lz.toBits, decN hs.toBits with
+  | some (sa, a, ea), some (sm, m, em), some (sb, b, eb), some (sn, n, en), some (sh, h, eh) =>
+    let (xf, xc) := fc2 sa (split16 a ea) sm (splitFt m em)
+    let (yf, yc) := fc2 sb (split16 b eb) sn (splitFt n en)
+    let (zf, zc) := fc2 false (0, 0, 0) sh (splitFt h eh)
     let k : Int := keepBase + extraUnits extra
     terrainClearI (xf - k) (xc + k) (yf - k) (yc + k) (zf - k) &&
       boxesClearI (xf - k) (xc + k) (yf - k) (yc + k) (zf - k) (zc + k)
@@ -310,18 +472,23 @@ def clearAtFast (extra : Float) (p : Plane) : Bool :=
 
 @[csimp] theorem clearAt_eq_fast : @clearAt = @clearAtFast := by
   funext e p
-  simp only [clearAt, clearAtFast, exactPos, posFt_report, ratOf_eq, ratOfBits_dec, boxesClearI_eq, terrainClearI_eq]
-  cases decB p.ox.toBits <;> cases decB (CitySafety.report p.st).loc.y.toBits <;>
-    cases decB p.oy.toBits <;> cases decB (CitySafety.report p.st).loc.z.toBits <;>
-    cases decB (CitySafety.report p.st).hsl.toBits <;> try rfl
+  simp only [clearAt, clearAtFast, exactPos, posFt_report, ratOf_eq, ratOfBits_decN, boxesClearI_eq, terrainClearI_eq]
+  cases decN p.ox.toBits <;> cases decN (CitySafety.report p.st).loc.y.toBits <;>
+    cases decN p.oy.toBits <;> cases decN (CitySafety.report p.st).loc.z.toBits <;>
+    cases decN (CitySafety.report p.st).hsl.toBits <;> try rfl
   rename_i h n b m a
-  obtain ⟨a, ea⟩ := a; obtain ⟨m, em⟩ := m; obtain ⟨b, eb⟩ := b; obtain ⟨n, en⟩ := n; obtain ⟨h, eh⟩ := h
-  have d : 0 < 1250 := by decide
-  simp only [Option.map_some, Option.bind_eq_bind, Option.bind_some, Option.pure_def,
-    fcDy_eq _ _ d, ← comb_eq, ← comb_z]
+  obtain ⟨sa, a, ea⟩ := a; obtain ⟨sm, m, em⟩ := m; obtain ⟨sb, b, eb⟩ := b; obtain ⟨sn, n, en⟩ := n
+  obtain ⟨sh, h, eh⟩ := h
+  simp only [Option.map_some, Option.bind_eq_bind, Option.bind_some, Option.pure_def, fc_xy, fc_z]
+
 #guard [0.0, -0.0, 1.0, -1.0, 0.03125, 0.1, -0.1, 2999.97, -1234.5678, 5e-324, 1e300, -1e300].all fun f =>
-  (decB f.toBits).map (fun me => dyadic me.1 me.2) == CitySafety.ratOf f
-#guard decB (1.0 / 0.0 : Float).toBits == none && decB (0.0 / 0.0 : Float).toBits == none
-#guard (comb 0 (-1074) 5 (-3)).2 == -3 && fcDy 7 (-1) 2 == (1, 2) && fcDy (-7) 1 3 == (-5, -4)
+  (decN f.toBits).map (fun x => sgn x.1 (dyadic x.2.1 x.2.2)) == CitySafety.ratOf f
+#guard decN (1.0 / 0.0 : Float).toBits == none && decN (0.0 / 0.0 : Float).toBits == none
+#guard [(-1234.5678, -3.25), (0.0, 7.5), (812.0, -40000.125), (-0.001, 0.002)].all fun (o, l) =>
+  match decN o.toBits, decN l.toBits with
+  | some (sa, a, ea), some (sm, m, em) =>
+    let v := (sgn sa (dyadic a ea) + sgn sm (dyadic m em) * CitySafety.ft) * S
+    fc2 sa (split16 a ea) sm (splitFt m em) == (v.floor, v.ceil)
+  | _, _ => false
 
 end CityGate
