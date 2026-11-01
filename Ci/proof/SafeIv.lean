@@ -45,16 +45,17 @@ def safeI (S : StateOf Iv) : Bool :=
 def dhI (vz : Iv) (d1 d2 : I) : I :=
   (Jsb.Iv.shrZ ((12 * lo vz + 11 * d1.1 - 5 * d2.2) / 12) 7, Jsb.Iv.shrZ ((12 * hi vz + 11 * d1.2 - 5 * d2.1) / 12) 7)
 
-/-- The 8 substeps: safety and climb at each. -/
-def plantOK (U : InputOf Iv) : Nat → StateOf Iv → I → I → Bool
-  | 0, _, _, _ => true
-  | n + 1, S, d1, d2 =>
+/-- The 8 substeps: safety and climb at each; `hb` bounds the altitude (tracked with the same increments), and at the
+end it must lie in T's band. -/
+def plantOK (U : InputOf Iv) : Nat → StateOf Iv → I → I → I → Bool
+  | 0, _, _, _, hb => decide (hLoT ≤ hb.1) && decide (hb.2 < hHiT)
+  | n + 1, S, d1, d2, hb =>
     let dh := dhI S.vz d1 d2
     let nx := Jsb.step 7 true U S
     let nd1 := Jsb.Iv.shr (Jsb.Iv.sub (Jsb.Iv.mul (.box 196608 196608) S.au) S.au1) 8
     isBox S.vz && isBox nd1 && isBox nx.vz && isBox nx.h &&
     safeI nx && (decide (Ci.climbVz ≤ lo nx.vz) && decide (1 ≤ dh.1) || decide (Ci.climbTop ≤ lo nx.h)) &&
-    plantOK U n nx (lo nd1, hi nd1) d1
+    plantOK U n nx (lo nd1, hi nd1) d1 (hb.1 + dh.1, hb.2 + dh.2)
 
 /-- Density interval over the box's altitudes (the table is evaluated at both ends and at every node between). -/
 def rhoI (h : Iv) : I :=
@@ -74,6 +75,6 @@ def ok (B : CLOf Iv) : Bool :=
   | some e =>
     let t := thrI S.h
     let U : InputOf Iv := ⟨.box e.1 e.2, .box t.1 t.2, .box 0 0, .box 0 0⟩
-    plantOK U 8 S (LawIv.sub (pr S.vz) (pr S.pvz)) (LawIv.sub (pr S.pvz) (pr S.pvz2))
+    plantOK U 8 S (LawIv.sub (pr S.vz) (pr S.pvz)) (LawIv.sub (pr S.pvz) (pr S.pvz2)) (pr S.h)
 
 end Ci.Proof.SafeIv

@@ -1,5 +1,5 @@
 """Generate the per-cell kernel checks (Ci/proof/SafeCells{0..5}.lean) and the combining SafeCells.lean."""
-N = 54; G = 6
+N = 267; G = 8
 per = (N + G - 1) // G
 defs = '''import Ci.proof.SafeProof
 
@@ -32,7 +32,16 @@ for g in range(G):
     lines += ["", "end Ci.Proof.SafeIv", ""]
     open(f"../SafeCells{g}.lean", "w").write("\n".join(lines))
 imports = "\n".join(f"import Ci.proof.SafeCells{g}" for g in range(G))
-cases = "\n".join(f"  | {k}, _ => cell_{k}" for k in range(N))
+def tree(lo, hi, ind):
+    # proof of cellOk i = true given lo ≤ i < hi (hypotheses hl, hh)
+    if hi - lo == 1:
+        return [f"{ind}obtain rfl : i = {lo} := by omega", f"{ind}exact cell_{lo}"]
+    m = (lo + hi) // 2
+    out = [f"{ind}rcases Nat.lt_or_ge i {m} with hh | hl"]
+    out += [f"{ind}· " + l.lstrip() if j == 0 else f"{ind}  " + l[len(ind):] for j, l in enumerate(tree(lo, m, ind))]
+    out += [f"{ind}· " + l.lstrip() if j == 0 else f"{ind}  " + l[len(ind):] for j, l in enumerate(tree(m, hi, ind))]
+    return out
+cases = "\n".join(tree(0, N, "  "))
 main = f'''{imports}
 
 /-! The one-tick safety and climb theorem for the terminal set of `Ci.Proof.lawT`, from the kernel-checked cells
@@ -41,11 +50,13 @@ main = f'''{imports}
 namespace Ci.Proof.SafeIv
 open Vibecheck Jsb Ci.Lawfirst
 
+set_option maxRecDepth 100000
+
 theorem boxTab_size : TData.boxTab.size = {N} := by decide
 
-theorem cells_ok : ∀ i, i < {N} → cellOk i = true
+theorem cells_ok (i : Nat) (hh : i < {N}) : cellOk i = true := by
+  have hl : 0 ≤ i := Nat.zero_le i
 {cases}
-  | n + {N}, h => absurd h (by omega)
 
 theorem cell_sound (i : Nat) (hi : i < TData.boxTab.size) (c : CLOf Fx) (hc : (cellBox i).Mem c) : Pt c :=
   checkRec_sound ok Pt [] _ ok_sound 22 (cellBox i) (cells_ok i (boxTab_size ▸ hi)) c hc (by simp)
@@ -60,7 +71,21 @@ theorem tick_safe_climb (s : State) (m : Mem) (hT : lawT.inT (s, m) = true) :
   unfold boxOk at hb
   simp only [Bool.and_eq_true, decide_eq_true_eq] at hb
   obtain ⟨⟨hi, hac⟩, hm⟩ := hb
-  exact cell_sound _ hi (pt (s, m)) hm m rfl hac
+  have := cell_sound _ hi (pt (s, m)) hm m rfl hac
+  exact ⟨this.1, this.2.1⟩
+
+/-- The tick's end state stays in T's altitude band. -/
+theorem tick_band_h (s : State) (m : Mem) (hT : lawT.inT (s, m) = true) :
+    hLoT ≤ (Ci.tickT lawT s m).s.h.raw ∧ (Ci.tickT lawT s m).s.h.raw < hHiT := by
+  have hb : boxOk (s, m) = true := by
+    have : inT (s, m) = true := hT
+    unfold inT at this; simp only [Bool.and_eq_true] at this; exact this.2
+  unfold boxOk at hb
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at hb
+  obtain ⟨⟨hi, hac⟩, hm⟩ := hb
+  have h := (cell_sound _ hi ⟨s, ⟨m.eI⟩⟩ hm m rfl hac).2.2
+  dsimp only at h
+  exact h
 
 end Ci.Proof.SafeIv
 '''

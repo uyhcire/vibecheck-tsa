@@ -12,7 +12,7 @@ manifold state (table at 2 m spacing, linear interpolation). With `d` the deviat
   breakpoints of the piecewise-linear lift and drag tables, which the linear slaving cannot follow), and the rest of
   `e` bounded componentwise by `τ⊥(h)`;
 * 10 m ≤ h < 2680 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
-* the state and `eI` inside the bounding box of the above over the state's 50 m altitude cell (`boxOk`); redundant
+* the state and `eI` inside the bounding box of the above over the state's 10 m altitude cell (`boxOk`); redundant
   by construction, it lets the one-tick safety proof work on boxes.
 
 All arithmetic is on integers: table lookups, two 7×7 quadratic forms, two 10×7 products and a few dot products. -/
@@ -108,7 +108,7 @@ instance (S : StateOf Iv) (s : StateOf Fx) : Decidable (S.Mem s) := by unfold St
 instance (B : CLOf Iv) (c : CLOf Fx) : Decidable (B.Mem c) := by unfold CLOf.Mem; infer_instance
 
 /-- Width of the altitude cells of `TData.boxTab`. -/
-def cellSpan : Int := 50 * 65536
+def cellSpan : Int := 10 * 65536
 
 /-- Cell of altitude `h` (raw). -/
 def cellIdx (h : Int) : Nat := ((h - hLoT) / cellSpan).toNat

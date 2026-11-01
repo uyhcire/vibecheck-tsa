@@ -12,7 +12,8 @@ open Ci.Proof.LawIv (In I)
 the tick is safe and climbs. -/
 def Pt (c : CLOf Fx) : Prop :=
   ∀ m : Mem, m.eI = c.elev.raw → (-900000 ≤ m.ac ∧ m.ac ≤ 900000) →
-    (Ci.tickT lawT c.s m).safe = true ∧ (Ci.tickT lawT c.s m).climb = true
+    (Ci.tickT lawT c.s m).safe = true ∧ (Ci.tickT lawT c.s m).climb = true ∧
+    hLoT ≤ (Ci.tickT lawT c.s m).s.h.raw ∧ (Ci.tickT lawT c.s m).s.h.raw < hHiT
 
 theorem clampI_idem (lo hi x : Int) (h : lo ≤ hi) : clampI lo hi (clampI lo hi x) = clampI lo hi x := by
   unfold clampI; omega
@@ -74,16 +75,17 @@ theorem ok_sound (B : CLOf Iv) (c : CLOf Fx) (hB : B.Mem c) (hok : ok B = true) 
           rw [r]; exact ⟨t2, t1⟩
         · show (0 : Int) ≤ 0 ∧ (0 : Int) ≤ 0; omega
         · show (0 : Int) ≤ 0 ∧ (0 : Int) ≤ 0; omega
-      have key := plantOK_sound hU 8 B.s c.s _ _ true true hS
+      have key := plantOK_sound hU 8 B.s c.s _ _ _ true true hS
         (LawIv.sub_in (in_pr bvz hS.2.2.2.1) (in_pr bpvz hS.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1))
         (LawIv.sub_in (in_pr bpvz hS.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1) (in_pr bpvz2 hS.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2))
-        hok
+        (in_pr bh hS.2.1) hok
       dsimp only [Ci.tickT]
       generalize Ci.subT (Ci.clampInput (lawT.step m c.s).1) 8 c.s true true = res at key ⊢
       obtain ⟨s', ok', cl'⟩ := res
-      simp only [Prod.mk.injEq] at key
-      obtain ⟨h1, h2⟩ := key
+      obtain ⟨k1, k2, k3⟩ := key
+      simp only [Prod.mk.injEq] at k1
+      obtain ⟨h1, h2⟩ := k1
       subst h1; subst h2
-      exact ⟨rfl, rfl⟩
+      exact ⟨rfl, rfl, k2, k3⟩
 
 end Ci.Proof.SafeIv
