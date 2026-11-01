@@ -242,6 +242,7 @@ fn main() {
     let out = args.first().cloned().unwrap_or("/tmp/crashes".into());
     let episodes: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(200);
     let only: Option<u64> = args.iter().position(|a| a == "--only").and_then(|i| args.get(i + 1)?.parse().ok());
+    let secs: f64 = args.iter().position(|a| a == "--secs").and_then(|i| args.get(i + 1)?.parse().ok()).unwrap_or(60.0);
     if !args.iter().any(|a| a == "--pm") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -283,10 +284,10 @@ fn main() {
             for e in (0..episodes).filter(|e| only.map_or(true, |o| o == *e)) {
                 let mut rng = Rng::new(e.wrapping_mul(7919) ^ 0xE915);
                 let pk = if e % 4 == 3 { PilotKind::Kamikaze } else { PilotKind::Hostile };
-                jobs.push((format!("ep{e:03}"), e, random_start(&world, &mut rng), pk, 60.0));
+                jobs.push((format!("ep{e:03}"), e, random_start(&world, &mut rng), pk, secs));
             }
             for id in 0..SCENARIOS.len() {
-                jobs.push((format!("kamikaze-{}", SCENARIOS[id].replace(' ', "_")), 1000 + id as u64, scenario_start(&world, id), PilotKind::Kamikaze, 60.0));
+                jobs.push((format!("kamikaze-{}", SCENARIOS[id].replace(' ', "_")), 1000 + id as u64, scenario_start(&world, id), PilotKind::Kamikaze, secs));
             }
         }
         Some(id) => {
@@ -299,10 +300,10 @@ fn main() {
                     _ => PilotKind::Hostile,
                 };
                 let tag = if pk == PilotKind::Kamikaze { "kamikaze" } else { "ep" };
-                jobs.push((format!("{tag}-s{}-{e:03}", id + 1), 2000 + e, s0, pk, 60.0));
+                jobs.push((format!("{tag}-s{}-{e:03}", id + 1), 2000 + e, s0, pk, secs));
             }
             if id == 4 {
-                jobs.push(("showcase".into(), 3000, s0, PilotKind::Showcase, 60.0));
+                jobs.push(("showcase".into(), 3000, s0, PilotKind::Showcase, secs));
             }
         }
     }
