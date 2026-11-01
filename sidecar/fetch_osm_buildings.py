@@ -52,7 +52,9 @@ def main():
         for g in rings:
             poly = [[round(p["lat"], 6), round(p["lon"], 6)] for p in g]
             if len(poly) >= 4:
-                out.append({"name": tags.get("name") or f'{el["type"]}/{el["id"]}', "height_m": round(h, 1), "polygon": poly})
+                addr = " ".join(x for x in (tags.get("addr:housenumber"), tags.get("addr:street")) if x)
+                name = tags.get("name") or addr or f'{round(h)} m building ({el["type"]}/{el["id"]})'
+                out.append({"name": name, "height_m": round(h, 1), "polygon": poly})
     out.sort(key=lambda b: -b["height_m"])
     json.dump({"bbox": args.bbox, "min_height_m": args.min_height, "source": "OpenStreetMap via Overpass", "buildings": out},
               open(args.out, "w"), indent=0)
