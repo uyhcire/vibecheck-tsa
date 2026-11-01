@@ -18,6 +18,9 @@ Status: design, doc-only. Nothing in this file is implemented yet.
 - *Guarantee*: the Lean theorem of the filter, read together with its hypotheses and its trusted definitions (README "Trusted surface").
 - *Escape*: a committed maneuver that brings the aircraft to a safe terminal condition (today: autoland to a stop on a runway).
 
+
+**Safe forever.** Every filter's escape must end in one of two terminal conditions: a **climb-out** (a steady climb from which the aircraft stays clear of every obstacle it can still reach, assuming fuel to keep climbing), or a **landing** (stopped on landable ground). Each filter documents which one it uses; `Envelope/` uses climb-out.
+
 ## 2. The C ABI
 
 The library is a static (and optionally shared) library exposing a C ABI. It must not define `main`: `c/shim.c` owns `main` today because Cocoa needs the process main thread, and a filter library embedded in a host must not collide with the host's entry point. Lean `@[export]` functions take only scalars and `lean_object*`, so a thin C shim (`c/filter_abi.c`, same pattern as `c/shim.c` for SDL) converts the structs below to and from Lean objects. All structs are plain C, fixed-width, with a leading `uint32_t abi_version` and `uint32_t size`; fields are only appended.

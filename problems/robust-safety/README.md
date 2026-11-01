@@ -1,5 +1,13 @@
 # Problem brief: certifying flight safety without long real-time rollouts
 
+> **Status (2026-10-31).** Still open as one filter design among several. Since this brief was written:
+> - the performance-envelope filter (`Envelope/`) was merged as an alternative that avoids bounding the model gap at all;
+> - a bit-exact Lean port of JSBSim's c172p (`JsbExact/`) brings the gap against JSBSim to zero for that model;
+> - the measured worst-case gap for the fixed-point port keeps growing with more data;
+> - worst-case tubes certify few climb-outs and no landings.
+>
+> See `docs/findings.md` for the numbers and evidence. The definitions below still describe the open problem.
+
 ## The problem in one paragraph
 
 The repo's flight sim has a Lean-verified safety filter: no sequence of pilot inputs can crash the aircraft. It works by simulating, every tick, a full escape maneuver (an autoland, up to ~1,500 ticks) from the predicted next state, and passing the pilot's input only if that simulated landing succeeds. That is sound only because the Lean model *is* the plant. To guard a realistic simulator (JSBSim/FlightGear), the filter must instead certify a **set** of possible next states, because the real next state is only known to lie within a disturbance box **D** of the model's prediction. Measurements so far show that propagating sets through long escape rollouts makes them too wide to be useful, and doing it every tick is expensive. **The open problem: a certificate of safety under a per-tick disturbance bound D that is cheap to check online, provably sound, and still lets the pilot fly.**
@@ -11,7 +19,7 @@ The repo's flight sim has a Lean-verified safety filter: no sequence of pilot in
   - `Vibecheck/Spec.lean`: the `Certificate` structure (safe set, filter, and the proof obligations) and the generic theorem `never_crash`.
   - `Vibecheck/Filter.lean`, `Autoland.lean`, `Safety.lean`: the current rollout-based safe set and its proofs. The invariance proof uses only determinism: the next state's escape rollout is the tail of the one just checked.
   - `README.md` lists the trusted surface. `make verify` builds everything and audits axioms.
-- **PR #2** (open): Mathlib proofs bounding how far each sim step can be from the idealized continuous dynamics.
+- **`proofs/`** (merged in PR #2): Mathlib proofs bounding how far each toy-sim step can be from the idealized continuous dynamics.
 - **`sysid/`**: research scripts (Python, unverified, outside the Lean build) that fly JSBSim's Cessna 172, fit models, measure residuals, and estimate tube widths. `sysid/README.md` says how to run them.
 
 ## Measurements to start from
