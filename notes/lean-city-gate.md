@@ -42,4 +42,35 @@ Rust's clearance can't be certified as is. Lean has no theorems about float roun
 3. **`TermSound`** remains an assumption. Two known holes are fixed: leaving the map no longer ends a rollout (`Ctl.term`, `rayClear`), and the straight ending needs a settled climb (windows' mean vz within 1 m/s) with the ray gradient capped at 0.11. These changes make the Lean gate differ from the Rust one.
 4. **`Init`** is "the initial escape checks out", which is computed, not a fixed set.
 
-**Against the reviewed spec.** `CityGate/SpecBridge.lean` proves `cityGate_spec_safe_R : CitySafety.Safe cityMap specFilter` (the per-frame spec) from `TermSoundR cityGate (CrashH h) GInit` (the end-of-escape test on the gate's own rollouts, for the h m cube, h ≤ 8.5), `InitChecked cityGate GInit` (`lake exe specbridgeinit` checks it) and `AirframeNear h` (airframe points within h m of the reported position). `TermSoundR` is false as stated while `JsbExact` burns fuel. Audit: `lake env lean Tools/SpecBridgeAudit.lean`.
+## How to review the final proof
+
+**The theorem**, in `SpecBridgeNative.lean`:
+
+```lean
+theorem CityGate.SpecBridge.cityGate_spec_safe (hF : FunnelSoundR) : CitySafety.Safe cityMap specFilter
+```
+
+From the spec's 4 starts, whatever the pilot does each JSBSim frame, no reachable state is a crash. A landing on the runway (wheels only, gentle) is not a crash, and the flight ends when stopped there.
+
+1. **Build and audit.**
+   ```sh
+   lake build SpecBridgeNative CityGate
+   lake env lean Tools/SpecBridgeAudit.lean   # expect propext, Classical.choice, Quot.sound + 2 native_decide axioms
+   lake exe specbridgeinit                     # the 4 starts: initial check and crash-free, run compiled
+   ```
+2. **Read the statement and its definitions (the trusted surface).**
+   - `Spec/CitySafety.lean`: `Safe`, `Reach`, `Crash` and the landing rule, `Landed`, the starts, `report` (the reported pose) and the airframe points.
+   - `CityGate/SpecMap.lean`: the city, the runway, the floor and the datum.
+   - `CityGate/Plant.lean`: the plant step, which is `JsbExact` with fuel frozen and brakes.
+3. **Check the one assumption.**
+   - `FunnelSoundR` (`CityGate/SpecBridge.lean`): from any state the end-of-escape test accepts, the autoland's flight never crashes.
+   - The end test is `inFunnel` (`CityGate/Autoland.lean`, the same as `in_funnel` in `flight/src/autoland.rs`).
+   - Evidence, not proof: `cargo run --release --no-default-features --features jsb --bin landing` flies the autoland from a grid of 62 funnel states, and all land.
+4. **Check the two `native_decide` lemmas** (`SpecBridgeNative.lean`). `startsChecked_true` says the 4 starts pass the gate's initial check; `startsClear_true` says they are crash-free. Both trust the compiler and libm.
+5. **Check that the proof is about the code that runs.** `frameOut_fst` (`CityGate/Ffi.lean`) proves the exported frame is `cityGate.frame`, and the demo's `exact-rollout-lean` mode flies it.
+6. **The proved pieces worth spot-checking:**
+   - `GateSafety.safeR`: the induction.
+   - `clear_spec_sound` (`CityGate/ClearSpec.lean`): the clearance test is sound against the spec's `Crash`. It uses a box from the reported pose, which is why no `AirframeNear` assumption is left.
+   - `cityGate_spec_safe_funnel_of` (`CityGate/SpecBridge.lean`): spec reachability maps to gate reachability.
+
+**Known:** `Spec/EndSets.lean` and `CityGate/EndSets.lean`, the helix/ray route to `TermSound`, don't build since the landing spec change. The funnel replaces them in this proof.
