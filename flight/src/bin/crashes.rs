@@ -99,7 +99,7 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
     let mut plans = Vec::new();
     let mut last_mode = Mode::Free;
     let (mut switches, mut tvs, mut jumps) = (0u64, Vec::new(), Vec::new());
-    let mut tv0 = sim.jsb.as_ref().map_or([0.0; 4], |p| p.tv);
+    let mut tv0 = sim.jsb.as_ref().map(|p| p.tv).or(sim.lean.as_ref().map(|g| g.tv)).unwrap_or([0.0; 4]);
     for _ in 0..(dur / DT_F).round() as u64 {
         match pk {
             PilotKind::Kamikaze => kami.update(world, &sim.s, &mut fbw, DT_F),
@@ -108,19 +108,24 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
         }
         let up = fbw.cmd(&sim.prm_ctrl, &sim.s);
         sim.tick(up);
-        if let Some(p) = sim.jsb.as_mut() {
+        let metrics = match (sim.jsb.as_mut(), sim.lean.as_mut()) {
+            (Some(p), _) => Some((&mut p.tv, &mut p.jump)),
+            (None, Some(g)) => Some((&mut g.tv, &mut g.jump)),
+            _ => None,
+        };
+        if let Some((tv, jump)) = metrics {
             let sel = |a: [f64; 4]| [a[0] as f32, a[1] as f32, a[3] as f32];
-            let d = [p.tv[0] - tv0[0], p.tv[1] - tv0[1], p.tv[2] - tv0[2], p.tv[3] - tv0[3]];
+            let d = [tv[0] - tv0[0], tv[1] - tv0[1], tv[2] - tv0[2], tv[3] - tv0[3]];
             tvs.push(sel(d));
-            jumps.push(sel(p.jump));
-            tv0 = p.tv;
-            p.jump = [0.0; 4];
+            jumps.push(sel(*jump));
+            tv0 = *tv;
+            *jump = [0.0; 4];
         }
         if (sim.fs.mode == Mode::Commit) != (last_mode == Mode::Commit) {
             switches += 1;
         }
         fbw.resync(&sim.s, sim.fs.lam, DT_F);
-        let alpha = sim.jsb.as_ref().map_or(f64::NAN, |p| p.obs.alpha);
+        let alpha = sim.jsb.as_ref().map(|p| p.obs.alpha).or(sim.lean.as_ref().map(|g| g.obs.alpha)).unwrap_or(f64::NAN);
         let esc = sim.fs.plan.map_or(-1, |p| p.esc as i32);
         recs.push(Rec {
             t: sim.time(),
@@ -151,6 +156,10 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
     }
     let mut st = Stats { first_accept: sim.started_safe, ticks: sim.ticks, commit_ticks: sim.commit_ticks, ..Default::default() };
     (st.switches, st.secs, st.tv, st.jump) = (switches, sim.time(), tvs, jumps);
+    if let Some(g) = sim.lean.take() {
+        st.first_accept = g.start_ok;
+        st.wall_ms = g.wall_ms.clone();
+    }
     if let Some(g) = sim.env_gate.take() {
         st.first_accept = g.first_accept.unwrap_or(false);
         (st.reversals, st.blend_ticks) = (g.reversals, g.blend_ticks);
@@ -249,6 +258,9 @@ fn main() {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
     if let Some(i) = args.iter().position(|a| a == "--env") {
+        if args.get(i + 1).is_some_and(|s| s == "lean") {
+            cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         let k = cityflight::envfilter::parse(args.get(i + 1).map_or("", |s| s.as_str()));
         cityflight::envfilter::ENV_FILTER.store(k, std::sync::atomic::Ordering::Relaxed);
         if matches!(cityflight::envfilter::kind(), Some(cityflight::envfilter::Kind::Fitted { .. })) {
