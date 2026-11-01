@@ -7,7 +7,11 @@ pub mod harness;
 pub mod envfilter;
 #[cfg(feature = "jsb")]
 pub mod jsb;
+#[cfg(feature = "jsb")]
+pub mod leangate;
 pub mod model;
 pub mod pilot;
+#[cfg(feature = "jsb")]
+pub mod regimes;
 pub mod sim;
 pub mod world;

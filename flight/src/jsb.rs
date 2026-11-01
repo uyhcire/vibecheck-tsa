@@ -20,7 +20,7 @@ struct Raw {
     _p: [u8; 0],
 }
 
-const NOBS: usize = 22;
+pub const NOBS: usize = 22;
 
 extern "C" {
     fn cityjsb_new(h: f64, v: f64, gam: f64, psi: f64, phi: f64, alpha: f64) -> *mut Raw;
@@ -140,7 +140,7 @@ pub struct Obs {
 }
 
 impl Obs {
-    fn from(o: &[f64; NOBS]) -> Obs {
+    pub fn from(o: &[f64; NOBS]) -> Obs {
         Obs {
             north: o[0],
             east: o[1],
@@ -416,10 +416,7 @@ impl JsbPlant {
 
     /// Set the fly-by-wire integrators so its output on a zero tracking error equals the surfaces now set.
     pub fn bumpless_fbw(&mut self) {
-        let (o, g) = (self.obs, self.gains);
-        let sched = if o.qbar > 100.0 { (QBAR_REF / o.qbar).min(4.0) } else { 1.0 };
-        self.int_n = ((-self.surf[0] / sched + g.kq * o.pqr[1]) / g.kn_i).clamp(-3.0, 3.0);
-        self.int_p = (self.surf[1] / (sched * g.kp_i)).clamp(-1.0, 1.0);
+        [self.int_n, self.int_p] = fbw_bumpless(&self.obs, &self.gains, &self.surf);
     }
 
     /// One JSBSim frame under the fly-by-wire loop.
@@ -430,27 +427,11 @@ impl JsbPlant {
 
     /// The fly-by-wire loop's surfaces for this frame (updating its integrators, `thr` and `surf`).
     fn fbw_surf(&mut self, u: &Cmd) -> [f64; 4] {
-        let o = self.obs;
-        let g = self.gains;
-        let sched = if o.qbar > 100.0 { (QBAR_REF / o.qbar).min(4.0) } else { 1.0 };
-        let en = u[0] - o.nz;
-        let over = (o.alpha - g.a_max).max(0.0);
-        let raw = sched * (g.kn_p * en + g.kn_i * self.int_n - g.kq * o.pqr[1]) - g.ka * over;
-        let pull = raw.clamp(-1.0, 1.0);
-        // Anti-windup: integrate only while the elevator is free and alpha is inside its limit.
-        if raw == pull && over == 0.0 || en * self.int_n < 0.0 {
-            self.int_n = (self.int_n + en * DT_JSB).clamp(-3.0, 3.0);
-        }
-        let elev = -pull;
-        let ep = -u[1] - o.pqr[0];
-        let ail_raw = sched * (g.kp_p * ep + g.kp_i * self.int_p);
-        let ail = ail_raw.clamp(-1.0, 1.0);
-        if ail_raw == ail || ep * self.int_p < 0.0 {
-            self.int_p = (self.int_p + ep * DT_JSB).clamp(-1.0, 1.0);
-        }
-        let rud = (g.kb * o.beta).clamp(-1.0, 1.0);
-        self.thr = u[2].clamp(0.0, 1.0);
-        self.set_surf([elev, ail, rud, self.thr]);
+        let mut int = [self.int_n, self.int_p];
+        let s = fbw_law(&self.obs, &self.gains, &mut int, u);
+        [self.int_n, self.int_p] = int;
+        self.thr = s[3];
+        self.set_surf(s);
         self.surf
     }
 
@@ -516,3 +497,33 @@ mod tests {
     }
 }
 
+
+/// The fly-by-wire loop's surfaces for one frame from observation `o` and command `u` (load factor, roll rate,
+/// throttle), updating its integrators `int = [load factor, roll rate]` (`JsbPlant`'s loop, shared with
+/// `leangate`).
+pub fn fbw_law(o: &Obs, g: &Gains, int: &mut [f64; 2], u: &Cmd) -> [f64; 4] {
+    let sched = if o.qbar > 100.0 { (QBAR_REF / o.qbar).min(4.0) } else { 1.0 };
+    let en = u[0] - o.nz;
+    let over = (o.alpha - g.a_max).max(0.0);
+    let raw = sched * (g.kn_p * en + g.kn_i * int[0] - g.kq * o.pqr[1]) - g.ka * over;
+    let pull = raw.clamp(-1.0, 1.0);
+    // Anti-windup: integrate only while the elevator is free and alpha is inside its limit.
+    if raw == pull && over == 0.0 || en * int[0] < 0.0 {
+        int[0] = (int[0] + en * DT_JSB).clamp(-3.0, 3.0);
+    }
+    let elev = -pull;
+    let ep = -u[1] - o.pqr[0];
+    let ail_raw = sched * (g.kp_p * ep + g.kp_i * int[1]);
+    let ail = ail_raw.clamp(-1.0, 1.0);
+    if ail_raw == ail || ep * int[1] < 0.0 {
+        int[1] = (int[1] + ep * DT_JSB).clamp(-1.0, 1.0);
+    }
+    let rud = (g.kb * o.beta).clamp(-1.0, 1.0);
+    [elev, ail, rud, u[2].clamp(0.0, 1.0)]
+}
+
+/// Fly-by-wire integrators whose output on a zero tracking error equals the surfaces `surf` now set.
+pub fn fbw_bumpless(o: &Obs, g: &Gains, surf: &[f64; 4]) -> [f64; 2] {
+    let sched = if o.qbar > 100.0 { (QBAR_REF / o.qbar).min(4.0) } else { 1.0 };
+    [((-surf[0] / sched + g.kq * o.pqr[1]) / g.kn_i).clamp(-3.0, 3.0), (surf[1] / (sched * g.kp_i)).clamp(-1.0, 1.0)]
+}

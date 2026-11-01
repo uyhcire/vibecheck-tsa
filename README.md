@@ -88,12 +88,14 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 
 - `Vibecheck/` the verified core (core Lean only, no Mathlib).
 - `Envelope/`: the performance-envelope filter and its theorem (core Lean only).
+- `GateSafety/`: the gatekeeper's safety by induction (`GateSafety.safe`, core Lean only); see `docs/gate-proof-status.md`.
+- `CityGate/`: the city gate in Lean on `JsbExact`, proved safe (`CityGate.city_safe`); flown with `--safety-filter exact-rollout-lean`. See `notes/lean-city-gate.md`.
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Jsb/`: fixed-point Lean port of JSBSim's c172p longitudinal model (unverified; not imported by `Vibecheck/`), with residual tooling in `sysid/` and `Tools/JsbResid.lean`.
 - `JsbExact/`, `Tools/JsbExactResid.lean`, `jsbx/`, `c/jxmath.c`: offline bit-exact Lean port of JSBSim's c172p (see below; unverified, not imported by anything else).
 - `VcFilter/`, `c/vcfilter.h`, `c/filter_abi.c`: the safety-filter C ABI (`docs/filter-interface.md`) with the envelope filter behind it (`make filter-lib`; mappings in `docs/vcfilter-envelope.md`).
 - `host/`: Python host for the C ABI: conformance tests and a JSBSim lockstep run (`make filter-test`).
-- `flight/`: Luis Pabon's procedural-city flight demo (Rust), with `JsbExact` as its plant (`--jsb`) and the gatekeeper filter (`--env gate`); see `flight/README.md`.
+- `flight/`: Luis Pabon's procedural-city flight demo (Rust), with `JsbExact` as its plant (`--jsb`) and the gatekeeper filter (`--safety-filter exact-rollout`); see `flight/README.md`.
 - `CityJsb/`, `c/cityjsb_abi.c`: `JsbExact` as a plant (`libcityjsb`): start, step, clone, and import of a JSBSim state dump.
 - `gate/`: the gatekeeper filter as a C library for a host running JSBSim (`libgate`, `gate/gate.h`, `make gate`).
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
@@ -106,6 +108,8 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 `JsbExact.step` reproduces one `FGFDMExec::Run` (dt = 1/128 s) of JSBSim 1.3.3's `c172p` with identical IEEE doubles: 6-DOF (quaternion attitude in ECI, WGS84 gravity, Earth rotation, Adams-Bashforth integrator histories), the aerodynamics and FCS, the IO-320 engine and fixed-pitch propeller, fuel burn with CG and inertia updates, and the landing gear with JSBSim's friction solver. It is written over a `Scalar` class whose only instance is `Float`, and every data-dependent branch goes through that class (see "Branching" below).
 
 It is offline tooling, not a runtime safety filter, and no theorem depends on it. Intended uses: a target for future interval-based proofs that the model satisfies the envelope filter's one-tick bounds (`Envelope/`), measuring envelope parameters, and a ground-truth lockstep harness.
+
+Fuel freeze: `step s u (fuelFreeze := true)` is JSBSim with `propulsion/fuel_freeze` set (`FGPropulsion::ConsumeFuel` returns at once): the tanks are not drained and the engine's starved flag keeps its value, while the engine still computes its fuel flow. It is off by default, which leaves `step s u` unchanged. The city safety spec (`CitySafety.specStep`) and the Lean city gate (`CityGate.Plane.step`) fly with it on: infinite fuel, an assumption recorded in `docs/safety-objective.md`. `libcityjsb`'s `cityjsb_step` burns fuel. To compare: `ext/harness-on $R ext/data/bank_ff bank 4 8000 3 freeze` writes dumps with the property set, and `jsbx ext/data/bank_ff step freeze` steps with it on. Measured: on such dumps of the `bank`, `level`, `takeoff` and `land` modes (4 episodes each, 66,101 steps), every compared field is bit-identical to JSBSim in `step` and `free` modes; with the mode mismatched, `tank0` and `tank1` differ on every step.
 
 Limits: no flap kinematic (flaps retracted), no gusts or turbulence (constant wind from the initial condition), engine temperatures skipped, no initial-condition or trim port (state comes from a harness dump), flat terrain for the gear.
 

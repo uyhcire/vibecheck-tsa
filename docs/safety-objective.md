@@ -17,8 +17,12 @@ inductive Reach (F : Filter) : State × F.σ → Prop
 def Safe (F : Filter) : Prop := ∀ p, Reach F p → ¬ Crash map p.1
 ```
 
+`Crash map s` is contact at state `s`: the convex hull of the airframe points touches terrain or a building (see
+"Contact is checked at each frame" below).
+
 - **The plant** is `JsbExact`, the bit-exact Lean port of JSBSim 1.3.3's c172p, stepped one JSBSim frame
-  (1/128 s) at a time. JSBSim is the ground truth for this simulator.
+  (1/128 s) at a time, with infinite fuel (`propulsion/fuel_freeze` on; see the decisions below). JSBSim is the
+  ground truth for this simulator.
 - **The pilot** is arbitrary: any control-surface and throttle input within its physical range, chosen afresh every
   frame. The demo's keyboard pilot, fly-by-wire and 50 Hz control loop are special cases.
 - **The filter** is abstract: its own memory, a starting memory, and a per-frame map from (memory, aircraft state,
@@ -53,13 +57,40 @@ fixed-point model. They are search aids and proof-route milestones, not safety r
 terminal-set claim (for example an envelope breach after entering T) is not a counterexample to `Safe F` unless it
 leads to a reachable crash.
 
-## Open questions for the Lean version
+## Decisions for the Lean version
 
-- **Airframe shape for contact.** Leading option: the convex hull of the 7 c172p contact points in the JSBSim
-  aircraft file (nose and main gear, nose, tail, both wingtips), which comes from the aircraft data rather than an
-  invented margin. It omits the top of the fin.
-- **Leaving the 6 km map.** Nothing to hit beyond the edge; terrain continuing past the edge; or leaving counts as a
-  crash. The current gate filter treats leaving the map as clear.
-- **When contact is checked.** At every JSBSim frame (as JSBSim itself does) or continuously between frames.
-- **Numbers.** Plant states are `Float`; the contact geometry is to be defined in exact arithmetic on the decoded
-  values.
+`Spec/CitySafety.lean` states these; `Spec/CitySafetyChecks.lean` checks them on a hand-made map.
+
+- **Airframe shape for contact.** The convex hull of the 7 contact points in the stock JSBSim c172p file (nose and
+  main gear, propeller hub, tail skid, both wingtips) and the 13 contact points FlightGear's c172p (FGData 2024.1)
+  has in its default configuration: its gear, tail skid, wingtips, broken-gear points, nose, nose top, cockpit top
+  and fin top. FlightGear decides crashes at exactly these points. They are shifted into the stock file's structural
+  frame by the mean offset of the three gear points both files share (0.56 in RMS residual) and kept separate in
+  the Lean file (`contactPoints ++ flightGearPoints`). FlightGear's wingtips (±232 in) are wider than the stock
+  file's and the published span (35.8 ft, ±214.8 in), and its nose points lie about 2 m ahead of the propeller
+  hub; both make the hull larger, which is conservative.
+- **Beyond the 6 km map, terrain continues the edge profile** (the clamp in `World::terrain`, 731 to 927 m on the
+  demo map). Leaving the map is neither a crash nor an escape. The current gate filter treats leaving the map as
+  clear, which is not sound under this definition.
+- **Contact is checked at each frame.** A state crashes if the convex hull of its airframe points touches terrain
+  or a building. Frames are 1/128 s apart (0.39 m at 50 m/s), so contact strictly between two frames is not counted:
+  a thin obstacle passed between frames is missed (`Spec/CitySafetyChecks.lean` shows a 2 cm ledge). Chosen over a
+  swept hull for simplicity; with buildings metres thick the gap is negligible.
+- **A NaN or infinite pose counts as a crash.**
+- **Touching counts as a crash:** terrain and buildings are closed sets.
+- **The map frame is the demo's, and positions are the plant's reported ones.** The aircraft's reported CG position
+  (`CitySafety.report`) gives east and north as ECEF y and z (the demo's `MapFrame` axes at latitude and longitude 0)
+  and up as altitude above sea level, as `CityJsb.obs` reports them. Airframe points are placed from it with the
+  reported body-to-local rotation matrix `Tb2l`, in the local north-east-down frame at the CG; over the ±3000 m map
+  that frame turns by at most 0.03° against the map axes, under 6 mm across the airframe.
+- **Infinite fuel, for now.** The plant is JSBSim's c172p with `propulsion/fuel_freeze` on
+  (`CitySafety.specStep`, `JsbExact.step` with `fuelFreeze := true`): the tanks never drain and the engine never
+  starves. With fuel burning, no filter is safe: the 200 lb in the tanks lasts about 2.5 hours at full throttle,
+  after which the engine starves and the aircraft glides into the terrain, so "no reachable crash, ever" fails for
+  every filter. This is an assumption about the plant, not a property of the simulator. Relaxing it (for example
+  bounding flight time, or counting a fuel-exhausted state as an end of the claim) is being investigated separately;
+  removing it is a change to `specStep` alone. `JsbExact`'s fuel freeze matches JSBSim's bit for bit on harness
+  dumps written with the property set (`jsbx ... freeze`).
+- **Numbers.** Plant states are `Float`. The reported pose (CG location and altitude, `Tb2l`) is the plant's own
+  `Float` computation, read exactly; airframe points, hulls, terrain and buildings are exact rational arithmetic from
+  there.

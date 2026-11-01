@@ -32,6 +32,11 @@ pub const GRID_HALF: f64 = 3000.0;
 /// Clearance-map cell (m) and terrain vertex spacing (m).
 pub const CELL: f64 = 2.5;
 pub const TSP: f64 = 20.0;
+/// The grid city's half-size, clearance-map cells and terrain vertices per side under their names from before
+/// the San Francisco map, for the grid-only tools (`gate/`, `Tools/city-export`, the Lean city gate's export).
+pub const MAP_HALF: f64 = GRID_HALF;
+pub const NC: usize = (2.0 * GRID_HALF / CELL) as usize;
+pub const TN: usize = (2.0 * GRID_HALF / TSP) as usize + 1;
 /// Lateral margin 7.5 m = aircraft radius 4.5 m + 3 m.
 pub const LAT_CELLS: usize = 3;
 /// Guaranteed lateral margin of the cell lookup.
@@ -1562,6 +1567,13 @@ mod tests {
         }
         let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
         (m, 0.5 * len / k as f64)
+    }
+
+    #[test]
+    fn grid_aliases_match_the_grid_world() {
+        let w = World::new(1337);
+        assert_eq!((w.x0, w.x1, w.y0, w.y1), (-MAP_HALF, MAP_HALF, -MAP_HALF, MAP_HALF));
+        assert_eq!((w.tnx, w.tny, w.raw.nx, w.raw.ny), (TN, TN, NC, NC));
     }
 
     #[test]

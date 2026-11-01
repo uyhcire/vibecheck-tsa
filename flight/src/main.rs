@@ -666,6 +666,8 @@ struct App {
     lens: usize,
     focal_mm: f32,
     fstop: f32,
+    /// Caption pill for demos (`--label`).
+    label: Option<String>,
 }
 
 /// (name, focal length mm, f-stop, hexagonal aperture, cat's-eye strength, tilt-shift).
@@ -877,10 +879,11 @@ impl App {
     /// Control-surface deflections (trailing edge down, rad) and engine rpm after the latest tick.
     fn tick_surfaces(&self) -> (c172::Controls, f32) {
         #[cfg(feature = "jsb")]
-        if let Some(j) = &self.sim.jsb {
-            let sf = j.surf;
+        let jsb_surf = self.sim.jsb.as_ref().map(|j| (j.surf, j.obs.rpm)).or(self.sim.lean.as_ref().map(|g| (g.surf, g.obs.rpm)));
+        #[cfg(feature = "jsb")]
+        if let Some((sf, rpm)) = jsb_surf {
             let c = c172::Controls { elevator: (sf[0] * 0.40) as f32, aileron: (sf[1] * 0.35) as f32, rudder: (sf[2] * 0.28) as f32 };
-            return (c, j.obs.rpm as f32);
+            return (c, rpm as f32);
         }
         let s = &self.sim.s;
         let u = self.sim.applied;
@@ -1019,6 +1022,13 @@ impl App {
     }
 
     fn update_paths(&mut self) {
+        #[cfg(feature = "jsb")]
+        if let Some(g) = &self.sim.lean {
+            // The Lean gate: the held controller's predicted path (the committed escape, or the pilot's candidate).
+            self.paths.clear();
+            self.plan_path = g.path().iter().map(|q| vec3(q[0] as f32, q[1] as f32, q[2] as f32)).collect();
+            return;
+        }
         #[cfg(feature = "jsb")]
         if cityflight::envfilter::kind().is_some() {
             let v3f = |q: &[f64; 3]| vec3(q[0] as f32, q[1] as f32, q[2] as f32);
@@ -1302,9 +1312,14 @@ impl App {
             (true, Mode::Blend) | (true, Mode::Commit) => fs.act_esc.map(|i| ESC_NAMES[i]).unwrap_or("-"),
             _ => "-",
         };
-        // Exact-rollout filters (`--env`): filter name, escape (committed or verified) and check time.
+        // Exact-rollout filters (`--safety-filter`): filter name, escape (committed or verified) and check time.
         #[allow(unused_mut)]
         let mut env: Option<(String, &str, f64, bool)> = None;
+        #[cfg(feature = "jsb")]
+        if let Some(g) = &self.sim.lean {
+            let e = if g.escaping { "escape" } else { "pilot" };
+            env = Some(("lean gate (proved)".to_string(), e, *g.wall_ms.last().unwrap_or(&0.0) as f64, g.start_ok));
+        }
         #[cfg(feature = "jsb")]
         if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
             let e = g.law.or(g.witness).map(|l| l.esc);
@@ -1324,6 +1339,7 @@ impl App {
             ("ESCAPE", esc.to_string()),
             ("FILTER TIME", if on { format!("{:.2} ms/tick", ms) } else { "-".into() }),
             ("TRUE CLEARANCE", format!("{:.1} m", self.sim.true_clear)),
+            ("MIN CLEARANCE", format!("{:.1} m", self.sim.min_true_clear)),
         ];
         let px = 16.0;
         let py = 16.0;
@@ -1376,6 +1392,9 @@ impl App {
             pills.push((mode, mc, WHITE));
         } else {
             pills.push(("SAFETY FILTER OFF".into(), Color::new(0.75, 0.12, 0.1, 0.92), WHITE));
+        }
+        if let Some(l) = &self.label {
+            pills.push((l.clone(), Color::new(0.12, 0.14, 0.2, 0.92), WHITE));
         }
         if self.mismatch {
             pills.push(("MISMATCH: wind + weaker aircraft".into(), Color::new(0.55, 0.25, 0.7, 0.92), WHITE));
@@ -1630,12 +1649,19 @@ async fn main() {
         cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(&l), std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
+    if let Some(m) = arg("--margin").and_then(|s| s.parse::<f64>().ok()) {
+        cityflight::envfilter::set_filter_margin(m, arg("--check-every").and_then(|s| s.parse().ok()).unwrap_or(cityflight::envfilter::SAMPLE));
+    }
+    #[cfg(feature = "jsb")]
     if let Some(n) = arg("--escapes").and_then(|s| s.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
-    if let Some(f) = arg("--env") {
+    if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
+        if f == "exact-rollout-lean" {
+            cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse(&f), std::sync::atomic::Ordering::Relaxed);
         if matches!(cityflight::envfilter::kind(), Some(cityflight::envfilter::Kind::Fitted { .. })) {
             cityflight::envfilter::table();
@@ -1702,6 +1728,7 @@ async fn main() {
         fstop: LENSES[0].2,
         sun_el: sun_angles(map).0,
         sun_az: sun_angles(map).1,
+        label: None,
         renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
             (true, false, true) => 2,
             (true, false, false) => 1,
@@ -1714,6 +1741,9 @@ async fn main() {
     }
     if let (true, Some(ph)) = (args.iter().any(|a| a == "--cinematic"), photo.as_mut()) {
         set_cinematic(&mut app, ph);
+    }
+    if let Some(c) = arg("--cam").and_then(|s| s.parse().ok()) {
+        app.cam_mode = c;
     }
     if let (Some(s), Some(ph)) = (arg("--fog"), photo.as_mut()) {
         let v: Vec<f32> = s.split(',').filter_map(|x| x.parse().ok()).collect();
@@ -1782,6 +1812,21 @@ async fn main() {
             app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
         }
     }
+    // Boundary-regime demos: a given start (`--start x,y,z,v,gamma°,heading°,bank°,throttle`), optionally moved
+    // back `--lead S` seconds along its velocity, flown by the released sticks (holding flight path and bank).
+    #[cfg(feature = "jsb")]
+    if let Some(s0) = arg("--start").and_then(|a| cityflight::regimes::parse_start(&a)) {
+        let s0 = cityflight::regimes::lead_state(&s0, arg("--lead").and_then(|s| s.parse().ok()).unwrap_or(0.0));
+        app.sim = Sim::new(world, s0, app.cfg(true));
+        app.fbw = Fbw::from_state(&app.sim.s);
+        app.kamikaze = None;
+        app.hostile = None;
+        app.showcase = None;
+        app.trail.clear();
+        let (f, _, _) = body_axes(&s0);
+        app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
+    }
+    app.label = arg("--label");
     if args.iter().any(|a| a == "--off") {
         app.sim.set_filter(false);
     }
