@@ -70,94 +70,6 @@ theorem hull_lin_ge (cx cy cz k : Rat) {ps : List Pt} (hp : ∀ p ∈ ps, k ≤ 
   rw [hs] at this
   simpa using this
 
-/-! ## Sweeps -/
-
-theorem combo_append (ws vs : List Rat) (ps qs : List Pt) (h : ws.length = ps.length) :
-    combo (ws ++ vs) (ps ++ qs) =
-      ⟨(combo ws ps).x + (combo vs qs).x, (combo ws ps).y + (combo vs qs).y,
-       (combo ws ps).z + (combo vs qs).z⟩ := by
-  induction ps generalizing ws with
-  | nil =>
-    cases ws with
-    | nil => simp [combo, Rat.zero_add]
-    | cons => simp at h
-  | cons p ps ih =>
-    cases ws with
-    | nil => simp at h
-    | cons w ws =>
-      simp only [List.cons_append, combo, ih ws (by simpa using h), Pt.mk.injEq]
-      refine ⟨?_, ?_, ?_⟩ <;> grind
-
-theorem combo_scale (c : Rat) (ws : List Rat) (ps : List Pt) :
-    combo (ws.map (c * ·)) ps = ⟨c * (combo ws ps).x, c * (combo ws ps).y, c * (combo ws ps).z⟩ := by
-  induction ps generalizing ws with
-  | nil => cases ws <;> simp [combo, Rat.mul_zero]
-  | cons p ps ih =>
-    cases ws with
-    | nil => simp [combo, Rat.mul_zero]
-    | cons w ws =>
-      simp only [List.map_cons, combo, ih ws, Pt.mk.injEq]
-      refine ⟨?_, ?_, ?_⟩ <;> grind
-
-theorem sum_scale (c : Rat) (ws : List Rat) : (ws.map (c * ·)).sum = c * ws.sum := by
-  induction ws with
-  | nil => simp [Rat.mul_zero]
-  | cons w ws ih => simp only [List.map_cons, List.sum_cons, ih]; grind
-
-/-- A point between a point of one hull and a point of another is in the hull of both point lists. -/
-theorem inHull_append {ps qs : List Pt} {p q : Pt} {t : Rat} (hp : InHull ps p) (hq : InHull qs q) (h0 : 0 ≤ t)
-    (h1 : t ≤ 1) :
-    InHull (ps ++ qs) ⟨(1 - t) * p.x + t * q.x, (1 - t) * p.y + t * q.y, (1 - t) * p.z + t * q.z⟩ := by
-  obtain ⟨ws, hl, hn, hs, rfl⟩ := hp
-  obtain ⟨vs, hl', hn', hs', rfl⟩ := hq
-  refine ⟨ws.map ((1 - t) * ·) ++ vs.map (t * ·), by simp [hl, hl'], ?_, ?_, ?_⟩
-  · intro w hw
-    rcases List.mem_append.mp hw with hw | hw <;> obtain ⟨v, hv, rfl⟩ := List.mem_map.mp hw
-    · exact Rat.mul_nonneg (by grind) (hn v hv)
-    · exact Rat.mul_nonneg h0 (hn' v hv)
-  · rw [List.sum_append, sum_scale, sum_scale, hs, hs']; grind
-  · rw [combo_append _ _ _ _ (by simp [hl]), combo_scale, combo_scale]
-
-/-- The sweep's hull contains every straight-line path from a point at the first frame to one at the second. -/
-theorem segment_in_sweep {ps qs : List Pt} {p q : Pt} (hp : p ∈ ps) (hq : q ∈ qs) {t : Rat} (h0 : 0 ≤ t)
-    (h1 : t ≤ 1) :
-    InHull (ps ++ qs) ⟨(1 - t) * p.x + t * q.x, (1 - t) * p.y + t * q.y, (1 - t) * p.z + t * q.z⟩ :=
-  inHull_append (inHull_of_mem hp) (inHull_of_mem hq) h0 h1
-
-theorem inHull_append_left {ps : List Pt} (qs : List Pt) {q : Pt} (h : InHull ps q) : InHull (ps ++ qs) q := by
-  obtain ⟨ws, hl, hn, hs, rfl⟩ := h
-  refine ⟨ws ++ List.replicate qs.length 0, by simp [hl], ?_, ?_, ?_⟩
-  · intro w hw; rcases List.mem_append.mp hw with hw | hw
-    · exact hn w hw
-    · rw [List.eq_of_mem_replicate hw]; exact Rat.le_refl
-  · rw [List.sum_append, hs, sum_replicate_zero, Rat.add_zero]
-  · rw [combo_append _ _ _ _ hl, combo_zeros]; simp [Rat.add_zero]
-
-theorem inHull_append_right (ps : List Pt) {qs : List Pt} {q : Pt} (h : InHull qs q) : InHull (ps ++ qs) q := by
-  obtain ⟨vs, hl, hn, hs, rfl⟩ := h
-  refine ⟨List.replicate ps.length 0 ++ vs, by simp [hl], ?_, ?_, ?_⟩
-  · intro w hw; rcases List.mem_append.mp hw with hw | hw
-    · rw [List.eq_of_mem_replicate hw]; exact Rat.le_refl
-    · exact hn w hw
-  · rw [List.sum_append, hs, sum_replicate_zero, Rat.zero_add]
-  · rw [combo_append _ _ _ _ (by simp), combo_zeros]; simp [Rat.zero_add]
-
-set_option linter.unusedSimpArgs false in
-theorem sweptCrash_of_crash_left {M : CityMap} {s : State Float} (s' : State Float) (h : Crash M s) :
-    SweptCrash M s s' := by
-  unfold Crash at h; unfold SweptCrash
-  cases h1 : airframe s <;> cases h2 : airframe s' <;> simp only [h1, h2] at h ⊢ <;> try trivial
-  obtain ⟨q, hq, hs⟩ := h
-  exact ⟨q, inHull_append_left _ hq, hs⟩
-
-set_option linter.unusedSimpArgs false in
-theorem sweptCrash_of_crash_right {M : CityMap} (s : State Float) {s' : State Float} (h : Crash M s') :
-    SweptCrash M s s' := by
-  unfold Crash at h; unfold SweptCrash
-  cases h1 : airframe s <;> cases h2 : airframe s' <;> simp only [h1, h2] at h ⊢ <;> try trivial
-  obtain ⟨q, hq, hs⟩ := h
-  exact ⟨q, inHull_append_right _ hq, hs⟩
-
 def idle : Surfaces := ⟨0, 0, 0, 0⟩
 
 theorem idle_valid : idle.Valid :=
@@ -165,11 +77,6 @@ theorem idle_valid : idle.Valid :=
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩⟩
-
-/-- `Safe` rules out `Crash` at every reachable state, the start included. -/
-theorem safe_no_crash {M : CityMap} {F : Filter} (h : Safe M F) {p : State Float × F.σ} (hp : Reach F p) :
-    ¬ Crash M p.1 :=
-  fun hc => h p idle hp idle_valid (sweptCrash_of_crash_left _ hc)
 
 /-! ## A hand-made map -/
 
@@ -200,8 +107,8 @@ deriving instance DecidableEq for Pt
 
 instance (b : Box) (q : Pt) : Decidable (b.Contains q) := by unfold Box.Contains; infer_instance
 
--- a frame 50 m up, west of the pole and south of the tower, moving 0.5 m north: nothing is touched
-example : ¬ HullHits tiny (level (-10) 0 50 ++ level (-10) (1 / 2) 50) := by
+-- 50 m up, west of the pole and south of the tower: nothing is touched
+example : ¬ HullHits tiny (level (-10) 0 50) := by
   rintro ⟨q, hq, hs⟩
   have hz := hull_lin_ge 0 0 1 48 (by decide +kernel) hq
   have hy := hull_lin_ge 0 (-1) 0 (-5) (by decide +kernel) hq
@@ -213,12 +120,11 @@ example : ¬ HullHits tiny (level (-10) 0 50 ++ level (-10) (1 / 2) 50) := by
 example : Crash tiny (north.state) ∨ HullHits tiny (level 0 0 1) :=
   .inr ⟨_, inHull_of_mem (List.mem_cons_self ..), Or.inl (by rw [tiny_terrain]; decide +kernel)⟩
 
--- a frame 20 m up next to the pole: no airframe point is in the pole at either end, but the right wing is
-example : (∀ p ∈ level 0 0 20 ++ level 0 (1 / 2) 20, ¬ pole.Contains p) ∧
-    HullHits tiny (level 0 0 20 ++ level 0 (1 / 2) 20) := by
+-- 20 m up next to the pole: no airframe point is in the pole, but the right wing between them is
+example : (∀ p ∈ level 0 0 20, ¬ pole.Contains p) ∧ HullHits tiny (level 0 0 20) := by
   refine ⟨by decide +kernel, ⟨30576 / 10000, -3 / 100, 2054 / 100⟩, ?_,
     Or.inr ⟨pole, by simp [tiny], by decide +kernel⟩⟩
-  exact ⟨[0, 0, 0, 0, 0, 22 / 100, 78 / 100] ++ List.replicate 33 0, rfl, by decide +kernel, by decide +kernel,
+  exact ⟨[0, 0, 0, 0, 0, 22 / 100, 78 / 100] ++ List.replicate 13 0, rfl, by decide +kernel, by decide +kernel,
     by decide +kernel⟩
 
 /-- A 2 cm ledge just inside the right wingtip (FlightGear's RIGHT_TIP), 20.10 to 20.12 m up. -/
@@ -229,10 +135,10 @@ def ledgeMap : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [ledge]⟩
 theorem ledgeMap_terrain (x y : Rat) : ledgeMap.terrain x y = 0 := by
   simp [CityMap.terrain, ledgeMap, Rat.sub_self, Rat.mul_zero, Rat.add_zero]
 
--- sinking 0.25 m in one frame (32 m/s) past the ledge: neither end touches it, the sweep does
-example : ¬ HullHits ledgeMap (level 0 0 20) ∧ ¬ HullHits ledgeMap (level 0 0 (20 - 1 / 4)) ∧
-    HullHits ledgeMap (level 0 0 20 ++ level 0 0 (20 - 1 / 4)) := by
-  refine ⟨?_, ?_, ?_⟩
+-- sinking 0.25 m in one frame (32 m/s) past the ledge: neither frame touches it. Contact strictly between frames is
+-- not counted (decision 5 in `Spec/CitySafety.lean`).
+example : ¬ HullHits ledgeMap (level 0 0 20) ∧ ¬ HullHits ledgeMap (level 0 0 (20 - 1 / 4)) := by
+  refine ⟨?_, ?_⟩
   · rintro ⟨q, hq, hs⟩
     have hz := hull_lin_ge 0 0 1 18 (by decide +kernel) hq
     have hl := hull_lin_ge (-1 / 2) 0 1 (3473 / 200) (by decide +kernel) hq
@@ -245,10 +151,6 @@ example : ¬ HullHits ledgeMap (level 0 0 20) ∧ ¬ HullHits ledgeMap (level 0 
     rcases hs with h | ⟨b, hb, hc⟩
     · rw [ledgeMap_terrain] at h; grind
     · simp [ledgeMap] at hb; subst hb; simp [Box.Contains, ledge] at hc; grind
-  · refine ⟨⟨589 / 100, 27 / 50, 2011 / 100⟩, ?_, Or.inr ⟨ledge, by simp [ledgeMap], by decide +kernel⟩⟩
-    exact ⟨List.replicate 12 0 ++ [1 / 5] ++ List.replicate 19 0 ++ [4 / 5] ++ List.replicate 7 0, rfl,
-      by decide +kernel,
-      by decide +kernel, by decide +kernel⟩
 
 /-! ## The spec rejects a filter that does nothing -/
 
@@ -262,24 +164,21 @@ theorem reach_foldl {F : Filter} {p : State Float × F.σ} (hp : Reach F p) :
   | cons u us ih => intro hu; exact ih (.step u (hu u (by simp)) hp) (fun v hv => hu v (by simp [hv]))
 
 theorem not_safe_of_trace {M : CityMap} {F : Filter} {s : State Float} (hs : Init s) (us : List Surfaces)
-    (hu : ∀ u ∈ us, u.Valid) (u : Surfaces) (hv : u.Valid)
-    (hc : SweptCrash M (us.foldl F.frame (s, F.start s)).1 (F.frame (us.foldl F.frame (s, F.start s)) u).1) :
-    ¬ Safe M F :=
-  fun h => h _ u (reach_foldl (.init hs) us hu) hv hc
+    (hu : ∀ u ∈ us, u.Valid) (hc : Crash M (us.foldl F.frame (s, F.start s)).1) : ¬ Safe M F :=
+  fun h => h _ (reach_foldl (.init hs) us hu) hc
 
 instance (M : CityMap) (q : Pt) : Decidable (Solid M q) := by unfold Solid; infer_instance
 
-/-- Sufficient for `SweptCrash`, not equivalent: an undefined pose, or an airframe point in something solid. -/
-def vertexSweptCrash (M : CityMap) (s s' : State Float) : Bool :=
-  match airframe s, airframe s' with
-  | some ps, some ps' => (ps ++ ps').any fun p => decide (Solid M p)
-  | _, _ => true
+/-- Sufficient for `Crash`, not equivalent: an undefined pose, or an airframe point in something solid. -/
+def vertexCrash (M : CityMap) (s : State Float) : Bool :=
+  match airframe s with
+  | some ps => ps.any fun p => decide (Solid M p)
+  | none => true
 
 set_option linter.unusedSimpArgs false in
-theorem sweptCrash_of_vertex {M : CityMap} {s s' : State Float} (h : vertexSweptCrash M s s' = true) :
-    SweptCrash M s s' := by
-  unfold vertexSweptCrash at h; unfold SweptCrash
-  cases h1 : airframe s <;> cases h2 : airframe s' <;> simp only [h1, h2] at h ⊢ <;> try trivial
+theorem crash_of_vertex {M : CityMap} {s : State Float} (h : vertexCrash M s = true) : Crash M s := by
+  unfold vertexCrash at h; unfold Crash
+  cases h1 : airframe s <;> simp only [h1] at h ⊢ <;> try trivial
   obtain ⟨p, hp, hs⟩ := List.any_eq_true.mp h
   exact ⟨p, inHull_of_mem hp, of_decide_eq_true hs⟩
 
@@ -295,20 +194,17 @@ theorem cruise_valid : cruise.Valid :=
 def cruiseAt (n : Nat) : State Float × Unit := (List.replicate n cruise).foldl passThrough.frame (north.state, ())
 
 -- `Tools/CitySafetyDemo.lean` evaluates `h` by running the plant; `Lean.ofReduceBool` would be needed to use that here
-theorem passThrough_unsafe_of_cruise (n : Nat)
-    (h : vertexSweptCrash tiny (cruiseAt n).1 (passThrough.frame (cruiseAt n) cruise).1 = true) :
+theorem passThrough_unsafe_of_cruise (n : Nat) (h : vertexCrash tiny (cruiseAt n).1 = true) :
     ¬ Safe tiny passThrough :=
   not_safe_of_trace ⟨north, List.mem_cons_self .., rfl⟩ _
-    (fun u hu => by rw [List.eq_of_mem_replicate hu]; exact cruise_valid) cruise cruise_valid (sweptCrash_of_vertex h)
+    (fun u hu => by rw [List.eq_of_mem_replicate hu]; exact cruise_valid) (crash_of_vertex h)
 
 /-! ## Audit -/
 
 #spec_surface Safe in Spec
 #audit_axioms inHull_of_mem
 #audit_axioms hull_lin_ge
-#audit_axioms segment_in_sweep
-#audit_axioms safe_no_crash
-#audit_axioms sweptCrash_of_vertex
+#audit_axioms crash_of_vertex
 #audit_axioms passThrough_unsafe_of_cruise
 
 end CitySafety
