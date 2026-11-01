@@ -7,7 +7,7 @@ the filter, so you can fly the same crash attempt with and without it.
 
 Native Rust: the simulation, filter and harness are a GUI-free library; the
 demo renders with macroquad, with terrain and buildings held in static GPU
-buffers through raw miniquad (about 120 fps at 2880×1800 with 4× MSAA on an M3 Max).
+buffers through raw miniquad (about 120 fps at 2880×1800 with 4× MSAA on an M3 Max, classic renderer).
 
 ## Run
 
@@ -25,6 +25,51 @@ non-zero if any acceptance check fails.
 
 Demo flags (handy for screenshots): `--scenario 1..5`, `--off`, `--kamikaze`, `--showcase`,
 `--paths`, `--cam 0..4`, `--shot out.png --frames N`.
+
+## Photoreal renderer (Metal)
+
+On macOS the demo runs on Metal and starts in a photoreal renderer; `--classic`
+(or `V`) selects the original renderer and `--gl` runs it on OpenGL. `V` cycles
+classic → photoreal → ray traced. Screenshots: `--shot out.png --frames N` prints
+wall-clock fps, GPU and CPU ms per frame; `shots/take.sh <tag> [flags]` takes the
+standard four views into `shots/`.
+
+- Linear-light HDR: 4× MSAA RGBA16F scene, ACES tonemap, auto exposure.
+- Single-scattering sky (sky-view LUT), sun disc, per-pixel aerial perspective,
+  SH sky ambient; GGX materials with CC0 ambientCG textures (`assets/textures`,
+  `fetch.py`, `LICENSES.md`; procedural stand-ins without them); facades with
+  interior-mapped rooms behind the glass, shopfronts, grime, rooftop units.
+- Four-cascade sun shadow maps, SSAO on the ambient term, baked contact occlusion.
+- Half-res volumetric pass: height fog with shadowed light shafts, a cloud layer
+  with cloud shadows, landing/nav/strobe lights and dusk street lamps.
+- Cessna 172-style aircraft with animated ailerons, elevator, rudder and propeller
+  (control surfaces from `JsbPlant.surf` with `--jsb`); a made-up registration.
+- Post: depth of field with hexagonal or round bokeh and tilt-shift, bloom, and a
+  footage mode (lens distortion, chromatic aberration, motion blur, grade, grain,
+  vignette, shake, rolling-shutter propeller).
+- Ray traced (`--rt`): Metal hardware ray tracing for sun shadows, one diffuse
+  bounce and reflections (wet streets), MetalFX temporal upscaling from half
+  resolution with a bilateral filter, or the MetalFX temporal denoiser (`U`).
+
+| Key / flag | Action |
+|---|---|
+| `V` / `--classic`, `--rt`, `--gl` | renderer |
+| `,` `.` `;` `'` / `--sun el,az` | sun elevation and azimuth |
+| `P` / `--preset 0..3` | weather: clear, hazy, valley fog, dusk |
+| `[` `]` `-` `=` `9` `0` / `--fog d,h,g` | fog density, height falloff, anisotropy |
+| `O` / `--lens 0..4` | lens: 24 mm f/2.8, 200 mm f/2 hex bokeh, 50 mm f/0.95, tilt-shift, cinematic 50 mm f/4 |
+| `6` / `--cinematic` | cinematic preset: fly-by camera (`--cam 4`), clear weather, 50 mm f/4 focused on the aircraft |
+| `Z` `X`, `N` `J` | f-stop, focal length |
+| `L` / `--footage` | footage look |
+| `U` / `--rt-denoiser`, `--rt-scale s` | MetalFX denoiser, ray-traced internal scale |
+
+Measured on an M4 Max at 2880×1800 (GPU time per frame): photoreal 8–9 ms,
+footage mode about 9 ms, ray traced 7.5–8.5 ms (MetalFX denoiser 16–20 ms).
+
+Trusted beyond the rest of this README: `vendor/miniquad` is miniquad 0.4.11
+with its Metal backend extended (diff it against the crates.io source); the
+ray-traced mode talks to Metal and MetalFX through unchecked Objective-C
+messages (`src/rt.rs`).
 
 ## JSBSim plant (`--jsb`)
 

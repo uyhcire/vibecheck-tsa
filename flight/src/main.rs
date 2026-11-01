@@ -5,6 +5,14 @@
 //! HUD) go through macroquad. The simulation and the safety filter come from
 //! the library, the same code the headless harness runs.
 
+mod assets;
+mod atmos;
+mod c172;
+mod ground;
+mod photo;
+mod rt;
+mod shaders;
+
 use cityflight::escape::*;
 use cityflight::filter::*;
 use cityflight::harness::*;
@@ -23,14 +31,28 @@ const FOG: [f32; 3] = [0.74, 0.81, 0.89];
 const SKY_TOP: Color = Color::new(0.30, 0.50, 0.82, 1.0);
 const TEX: usize = 4096;
 
+/// OpenGL instead of Metal (`--gl`): only the classic renderer, whose GLSL shaders run there.
+fn use_gl() -> bool {
+    !cfg!(target_vendor = "apple") || std::env::args().any(|a| a == "--gl")
+}
+
 fn window_conf() -> Conf {
+    if std::env::args().any(|a| a == "--shot") {
+        // Lets the Metal backend copy the drawable for screenshots.
+        std::env::set_var("MINIQUAD_METAL_CAPTURE", "1");
+    }
     Conf {
         window_title: "Backup-CBF City Flight".to_owned(),
         window_width: 1440,
         window_height: 900,
         high_dpi: true,
-        sample_count: 4,
+        // The photoreal renderer antialiases its own target; a 4x window costs it ~1.8 ms per frame.
+        sample_count: if use_gl() || std::env::args().any(|a| a == "--classic") { 4 } else { 1 },
         window_resizable: true,
+        platform: mq::conf::Platform {
+            apple_gfx_api: if use_gl() { mq::conf::AppleGfxApi::OpenGl } else { mq::conf::AppleGfxApi::Metal },
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -122,6 +144,41 @@ void main() {
     float f = 1.0 - exp(-pow(d * dens, 1.5));
     gl_FragColor = vec4(mix(lit, fog, clamp(f, 0.0, 1.0)), 1.0);
 }"#;
+
+/// The classic shader for the Metal backend: same shading as `VS`/`FS`.
+/// Uniforms arrive as the raw `SU` struct, so `packed_float3` matches its layout.
+const CLASSIC_MSL: &str = r#"
+#include <metal_stdlib>
+using namespace metal;
+struct SU { float4x4 mvp; packed_float3 cam; packed_float3 sun; packed_float3 fog; float dens; };
+struct VIn { float3 pos [[attribute(0)]]; float3 nrm [[attribute(1)]]; float3 col [[attribute(2)]]; float2 uv [[attribute(3)]]; float win [[attribute(4)]]; };
+struct VOut { float4 p [[position]]; float3 pos; float3 nrm; float3 col; float2 uv; float win; };
+vertex VOut vertexShader(VIn v [[stage_in]], constant SU& u [[buffer(0)]]) {
+    VOut o; o.p = u.mvp * float4(v.pos, 1.0);
+    o.pos = v.pos; o.nrm = v.nrm; o.col = v.col; o.uv = v.uv; o.win = v.win; return o;
+}
+fragment float4 fragmentShader(VOut i [[stage_in]], constant SU& u [[buffer(0)]], texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
+    float3 n = normalize(i.nrm);
+    float3 sun = float3(u.sun); float3 cam = float3(u.cam); float3 fog = float3(u.fog);
+    float3 alb = i.col * tex.sample(smp, i.uv).rgb;
+    float d = length(i.pos - cam);
+    if (i.win > 0.5 && abs(n.z) < 0.5) {
+        float s = abs(n.x) > 0.5 ? i.pos.y : i.pos.x;
+        float fl = fract(i.pos.z / 3.6);
+        float cl = fract(s / 3.1);
+        float w = step(0.30, fl) * step(fl, 0.86) * step(0.16, cl) * step(cl, 0.84);
+        float far = smoothstep(500.0, 1800.0, d);
+        w = mix(w, 0.42, far);
+        float3 glass = mix(float3(0.13, 0.17, 0.23), float3(0.50, 0.62, 0.76), 0.35 + 0.35 * max(dot(n, -sun), 0.0));
+        alb = mix(alb, glass, w * 0.8);
+    }
+    float diff = max(dot(n, sun), 0.0);
+    float sky = 0.5 + 0.5 * n.z;
+    float3 lit = alb * (float3(0.36, 0.40, 0.48) * (0.55 + 0.45 * sky) + float3(1.0, 0.95, 0.86) * diff * 0.82);
+    float f = 1.0 - exp(-pow(d * u.dens, 1.5));
+    return float4(mix(lit, fog, clamp(f, 0.0, 1.0)), 1.0);
+}
+"#;
 
 fn hash01(x: i64, y: i64) -> f64 {
     let mut r = Rng::new((x as u64).wrapping_mul(0x9E37_79B1) ^ (y as u64).wrapping_mul(0x85EB_CA77));
@@ -240,7 +297,7 @@ fn building_color(b: &Building) -> [f32; 3] {
 }
 
 impl StaticScene {
-    fn new(w: &World) -> StaticScene {
+    fn new(w: &World, px: &[u8]) -> StaticScene {
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
         // Terrain: same vertices and triangle split as the collision truth.
         let mut tv = Vec::with_capacity(TN * TN);
@@ -271,10 +328,9 @@ impl StaticScene {
                 ti.extend_from_slice(&[a, b, c, a, c, d]);
             }
         }
-        let px = terrain_texture(w);
         let tex = ctx.new_texture(
             mq::TextureAccess::Static,
-            mq::TextureSource::Bytes(&px),
+            mq::TextureSource::Bytes(px),
             mq::TextureParams {
                 format: mq::TextureFormat::RGBA8,
                 wrap: mq::TextureWrap::Clamp,
@@ -321,7 +377,10 @@ impl StaticScene {
         let bld = mk(ctx, &bv, &bi, white);
         let shader = ctx
             .new_shader(
-                mq::ShaderSource::Glsl { vertex: VS, fragment: FS },
+                match ctx.info().backend {
+                    mq::Backend::Metal => mq::ShaderSource::Msl { program: CLASSIC_MSL },
+                    mq::Backend::OpenGl => mq::ShaderSource::Glsl { vertex: VS, fragment: FS },
+                },
                 mq::ShaderMeta {
                     images: vec!["tex".to_string()],
                     uniforms: mq::UniformBlockLayout {
@@ -429,51 +488,33 @@ fn body_axes(s: &State) -> (Vec3, Vec3, Vec3) {
     (f, l0 * cb - u0 * sb, u0 * cb + l0 * sb)
 }
 
-fn draw_aircraft(s: &State) {
-    let p = sv3(s);
-    let (f, l, u) = body_axes(s);
-    let white = [0.95, 0.95, 0.96];
-    let red = [0.86, 0.18, 0.12];
-    let glass = [0.14, 0.22, 0.32];
-    let parts: [([f32; 3], [f32; 3], [f32; 3]); 9] = [
-        ([0.0, 0.0, 0.0], [3.2, 0.55, 0.6], white),
-        ([3.6, 0.0, -0.05], [0.5, 0.45, 0.45], red),
-        ([1.0, 0.0, 0.62], [1.1, 0.45, 0.3], glass),
-        ([0.6, 0.0, 0.35], [0.8, 4.5, 0.09], white),
-        ([0.6, 4.25, 0.37], [0.82, 0.3, 0.1], red),
-        ([0.6, -4.25, 0.37], [0.82, 0.3, 0.1], red),
-        ([-3.1, 0.0, 0.2], [0.45, 1.6, 0.06], white),
-        ([-3.0, 0.0, 0.95], [0.5, 0.06, 0.8], red),
-        ([4.15, 0.0, -0.05], [0.04, 0.12, 0.12], [0.2, 0.2, 0.2]),
-    ];
+fn draw_aircraft(p: Vec3, (f, l, u): (Vec3, Vec3, Vec3), ctl: &c172::Controls) {
+    let m = c172::build(ctl, false);
     let sun = sun_n();
-    let mut verts = Vec::new();
-    let mut idx: Vec<u16> = Vec::new();
-    let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
-    for (c, h, col) in parts {
-        let c = v3(c);
-        let h = v3(h);
-        let faces: [(Vec3, [Vec3; 4]); 6] = [
-            (Vec3::X, [vec3(1., -1., -1.), vec3(1., 1., -1.), vec3(1., 1., 1.), vec3(1., -1., 1.)]),
-            (-Vec3::X, [vec3(-1., 1., -1.), vec3(-1., -1., -1.), vec3(-1., -1., 1.), vec3(-1., 1., 1.)]),
-            (Vec3::Y, [vec3(1., 1., -1.), vec3(-1., 1., -1.), vec3(-1., 1., 1.), vec3(1., 1., 1.)]),
-            (-Vec3::Y, [vec3(-1., -1., -1.), vec3(1., -1., -1.), vec3(1., -1., 1.), vec3(-1., -1., 1.)]),
-            (Vec3::Z, [vec3(-1., -1., 1.), vec3(1., -1., 1.), vec3(1., 1., 1.), vec3(-1., 1., 1.)]),
-            (-Vec3::Z, [vec3(-1., 1., -1.), vec3(1., 1., -1.), vec3(1., -1., -1.), vec3(-1., -1., -1.)]),
-        ];
-        for (n, q) in faces {
-            let nw = f * n.x + l * n.y + u * n.z;
+    let verts: Vec<Vertex> = m
+        .v
+        .iter()
+        .map(|a| {
+            let wp = p + f * a.pos.x + l * a.pos.y + u * a.pos.z;
+            let nw = f * a.nrm.x + l * a.nrm.y + u * a.nrm.z;
+            let base = match a.part as i32 {
+                6 => [0.08, 0.08, 0.08],
+                4 => [0.6, 0.6, 0.62],
+                _ => [0.93, 0.93, 0.92],
+            };
             let k = 0.5 + 0.55 * nw.dot(sun).max(0.0);
-            let color = Color::new((col[0] * k).min(1.0), (col[1] * k).min(1.0), (col[2] * k).min(1.0), 1.0);
-            let base = verts.len() as u16;
-            for corner in q {
-                let wp = to_w(c + corner * h);
-                verts.push(Vertex::new(wp.x, wp.y, wp.z, 0.0, 0.0, color));
-            }
-            idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-        }
+            Vertex::new(wp.x, wp.y, wp.z, 0.0, 0.0, Color::new((base[0] * k).min(1.0), (base[1] * k).min(1.0), (base[2] * k).min(1.0), 1.0))
+        })
+        .collect();
+    for chunk in m.i.chunks(60_000 / 3 * 3) {
+        let lo = *chunk.iter().min().unwrap();
+        let hi = *chunk.iter().max().unwrap();
+        draw_mesh(&Mesh {
+            vertices: verts[lo as usize..=hi as usize].to_vec(),
+            indices: chunk.iter().map(|&x| (x - lo) as u16).collect(),
+            texture: None,
+        });
     }
-    draw_mesh(&Mesh { vertices: verts, indices: idx, texture: None });
 }
 
 fn draw_disc(c: Vec3, r: f32, color: Color) {
@@ -567,9 +608,32 @@ struct App {
     act: f32,
     harness: Option<HarnessJob>,
     seed: u64,
+    /// 0 = classic, 1 = photoreal.
+    renderer: usize,
+    /// Photoreal sun elevation and azimuth, degrees.
+    sun_el: f32,
+    sun_az: f32,
+    prop_angle: f32,
+    /// Footage-realism post stack (L).
+    footage: bool,
+    /// Lens preset (O), focal length and f-stop (N/J, Z/X).
+    lens: usize,
+    focal_mm: f32,
+    fstop: f32,
 }
 
+/// (name, focal length mm, f-stop, hexagonal aperture, cat's-eye strength, tilt-shift).
+const LENSES: [(&str, f32, f32, bool, f32, bool); 5] = [
+    ("24mm f/2.8", 24.0, 2.8, false, 0.0, false),
+    ("200mm f/2 hex bokeh", 200.0, 2.0, true, 0.35, false),
+    ("50mm f/0.95", 50.0, 0.95, false, 0.5, false),
+    ("tilt-shift miniature", 24.0, 8.0, false, 0.0, true),
+    ("cinematic 50mm f/4", 50.0, 4.0, false, 0.2, false),
+];
+const LENS_CINEMATIC: usize = 4;
+
 const CAM_NAMES: [&str; 5] = ["chase", "cockpit", "orbit", "overhead", "fly-by"];
+const RENDERER_NAMES: [&str; 3] = ["classic", "photoreal", "ray traced"];
 
 /// Clickable filter toggle, just under the instrument panel.
 fn filter_button() -> Rect {
@@ -701,6 +765,80 @@ impl App {
         if is_key_pressed(KeyCode::T) {
             self.toggle_harness();
         }
+        if is_key_down(KeyCode::Comma) {
+            self.sun_el = (self.sun_el - 12.0 * dt as f32).max(-4.0);
+        }
+        if is_key_down(KeyCode::Period) {
+            self.sun_el = (self.sun_el + 12.0 * dt as f32).min(89.0);
+        }
+        if is_key_down(KeyCode::Semicolon) {
+            self.sun_az -= 30.0 * dt as f32;
+        }
+        if is_key_down(KeyCode::Apostrophe) {
+            self.sun_az += 30.0 * dt as f32;
+        }
+        if is_key_pressed(KeyCode::V) && !use_gl() {
+            self.renderer = (self.renderer + 1) % 3;
+        }
+    }
+
+    /// Body axes with the nose raised by the angle of attack the load factor needs: the same frame the
+    /// gate's wing clearance (`World::airframe_clearance`) checks.
+    fn aircraft_axes(&self) -> (Vec3, Vec3, Vec3) {
+        let s = &self.sim.s;
+        let a = airframe_axes(s, drawn_alpha(&self.sim.prm_true, s));
+        let v = |x: [f64; 3]| vec3(x[0] as f32, x[1] as f32, x[2] as f32);
+        (v(a[0]), v(a[1]), v(a[2]))
+    }
+
+    /// Control-surface deflections (trailing edge down, rad) and engine rpm.
+    fn surfaces(&self) -> (c172::Controls, f32) {
+        #[cfg(feature = "jsb")]
+        if let Some(j) = &self.sim.jsb {
+            let sf = j.surf;
+            let c = c172::Controls { elevator: (sf[0] * 0.40) as f32, aileron: (sf[1] * 0.35) as f32, rudder: (sf[2] * 0.28) as f32 };
+            return (c, j.obs.rpm as f32);
+        }
+        let s = &self.sim.s;
+        let u = self.sim.applied;
+        let pm = &self.sim.prm_true;
+        let elev = -(0.12 * (u[0] - 1.0) + 0.5 * (u[0] - s[N])).clamp(-1.0, 1.0) * 0.40;
+        let ail = -(u[1] / pm.p_max).clamp(-1.0, 1.0) * 0.35;
+        let c = c172::Controls { elevator: elev as f32, aileron: ail as f32, rudder: (ail * 0.25) as f32 };
+        (c, (800.0 + 1600.0 * s[THR]) as f32)
+    }
+
+    /// Nav, strobe and landing lights: glow sprites, plus the landing spot and nav point lights for the shaders.
+    fn aircraft_lights(&self, ov: &mut Vec<photo::DV>, oi: &mut Vec<u32>, cam: Vec3, right: Vec3, up: Vec3) -> ([f32; 4], [f32; 4], [[f32; 4]; 3]) {
+        let p = sv3(&self.sim.s);
+        let (f, l, u) = self.aircraft_axes();
+        let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
+        let t = get_time() as f32;
+        let strobe = if (t * 1.1).fract() < 0.05 { 1.0 } else { 0.0 };
+        let navs = [(vec3(0.1, 5.47, 1.07), [3.0, 0.15, 0.08]), (vec3(0.1, -5.47, 1.07), [0.15, 3.0, 0.6]), (vec3(-5.78, 0.0, 0.36), [2.5, 2.5, 2.5])];
+        let mut nav = [[0.0f32; 4]; 3];
+        for (k, (q, c)) in navs.iter().enumerate() {
+            let w = to_w(*q);
+            let r = (0.12 + (w - cam).length() * 0.0015).min(1.5);
+            if self.cam_mode != 1 {
+                photo::glow(ov, oi, w, r, [c[0], c[1], c[2], 1.0], right, up);
+                if k < 2 && strobe > 0.0 {
+                    photo::glow(ov, oi, w, r * 2.5, [60.0, 60.0, 60.0, 1.0], right, up);
+                }
+            }
+            nav[k] = [w.x, w.y, w.z, 3.0];
+        }
+        let lp = to_w(vec3(0.55, 1.9, 0.86));
+        let ld = (f * 0.99 - u * 0.09).normalize();
+        if self.cam_mode != 1 && (cam - lp).normalize().dot(ld) > 0.85 {
+            photo::glow(ov, oi, lp, 0.4 + (lp - cam).length() * 0.002, [30.0, 28.0, 25.0, 1.0], right, up);
+        }
+        (lp.extend(1500.0).to_array(), ld.extend(13f32.to_radians().cos()).to_array(), nav)
+    }
+
+    fn sun_dir(&self) -> Vec3 {
+        let (el, az) = (self.sun_el.to_radians(), self.sun_az.to_radians());
+        vec3(el.cos() * az.cos(), el.cos() * az.sin(), el.sin())
     }
 
     /// Tower gap with the scripted showcase pilot and the escape paths on (or back to manual flying).
@@ -743,6 +881,8 @@ impl App {
             return;
         }
         self.acc += dt;
+        let omega = self.surfaces().1 / 60.0 * std::f32::consts::TAU;
+        self.prop_angle = (self.prop_angle + omega * dt as f32) % std::f32::consts::TAU;
         let mut n = 0;
         while self.acc >= DT_F && n < 10 {
             self.acc -= DT_F;
@@ -841,10 +981,14 @@ impl App {
     fn camera(&mut self, dt: f32) -> Camera3D {
         let s = &self.sim.s;
         let p = sv3(s);
-        let (f, _, u) = body_axes(s);
+        let (f, _, _) = body_axes(s);
         let fh = vec3(f.x, f.y, 0.0).normalize_or_zero();
         let (pos, target, up) = match self.cam_mode {
-            1 => (p + f * 1.2 + u * 1.05, p + f * 300.0 + u * 1.05, u),
+            1 => {
+                let (f, l, u) = self.aircraft_axes();
+                let e = p + f * c172::EYE.x + l * c172::EYE.y + u * c172::EYE.z;
+                (e, e + f * 300.0 - u * 50.0, u)
+            }
             2 => {
                 self.orbit += dt * 0.25;
                 (p + vec3(self.orbit.cos() * 70.0, self.orbit.sin() * 70.0, 22.0), p, Vec3::Z)
@@ -871,7 +1015,8 @@ impl App {
                 (self.flyby.unwrap_or(p - fh * 30.0), p + f * 4.0, Vec3::Z)
             }
             _ => {
-                let desired = p - f * 24.0 - fh * 6.0 + vec3(0.0, 0.0, 7.0);
+                let zoom = (self.focal_mm / 24.0).sqrt().clamp(1.0, 4.0);
+                let desired = p - (f * 24.0 + fh * 6.0 - vec3(0.0, 0.0, 7.0)) * zoom;
                 let k = 1.0 - (-dt * 5.0).exp();
                 if !self.sim.crashed {
                     self.cam_pos = self.cam_pos.lerp(desired, k);
@@ -891,7 +1036,20 @@ impl App {
                 (cam, p + f * 25.0, Vec3::Z)
             }
         };
-        Camera3D { position: pos, target, up, fovy: 1.0, z_near: 0.5, z_far: 16000.0, ..Default::default() }
+        let mut target = target;
+        if self.footage && self.renderer >= 1 {
+            let t = get_time() as f32;
+            let fwd = (target - pos).normalize_or_zero();
+            let right = fwd.cross(up).normalize_or_zero();
+            let upv = right.cross(fwd);
+            let n = |a: f32, b: f32| (t * a).sin() * 0.6 + (t * b + 1.3).sin() * 0.4;
+            let amp = if self.cam_mode == 1 { 0.006 } else { 0.0035 };
+            let buzz = if self.cam_mode == 1 { (t * 71.0).sin() * 0.0008 } else { 0.0 };
+            let d = (target - pos).length();
+            target += (right * n(3.1, 7.7) + upv * (n(2.3, 5.9) + buzz)) * amp * d;
+        }
+        let fovy = if self.renderer >= 1 { 2.0 * (12.0 / self.focal_mm).atan() } else { 1.0 };
+        Camera3D { position: pos, target, up, fovy, z_near: 0.5, z_far: 16000.0, ..Default::default() }
     }
 
     fn draw_sky(&self, cam: &Camera3D) {
@@ -944,8 +1102,85 @@ impl App {
             draw_line_3d(t, t + vec3(0.0, 0.0, 120.0), Color::new(1.0, 0.2, 0.2, 0.8));
         }
         if self.cam_mode != 1 {
-            draw_aircraft(s);
+            draw_aircraft(p, self.aircraft_axes(), &self.surfaces().0);
         }
+    }
+
+    /// Aircraft (lit) and overlays (unlit, colours preserved through the tonemap) for the photoreal renderer.
+    fn photo_dynamic(&self, cam: Vec3, exposure: f32) -> (Vec<photo::DV>, Vec<u32>, Vec<photo::DV>, Vec<u32>) {
+        use photo::DV;
+        let s = &self.sim.s;
+        let p = sv3(s);
+        let (mut lv, mut li) = (Vec::new(), Vec::new());
+        let (f, l, u) = self.aircraft_axes();
+        let cockpit = self.cam_mode == 1;
+        let m = c172::build(&self.surfaces().0, cockpit);
+        let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
+        for a in &m.v {
+            let wp = to_w(a.pos);
+            let nw = f * a.nrm.x + l * a.nrm.y + u * a.nrm.z;
+            lv.push(DV { pos: wp.to_array(), nrm: nw.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, 0.0, 0.0, 0.0], loc: [a.pos.x, a.pos.y, a.pos.z, a.part] });
+        }
+        li.extend_from_slice(&m.i);
+        let (mut ov, mut oi) = (Vec::new(), Vec::new());
+        let to_scene = |c: Color| -> [f32; 4] {
+            [photo::display_to_scene(c.r, exposure), photo::display_to_scene(c.g, exposure), photo::display_to_scene(c.b, exposure), c.a]
+        };
+        let mut ribbon_dv = |pts: &[Vec3], cols: &[Color], width: f32| {
+            if pts.len() < 2 {
+                return;
+            }
+            for i in 0..pts.len() {
+                let a = pts[i.saturating_sub(1)];
+                let b = pts[(i + 1).min(pts.len() - 1)];
+                let dir = (b - a).normalize_or_zero();
+                let view = (cam - pts[i]).normalize_or_zero();
+                let side = dir.cross(view).normalize_or_zero() * (width * 0.5);
+                let c = to_scene(cols[i.min(cols.len() - 1)]);
+                let base = ov.len() as u32;
+                for q in [pts[i] - side, pts[i] + side] {
+                    ov.push(DV { pos: q.to_array(), nrm: [0.0; 3], col: c, mat: [photo::K_OVERLAY, 0.0, 0.0, 0.0], loc: [0.0; 4] });
+                }
+                if i > 0 {
+                    oi.extend_from_slice(&[base - 2, base - 1, base + 1, base - 2, base + 1, base]);
+                }
+            }
+        };
+        let pts: Vec<Vec3> = self.trail.iter().map(|t| t.0).chain(std::iter::once(p)).collect();
+        let cols: Vec<Color> = self.trail.iter().map(|t| t.1).collect();
+        if !cols.is_empty() {
+            ribbon_dv(&pts, &cols, 1.6);
+        }
+        if self.show_paths {
+            for (path, ok) in &self.paths {
+                let c = if *ok { Color::new(0.2, 0.95, 0.35, 0.8) } else { Color::new(1.0, 0.2, 0.2, 0.8) };
+                ribbon_dv(path, &[c], 1.3);
+            }
+            if !self.plan_path.is_empty() {
+                ribbon_dv(&self.plan_path, &[Color::new(1.0, 0.85, 0.2, 0.95)], 2.2);
+            }
+        }
+        if let Some(k) = &self.kamikaze {
+            let t = vec3(k.target[0] as f32, k.target[1] as f32, k.target[2] as f32);
+            let pulse = 0.5 + 0.5 * (get_time() as f32 * 6.0).sin();
+            let r = 6.0 + 4.0 * pulse;
+            let c = Color::new(1.0, 0.1, 0.1, 0.6);
+            for i in 0..8 {
+                let a = i as f32 / 8.0 * std::f32::consts::PI;
+                let ring: Vec<Vec3> = (0..=24).map(|j| {
+                    let b = j as f32 / 24.0 * std::f32::consts::TAU;
+                    t + r * vec3(b.cos() * a.sin(), b.sin() * a.sin(), a.cos())
+                }).collect();
+                ribbon_dv(&ring, &[c], r * 0.4);
+            }
+            ribbon_dv(&[t, t + vec3(0.0, 0.0, 120.0)], &[Color::new(1.0, 0.2, 0.2, 0.8)], 0.6);
+        }
+        let base = ov.len() as u32;
+        for q in c172::prop_disc() {
+            ov.push(DV { pos: to_w(q).to_array(), nrm: f.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, 0.0, 0.0, 0.0], loc: [q.x, q.y, q.z, c172::P_PROP] });
+        }
+        oi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        (lv, li, ov, oi)
     }
 
     fn draw_tint(&self) {
@@ -1083,9 +1318,10 @@ impl App {
         }
         // Bottom bar.
         let hint = format!(
-            "{} · H help · Space filter · B escapes · C camera ({}) · 1-5 scenarios · Y showcase · K kamikaze · T harness · R reset",
+            "{} · H help · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-5 scenarios · Y showcase · K kamikaze · T harness · R reset",
             SCENARIOS[self.scenario],
-            CAM_NAMES[self.cam_mode]
+            CAM_NAMES[self.cam_mode],
+            RENDERER_NAMES[self.renderer]
         );
         draw_rectangle(0.0, h - 30.0, w, 30.0, Color::new(0.04, 0.06, 0.09, 0.55));
         ui.text(&hint, 14.0, h - 10.0, 13.0, dim, false);
@@ -1117,7 +1353,7 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 16] = [
+        let lines: [(&str, &str); 22] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
@@ -1132,6 +1368,12 @@ impl App {
             ("K", "kamikaze autopilot (flies at buildings and terrain)"),
             ("T", "run the 200-episode headless harness"),
             ("R", "reset the scenario"),
+            ("V", "renderer: classic · photoreal · ray traced (Metal RT + MetalFX)"),
+            (", .  ; '", "photoreal sun: elevation down / up, azimuth"),
+            ("P  [ ]  - =  9 0", "weather preset · fog density · fog height · fog anisotropy"),
+            ("L  O  Z/X  N/J", "footage look · lens preset · f-stop · focal length"),
+            ("6", "cinematic: fly-by camera, clear weather, 50 mm f/4"),
+            ("U", "ray traced: MetalFX denoiser on / off"),
             ("H / Esc", "toggle / close this help"),
             ("", ""),
         ];
@@ -1199,6 +1441,79 @@ impl App {
     }
 }
 
+/// Photoreal knobs: P weather preset, [ ] fog density, - = fog height, 9 0 fog anisotropy.
+fn photo_keys(app: &mut App, ph: &mut photo::Photo) {
+    if is_key_pressed(KeyCode::Key6) {
+        set_cinematic(app, ph);
+    }
+    if is_key_pressed(KeyCode::U) {
+        ph.settings.rt_denoiser = !ph.settings.rt_denoiser;
+    }
+    if is_key_pressed(KeyCode::L) {
+        app.footage = !app.footage;
+    }
+    if is_key_pressed(KeyCode::O) {
+        app.lens = (app.lens + 1) % LENSES.len();
+        app.focal_mm = LENSES[app.lens].1;
+        app.fstop = LENSES[app.lens].2;
+    }
+    if is_key_pressed(KeyCode::Z) {
+        app.fstop = (app.fstop / 1.4142).max(0.7);
+    }
+    if is_key_pressed(KeyCode::X) {
+        app.fstop = (app.fstop * 1.4142).min(22.0);
+    }
+    if is_key_pressed(KeyCode::J) {
+        app.focal_mm = (app.focal_mm * 1.25).min(200.0);
+    }
+    if is_key_pressed(KeyCode::N) {
+        app.focal_mm = (app.focal_mm / 1.25).max(14.0);
+    }
+    let f = &mut ph.settings.fog;
+    if is_key_pressed(KeyCode::P) {
+        ph.settings.preset = (ph.settings.preset + 1) % photo::PRESETS.len();
+        set_preset(app, ph, ph.settings.preset);
+        return;
+    }
+    if is_key_pressed(KeyCode::RightBracket) {
+        f.density *= 1.4;
+    }
+    if is_key_pressed(KeyCode::LeftBracket) {
+        f.density /= 1.4;
+    }
+    if is_key_pressed(KeyCode::Equal) {
+        f.falloff *= 1.3;
+    }
+    if is_key_pressed(KeyCode::Minus) {
+        f.falloff /= 1.3;
+    }
+    if is_key_pressed(KeyCode::Key0) {
+        f.anisotropy = (f.anisotropy + 0.05).min(0.95);
+    }
+    if is_key_pressed(KeyCode::Key9) {
+        f.anisotropy = (f.anisotropy - 0.05).max(-0.5);
+    }
+}
+
+/// Cinematic look: fly-by camera, clear weather, a 50 mm lens at f/4 focused on the aircraft (subtle bokeh).
+fn set_cinematic(app: &mut App, ph: &mut photo::Photo) {
+    app.cam_mode = 4;
+    app.flyby = None;
+    app.footage = false;
+    app.lens = LENS_CINEMATIC;
+    app.focal_mm = LENSES[LENS_CINEMATIC].1;
+    app.fstop = LENSES[LENS_CINEMATIC].2;
+    set_preset(app, ph, 0);
+}
+
+fn set_preset(app: &mut App, ph: &mut photo::Photo, k: usize) {
+    let (_, fog, el, az) = photo::PRESETS[k];
+    ph.settings.preset = k;
+    ph.settings.fog = fog;
+    app.sun_el = el;
+    app.sun_az = az;
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -1231,7 +1546,10 @@ async fn main() {
     clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
     next_frame().await;
     let world: &'static World = Box::leak(Box::new(World::new(1337)));
-    let scene = StaticScene::new(world);
+    let terrain_px = terrain_texture(world);
+    let scene = StaticScene::new(world, &terrain_px);
+    let mut photo = if use_gl() { None } else { Some(photo::Photo::new(world)) };
+    drop(terrain_px);
     let ui = Ui {
         mono: load_font(&["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"]),
         sans: load_font(&["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"]),
@@ -1267,8 +1585,57 @@ async fn main() {
         act: 0.0,
         harness: None,
         seed: 1,
+        prop_angle: 0.0,
+        footage: args.iter().any(|a| a == "--footage"),
+        lens: 0,
+        focal_mm: LENSES[0].1,
+        fstop: LENSES[0].2,
+        sun_el: SUN[2].asin().to_degrees(),
+        sun_az: SUN[1].atan2(SUN[0]).to_degrees(),
+        renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
+            (true, false, true) => 2,
+            (true, false, false) => 1,
+            _ => 0,
+        },
     };
     app.reset(scenario);
+    if let (Some(k), Some(ph)) = (arg("--preset").and_then(|s| s.parse::<usize>().ok()), photo.as_mut()) {
+        set_preset(&mut app, ph, k.min(photo::PRESETS.len() - 1));
+    }
+    if let (true, Some(ph)) = (args.iter().any(|a| a == "--cinematic"), photo.as_mut()) {
+        set_cinematic(&mut app, ph);
+    }
+    if let (Some(s), Some(ph)) = (arg("--fog"), photo.as_mut()) {
+        let v: Vec<f32> = s.split(',').filter_map(|x| x.parse().ok()).collect();
+        let f = &mut ph.settings.fog;
+        for (k, x) in v.iter().enumerate() {
+            match k {
+                0 => f.density = *x,
+                1 => f.falloff = *x,
+                _ => f.anisotropy = *x,
+            }
+        }
+    }
+    if let Some(ph) = photo.as_mut() {
+        ph.settings.rt_denoiser = args.iter().any(|a| a == "--rt-denoiser");
+        if let Some(s) = arg("--rt-scale").and_then(|s| s.parse::<f32>().ok()) {
+            ph.settings.rt_scale = s.clamp(0.25, 1.0);
+        }
+    }
+    if let Some(k) = arg("--lens").and_then(|s| s.parse::<usize>().ok()) {
+        app.lens = k.min(LENSES.len() - 1);
+        app.focal_mm = LENSES[app.lens].1;
+        app.fstop = LENSES[app.lens].2;
+    }
+    if let Some(s) = arg("--sun") {
+        let v: Vec<f32> = s.split(',').filter_map(|x| x.parse().ok()).collect();
+        if let Some(&el) = v.first() {
+            app.sun_el = el;
+        }
+        if let Some(&az) = v.get(1) {
+            app.sun_az = az;
+        }
+    }
     if args.iter().any(|a| a == "--kamikaze") {
         app.kamikaze = Some(Kamikaze::new(app.seed));
     }
@@ -1297,10 +1664,16 @@ async fn main() {
         app.sim.set_filter(false);
     }
     let mut frame = 0u32;
+    let mut perf = (0.0f64, 0u32, 0.0f64, 0.0f64);
+    let mut perf_t = std::time::Instant::now();
     loop {
+        let loop_start = std::time::Instant::now();
         let dt = get_frame_time().min(0.1) as f64;
         if shot.is_none() {
             app.input(dt);
+            if let Some(ph) = photo.as_mut() {
+                photo_keys(&mut app, ph);
+            }
         }
         app.step(if shot.is_some() { 1.0 / 60.0 } else { dt });
         let target = if !app.sim.cfg.filter_on {
@@ -1314,17 +1687,98 @@ async fn main() {
 
         let cam = app.camera(dt as f32);
         clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
-        app.draw_sky(&cam);
-        scene.draw(&cam);
-        app.draw_world_dynamic(&cam);
+        match (app.renderer, photo.as_mut()) {
+            (1 | 2, Some(ph)) => {
+                let (lv, li, mut ov, mut oi) = app.photo_dynamic(cam.position, 1.0);
+                let night = (1.0 - (app.sun_el + 4.0) / 10.0).clamp(0.0, 1.0);
+                let fwd = (cam.target - cam.position).normalize();
+                let right = fwd.cross(cam.up).normalize();
+                let up = right.cross(fwd);
+                ph.lamp_sprites(&mut ov, &mut oi, cam.position, right, up, night);
+                let lights = app.aircraft_lights(&mut ov, &mut oi, cam.position, right, up);
+                ph.draw(&photo::FrameIn {
+                    cam_pos: cam.position,
+                    cam_target: cam.target,
+                    cam_up: cam.up,
+                    fovy: cam.fovy,
+                    sun: app.sun_dir(),
+                    time: get_time() as f32,
+                    dyn_lit: (&lv, &li),
+                    dyn_overlay: (&ov, &oi),
+                    prop: if app.footage {
+                        [app.prop_angle, app.surfaces().1 / 60.0 * std::f32::consts::TAU, 0.9 / 60.0, 1.0 / 480.0]
+                    } else {
+                        [app.prop_angle, app.surfaces().1 / 60.0 * std::f32::consts::TAU, 0.0, 1.0 / 120.0]
+                    },
+                    lens: photo::Lens {
+                        focus: if app.cam_mode == 1 { 400.0 } else { (sv3(&app.sim.s) - cam.position).length().max(2.0) },
+                        focal_mm: app.focal_mm,
+                        fstop: app.fstop,
+                        tilt_shift: LENSES[app.lens].5,
+                        cats_eye: LENSES[app.lens].4,
+                        hexagon: LENSES[app.lens].3,
+                        footage: app.footage,
+                        shutter: 90.0,
+                        frame_dt: if shot.is_some() { 1.0 / 60.0 } else { dt as f32 },
+                    },
+                    cockpit: app.cam_mode == 1,
+                    rt: app.renderer == 2,
+                    model: {
+                        let (f, l, u) = app.aircraft_axes();
+                        [sv3(&app.sim.s), f, l, u]
+                    },
+                    land_pos: lights.0,
+                    land_dir: lights.1,
+                    nav: lights.2,
+                });
+            }
+            _ => {
+                app.draw_sky(&cam);
+                scene.draw(&cam);
+                app.draw_world_dynamic(&cam);
+            }
+        }
         set_default_camera();
         app.draw_tint();
         app.draw_hud(&ui);
 
         frame += 1;
+        let metal = !use_gl();
+        if shot.is_some() {
+            let now = std::time::Instant::now();
+            if frame > 10 {
+                perf.0 += now.duration_since(perf_t).as_secs_f64();
+                perf.1 += 1;
+                perf.3 += now.duration_since(loop_start).as_secs_f64() * 1000.0;
+                if metal {
+                    perf.2 += unsafe { get_internal_gl() }.quad_context.as_metal().map(|m| m.last_gpu_ms()).unwrap_or(0.0);
+                }
+            }
+            perf_t = now;
+        }
         if let Some(path) = &shot {
             if frame >= shot_frames {
-                get_screen_data().export_png(path);
+                let n = perf.1.max(1) as f64;
+                eprintln!(
+                    "perf: {:.1} fps (wall, vsync-capped), gpu {:.2} ms/frame, cpu {:.2} ms/frame over {} frames, {}",
+                    n / perf.0.max(1e-9),
+                    perf.2 / n,
+                    perf.3 / n,
+                    perf.1,
+                    RENDERER_NAMES[app.renderer]
+                );
+                if metal {
+                    unsafe { get_internal_gl() }.quad_context.as_metal().unwrap().request_capture();
+                    next_frame().await;
+                    let cap = unsafe { get_internal_gl() }.quad_context.as_metal().unwrap().take_capture();
+                    if let Some((w, h, px)) = cap {
+                        photo::save_capture(path, w, h, px);
+                    } else {
+                        eprintln!("capture failed");
+                    }
+                } else {
+                    get_screen_data().export_png(path);
+                }
                 break;
             }
         }
