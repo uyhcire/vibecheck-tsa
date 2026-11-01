@@ -506,12 +506,21 @@ pub struct RollCfg<'a> {
     /// not verified, and a climbing ray must clear the edge profile continued beyond the map (`World::surface`
     /// clamps to the edge), as `docs/safety-objective.md` decides.
     pub offmap_clear: bool,
+    /// Horizon of the street escape (s); the longer of this and `horizon` applies to it.
+    pub street_horizon: f64,
 }
 
 /// The filters' clearance margin (m, stored as f64 bits) and check spacing (frames): `MARGIN` and `SAMPLE` unless
 /// overridden (`--margin`, `--check-every`), a filter design choice for experiments.
 pub static FILTER_MARGIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x4010_0000_0000_0000);
 pub static FILTER_CHECK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(SAMPLE);
+
+/// The filters' street-escape horizon (s, f64 bits): `HORIZON` unless overridden (`--street-horizon`).
+pub static FILTER_STREET_HORIZON: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x4030_0000_0000_0000);
+
+pub fn set_street_horizon(h: f64) {
+    FILTER_STREET_HORIZON.store(h.max(HORIZON).to_bits(), Ordering::Relaxed);
+}
 
 pub fn set_filter_margin(m: f64, check_every: usize) {
     FILTER_MARGIN.store(m.to_bits(), Ordering::Relaxed);
@@ -522,7 +531,8 @@ impl RollCfg<'static> {
     /// What the filters check: the default margin, horizon and spacing unless overridden.
     pub fn filter() -> RollCfg<'static> {
         let m = f64::from_bits(FILTER_MARGIN.load(Ordering::Relaxed));
-        RollCfg { margin: m, term_margin: m, horizon: HORIZON, prefix: &[], check_every: FILTER_CHECK.load(Ordering::Relaxed), offmap_clear: true }
+        let sh = f64::from_bits(FILTER_STREET_HORIZON.load(Ordering::Relaxed));
+        RollCfg { margin: m, term_margin: m, horizon: HORIZON, prefix: &[], check_every: FILTER_CHECK.load(Ordering::Relaxed), offmap_clear: true, street_horizon: sh }
     }
 }
 
@@ -577,7 +587,8 @@ fn rollout_ctl(world: &World, p: &JsbPlant, law: Law, max_frames: usize, deadlin
 fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>, cfg: &RollCfg, cancel: Option<(&AtomicUsize, usize)>) -> Roll {
     let esc = law.esc;
     let mut q = p.fork();
-    let n_max = ((cfg.horizon / DT_JSB).round() as usize).min(max_frames);
+    let horizon = if esc == STREET { cfg.horizon.max(cfg.street_horizon) } else { cfg.horizon };
+    let n_max = ((horizon / DT_JSB).round() as usize).min(max_frames);
     let n_pre: Vec<usize> = cfg.prefix.iter().scan(0usize, |acc, seg| { *acc += (seg.0 / DT_JSB).round() as usize; Some(*acc) }).collect();
     let k_law = n_pre.last().copied().unwrap_or(0);
     if k_law == 0 {
@@ -688,7 +699,7 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
             }
         }
     }
-    let out = if n_max < (cfg.horizon / DT_JSB).round() as usize { Outcome::Budget } else { Outcome::Horizon };
+    let out = if n_max < (horizon / DT_JSB).round() as usize { Outcome::Budget } else { Outcome::Horizon };
     finish(r, &q, &law, out)
 }
 

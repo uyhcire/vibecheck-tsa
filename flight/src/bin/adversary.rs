@@ -160,6 +160,12 @@ fn main() {
     if let Some(l) = args.iter().position(|a| a == "--law").and_then(|i| args.get(i + 1)) {
         envfilter::LAW_SEL.store(envfilter::parse_law(l), std::sync::atomic::Ordering::Relaxed);
     }
+    if let Some(h) = args.iter().position(|a| a == "--street-horizon").and_then(|i| args.get(i + 1)?.parse().ok()) {
+        envfilter::set_street_horizon(h);
+    }
+    if let Some(b) = args.iter().position(|a| a == "--budget").and_then(|i| args.get(i + 1)?.parse().ok()) {
+        envfilter::BUDGET.store(b, Ordering::Relaxed);
+    }
     if let Some(n) = args.iter().position(|a| a == "--escapes").and_then(|i| args.get(i + 1)?.parse().ok()) {
         envfilter::N_USED.store(n, Ordering::Relaxed);
     }
