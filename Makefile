@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test filter-lib filter-test clean
+.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -45,6 +45,19 @@ filter-lib:
 filter-test: filter-lib
 	.venv/bin/python -I host/conformance.py --leak-ticks 200000
 	.venv/bin/python -I host/lockstep.py --episodes 100
+
+# libgate: the gatekeeper filter as a C library (gate/gate.h); dist/ holds libgate.dylib, libcityjsb.dylib, gate.h.
+gate:
+	lake build $(LAKE_OPTS) libcityjsb
+	cargo build --release --manifest-path gate/Cargo.toml --lib
+	mkdir -p dist && cp gate/target/release/libgate.dylib .lake/build/lib/libcityjsb.dylib gate/gate.h c/cityjsb.h dist/
+
+gate-example: gate
+	cc -O2 -Wall -Idist gate/examples/gate_example.c -Ldist -lgate -lcityjsb -Wl,-rpath,@executable_path -o dist/gate_example
+	dist/gate_example
+
+gate-check: gate
+	cargo run --release --manifest-path gate/Cargo.toml --bin gatecheck -- 20 --threads 4
 
 clean:
 	lake clean

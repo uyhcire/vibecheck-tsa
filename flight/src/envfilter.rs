@@ -466,8 +466,7 @@ struct Hist {
 
 /// Highest raw cell (terrain or roof) on the map (m).
 pub fn top(world: &World) -> f64 {
-    static TOP: OnceLock<f64> = OnceLock::new();
-    *TOP.get_or_init(|| world.raw.iter().fold(f64::MIN, |m, &h| m.max(h as f64)))
+    world.raw_top
 }
 
 fn on_map(x: f64, y: f64) -> bool {
@@ -884,13 +883,18 @@ impl Gate {
     /// One 20 ms tick: verify the pilot's next tick followed by an escape; fly the pilot's command if it
     /// verifies, otherwise the committed (witness) escape. Returns whether the pilot was accepted.
     pub fn tick(&mut self, world: &World, plant: &mut JsbPlant, u_p: &Cmd, dt: f64, filter_on: bool) -> bool {
+        self.tick_pilot(world, plant, &Pilot::Fbw(*u_p), dt, filter_on)
+    }
+
+    /// `tick` for either kind of pilot command: fly-by-wire demands or raw surfaces.
+    pub fn tick_pilot(&mut self, world: &World, plant: &mut JsbPlant, u_p: &Pilot, dt: f64, filter_on: bool) -> bool {
         let (c0, w0) = (thread_cpu(), std::time::Instant::now());
         let mut cand = plant.fork();
-        if self.law.is_some() {
+        if self.law.is_some() && matches!(u_p, Pilot::Fbw(_)) {
             cand.bumpless_fbw();
         }
         let f0 = (-cand.lag / DT_JSB).ceil().max(0.0) as usize;
-        cand.advance(u_p, dt);
+        cand.advance_pilot(u_p, dt);
         if !filter_on {
             *plant = cand;
             self.law = None;

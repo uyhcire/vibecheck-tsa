@@ -3,7 +3,8 @@ import CityJsb.Plant
 
 /-! `cityimporttest RUN...`: every record of each harness run, imported with `CityJsb.fromDump` and stepped
 once with its recorded inputs, must equal the next record bit for bit, and `obsFromDump` of the next record
-must equal the plant's observation after that step; exits non-zero otherwise. -/
+must equal the plant's observation after that step, as must every field `toDump` fills; exits non-zero
+otherwise. -/
 
 open JsbExact CityJsb DumpRun
 
@@ -27,6 +28,9 @@ def checkRun (pfx : String) : IO Bool := do
     if (o.toList.zip (CityJsb.obs s' d).toList).any fun (a, b) => a.toBits != b.toBits then
       ok := false
       bad := bad.insert "obsFromDump" (bad.getD "obsFromDump" 0 + 1)
+    if (next.toList.zip (toDump s' d).toList).any fun (a, b) => !b.isNaN && a.toBits != b.toBits then
+      ok := false
+      bad := bad.insert "toDump" (bad.getD "toDump" 0 + 1)
     for (n, x) in DumpRun.fields s' d do
       if x.toBits != (r.get (k + 1) n).toBits then
         ok := false

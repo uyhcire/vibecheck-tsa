@@ -144,6 +144,8 @@ pub struct World {
     pub raw: Vec<f32>,
     /// Raw max terrain height per cell (the safety maps are built from it).
     pub raw_terr: Vec<f32>,
+    /// Highest raw cell (terrain or roof) on the map (m).
+    pub raw_top: f64,
     /// Base clearance map (dilated + vertical margin), used for re-checks.
     pub hc: Vec<f32>,
     /// One cell wider: used to accept new plans.
@@ -171,6 +173,7 @@ impl World {
             boxes: Vec::new(),
             raw: vec![0.0; NC * NC],
             raw_terr: Vec::new(),
+            raw_top: 0.0,
             hc: vec![0.0; NC * NC],
             hc_acc: Vec::new(),
             robust: OnceLock::new(),
@@ -184,6 +187,7 @@ impl World {
         w.gen_terrain();
         w.gen_city();
         w.rasterize();
+        w.raw_top = w.raw.iter().fold(f64::MIN, |m, &h| m.max(h as f64));
         w.hc = dilate(&w.raw_terr, LAT_CELLS, VERT_MARGIN as f32);
         w.hc_acc = dilate(&w.raw_terr, LAT_CELLS + 1, VERT_MARGIN as f32);
         w.build_buckets();

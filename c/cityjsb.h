@@ -34,6 +34,10 @@ const char *cityjsb_dump_field(size_t i);
 // aileron, rudder in [-1, 1], throttle in [0, 1].
 void cityjsb_step(cityjsb *p, double elev, double ail, double rud, double thr, double obs[CITYJSB_NOBS]);
 
+// cityjsb_step, writing the state dump a JSBSim host would export after the frame (cityjsb_dump_len() doubles;
+// fields JsbExact does not model are NaN): JsbExact standing in for JSBSim when testing a dump consumer.
+void cityjsb_step_dump(cityjsb *p, double elev, double ail, double rud, double thr, double *dump);
+
 // An independent copy (for look-ahead rollouts); the state itself is shared until either copy steps.
 cityjsb *cityjsb_clone(const cityjsb *p);
 

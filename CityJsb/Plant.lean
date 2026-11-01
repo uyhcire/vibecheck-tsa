@@ -75,6 +75,13 @@ def obsFromDump (a : FloatArray) : Option FloatArray :=
 @[export cityjsb_obs_from_dump_lean]
 def obsFromDumpE (a : FloatArray) : Option FloatArray := obsFromDump a
 
+/-- One frame, returning the dump a JSBSim host would export after it (`toDump`): `JsbExact` standing in for
+JSBSim when testing a dump consumer. -/
+@[export cityjsb_step_dump_lean]
+def stepDumpE (s : State Float) (elev ail rud thr : Float) : State Float × FloatArray :=
+  let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := 0, brkR := 0 }
+  (s', toDump s' d)
+
 /-- `none` unless the dump has `dumpNames.size` fields. -/
 @[export cityjsb_from_dump_lean]
 def fromDumpE (a : FloatArray) : Option (State Float) := fromDump a

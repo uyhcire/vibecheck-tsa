@@ -27,6 +27,56 @@ extern "C" {
     fn cityjsb_step(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, obs: *mut f64);
     fn cityjsb_clone(p: *const Raw) -> *mut Raw;
     fn cityjsb_free(p: *mut Raw);
+    fn cityjsb_from_dump(dump: *const f64, n: usize) -> *mut Raw;
+    fn cityjsb_obs_from_dump(dump: *const f64, n: usize, obs: *mut f64) -> i32;
+    fn cityjsb_dump_len() -> usize;
+}
+
+/// Number of doubles in a JSBSim state dump (`jsbx/export_state.hpp`).
+pub fn dump_len() -> usize {
+    unsafe { cityjsb_dump_len() }
+}
+
+/// Map axes for an aircraft anywhere on Earth: east and north on the tangent plane at a WGS84 origin, and
+/// height above `alt0` (m above sea level). At latitude and longitude 0 the axes are exactly the ECEF y and z
+/// that `JsbPlant::new` starts use.
+#[derive(Clone, Copy, Debug)]
+pub struct MapFrame {
+    ecef0: [f64; 3],
+    east: [f64; 3],
+    north: [f64; 3],
+    pub alt0: f64,
+}
+
+impl MapFrame {
+    pub fn new(lat_deg: f64, lon_deg: f64, alt0: f64) -> MapFrame {
+        const A: f64 = 6378137.0;
+        const E2: f64 = 6.69437999014e-3;
+        let (sp, cp) = lat_deg.to_radians().sin_cos();
+        let (sl, cl) = lon_deg.to_radians().sin_cos();
+        let n = A / (1.0 - E2 * sp * sp).sqrt();
+        MapFrame {
+            ecef0: [n * cp * cl, n * cp * sl, n * (1.0 - E2) * sp],
+            east: [-sl, cl, 0.0],
+            north: [-sp * cl, -sp * sl, cp],
+            alt0,
+        }
+    }
+
+    /// East and north (m) of an ECEF position (m).
+    pub fn local(&self, ecef: &[f64; 3]) -> [f64; 2] {
+        let d: [f64; 3] = std::array::from_fn(|i| ecef[i] - self.ecef0[i]);
+        let dot = |u: &[f64; 3]| u[0] * d[0] + u[1] * d[1] + u[2] * d[2];
+        [dot(&self.east), dot(&self.north)]
+    }
+}
+
+/// A pilot command for one tick: the demo's fly-by-wire demands (load factor, roll rate, throttle), or raw
+/// surfaces (JSBSim `fcs/*-cmd-norm`: elevator positive nose down, aileron, rudder, throttle).
+#[derive(Clone, Copy, Debug)]
+pub enum Pilot {
+    Fbw(Cmd),
+    Surfaces([f64; 4]),
 }
 
 pub const DT_JSB: f64 = 1.0 / 128.0;
@@ -104,6 +154,8 @@ pub struct JsbPlant {
     pub thr: f64,
     pub surf: [f64; 4],
     pub gains: Gains,
+    /// Map axes for an imported aircraft (`from_dump`); `None` for `new`, which offsets from `origin`.
+    pub frame: Option<MapFrame>,
 }
 
 // The handle is only ever used by the thread that owns the `Sim`.
@@ -134,10 +186,58 @@ impl JsbPlant {
             thr: s[THR],
             surf: [0.0, 0.0, 0.0, s[THR]],
             gains: GAINS,
+            frame: None,
         };
         p.int_n = 0.0;
         p.frame(&[s[N], 0.0, s[THR]]);
         p
+    }
+
+    /// The exact aircraft a JSBSim state dump describes, placed on the map by `frame`; `None` if the dump does
+    /// not have `dump_len()` fields. Fly-by-wire state starts at rest (`carry_fbw` keeps it across imports).
+    pub fn from_dump(dump: &[f64], frame: MapFrame) -> Option<JsbPlant> {
+        let mut out = [0.0; NOBS];
+        if unsafe { cityjsb_obs_from_dump(dump.as_ptr(), dump.len(), out.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        let raw = unsafe { cityjsb_from_dump(dump.as_ptr(), dump.len()) };
+        if raw.is_null() {
+            return None;
+        }
+        Some(JsbPlant {
+            raw,
+            obs: Obs::from(&out),
+            origin: [0.0, 0.0],
+            lag: 0.0,
+            int_n: 0.0,
+            int_p: 0.0,
+            thr: 0.0,
+            surf: [0.0; 4],
+            gains: GAINS,
+            frame: Some(frame),
+        })
+    }
+
+    /// Take over another plant's fly-by-wire integrators and last surfaces.
+    pub fn carry_fbw(&mut self, prev: &JsbPlant) {
+        self.int_n = prev.int_n;
+        self.int_p = prev.int_p;
+        self.thr = prev.thr;
+        self.surf = prev.surf;
+    }
+
+    /// Advance by `dt` seconds with the pilot's command held.
+    pub fn advance_pilot(&mut self, u: &Pilot, dt: f64) {
+        match u {
+            Pilot::Fbw(c) => self.advance(c, dt),
+            Pilot::Surfaces(s) => {
+                self.lag -= dt;
+                while self.lag < -1e-12 {
+                    self.frame_raw(s[0], s[1], s[2], s[3]);
+                    self.lag += DT_JSB;
+                }
+            }
+        }
     }
 
     /// An independent copy for look-ahead rollouts.
@@ -212,10 +312,17 @@ impl JsbPlant {
     pub fn state(&self) -> State {
         let o = &self.obs;
         let gh = (o.vned[0] * o.vned[0] + o.vned[1] * o.vned[1]).sqrt();
+        let (x, y, z) = match &self.frame {
+            Some(f) => {
+                let [e, n] = f.local(&o.ecef);
+                (e, n, o.h - f.alt0)
+            }
+            None => (self.origin[0] + o.east, self.origin[1] + o.north, o.h),
+        };
         [
-            self.origin[0] + o.east,
-            self.origin[1] + o.north,
-            o.h,
+            x,
+            y,
+            z,
             o.vt,
             (-o.vned[2]).atan2(gh),
             o.vned[0].atan2(o.vned[1]),

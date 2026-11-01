@@ -93,6 +93,9 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 - `JsbExact/`, `Tools/JsbExactResid.lean`, `jsbx/`, `c/jxmath.c`: offline bit-exact Lean port of JSBSim's c172p (see below; unverified, not imported by anything else).
 - `VcFilter/`, `c/vcfilter.h`, `c/filter_abi.c`: the safety-filter C ABI (`docs/filter-interface.md`) with the envelope filter behind it (`make filter-lib`; mappings in `docs/vcfilter-envelope.md`).
 - `host/`: Python host for the C ABI: conformance tests and a JSBSim lockstep run (`make filter-test`).
+- `flight/`: Luis Pabon's procedural-city flight demo (Rust), with `JsbExact` as its plant (`--jsb`) and the gatekeeper filter (`--env gate`); see `flight/README.md`.
+- `CityJsb/`, `c/cityjsb_abi.c`: `JsbExact` as a plant (`libcityjsb`): start, step, clone, and import of a JSBSim state dump.
+- `gate/`: the gatekeeper filter as a C library for a host running JSBSim (`libgate`, `gate/gate.h`, `make gate`).
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
 - `proofs/`: the Mathlib fidelity package above.
 - `problems/`: open problems with checkable goals, for semi-independent work (start with `problems/robust-safety/`).
@@ -158,3 +161,30 @@ steps each once, bit-identical to the next record in every compared field, and `
 record equals the plant's observation after the step. `drift_host-on` (the reference build)
 logs 120 s that `jsbdrift` reproduces bit for bit; `drift_host-off` (JSBSim built with `-ffp-contract=off`)
 differs from the first frame, by at most 4e-9 ft in position and 2e-12 ft/s in body velocity over the 120 s.
+
+## libgate: the gatekeeper filter for a host running JSBSim
+
+`gate/` packages the gatekeeper filter of `flight/src/envfilter.rs` as a C library for a host that flies the
+c172p in JSBSim 1.3.3 itself. Each tick the host passes its JSBSim state dump (`jsbx::export_state`) and the
+pilot's command; `gate_tick` imports the state into `JsbExact`, checks the pilot's command for one tick followed
+by an escape, and returns the surfaces to apply on each JSBSim frame of the tick (the pilot's, or the escape's),
+the mode, the escape and its verified path. The pilot's command is raw surfaces (`GATE_PILOT_SURFACES`:
+JSBSim's elevator, aileron, rudder and throttle commands) or the demo's fly-by-wire demands (`GATE_PILOT_FBW`).
+The map is Luis's procedural city, built from a seed, placed at a latitude, longitude and altitude the host
+chooses (`gate_config`).
+
+Packaging: `libgate.dylib` is a Rust `cdylib` (the filter is Rust) that links `libcityjsb.dylib` (the Lean code
+with the Lean runtime linked in, built by `lake`). `make gate` builds both and copies them with the headers to
+`dist/`; `libgate` looks for `libcityjsb` next to itself first (`@loader_path`). Keeping the Lean side a separate
+dylib lets `lake` and `cargo` each build what they own; a single static archive would need the Lean runtime's
+static libraries on the Rust link line.
+
+```
+make gate             # dist/libgate.dylib, dist/libcityjsb.dylib, dist/gate.h, dist/cityjsb.h
+make gate-example     # gate/examples/gate_example.c: a flight under the filter, JsbExact standing in for JSBSim
+make gate-check       # gatecheck: closed-loop crash check with raw-surface pilots through the dump import
+```
+
+`gate/examples/gate_example.c` and `gatecheck` use `cityjsb_step_dump` as the host: `JsbExact` steps the aircraft
+and writes the dump JSBSim would export, so every tick goes through the same import a JSBSim host uses.
+

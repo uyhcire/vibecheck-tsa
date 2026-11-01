@@ -11,6 +11,7 @@ lean_object *cityjsb_init(double h, double v, double gam, double psi, double phi
 lean_object *cityjsb_step_lean(lean_obj_arg s, double elev, double ail, double rud, double thr);
 lean_object *cityjsb_from_dump_lean(lean_obj_arg a);
 lean_object *cityjsb_obs_from_dump_lean(lean_obj_arg a);
+lean_object *cityjsb_step_dump_lean(lean_obj_arg s, double elev, double ail, double rud, double thr);
 size_t cityjsb_dump_len_lean(lean_object *unit);
 lean_object *cityjsb_dump_field_lean(size_t i);
 
@@ -82,6 +83,17 @@ API void cityjsb_step(cityjsb *p, double elev, double ail, double rud, double th
   lean_object *fa = lean_ctor_get(res, 1);
   lean_inc(st);
   memcpy(obs, lean_float_array_cptr(fa), sizeof(double) * CITYJSB_NOBS);
+  lean_dec_ref(res);
+  p->st = st;
+}
+
+API void cityjsb_step_dump(cityjsb *p, double elev, double ail, double rud, double thr, double *dump) {
+  lean_rt_ensure();
+  lean_object *res = cityjsb_step_dump_lean(p->st, elev, ail, rud, thr);
+  lean_object *st = lean_ctor_get(res, 0);
+  lean_object *fa = lean_ctor_get(res, 1);
+  lean_inc(st);
+  memcpy(dump, lean_float_array_cptr(fa), sizeof(double) * lean_sarray_size(fa));
   lean_dec_ref(res);
   p->st = st;
 }
