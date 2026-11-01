@@ -60,11 +60,14 @@ leads to a reachable crash.
 
 `Spec/CitySafety.lean` states these; `Spec/CitySafetyChecks.lean` checks them on a hand-made map.
 
-- **Airframe shape for contact.** The convex hull of the 7 c172p contact points in the JSBSim aircraft file (nose
-  and main gear, propeller hub, tail skid, both wingtips) plus 5 outline points from FlightGear's c172p visual model
-  (FGData 2024.1): the top of the fin and the leading and trailing edge of each wingtip. They are placed in the
-  JSBSim structural frame as that aircraft's model file places them, and are kept separate in the Lean file
-  (`contactPoints ++ outlinePoints`).
+- **Airframe shape for contact.** The convex hull of the 7 contact points in the stock JSBSim c172p file (nose and
+  main gear, propeller hub, tail skid, both wingtips) and the 13 contact points FlightGear's c172p (FGData 2024.1)
+  has in its default configuration: its gear, tail skid, wingtips, broken-gear points, nose, nose top, cockpit top
+  and fin top. FlightGear decides crashes at exactly these points. They are shifted into the stock file's structural
+  frame by the mean offset of the three gear points both files share (0.56 in RMS residual) and kept separate in
+  the Lean file (`contactPoints ++ flightGearPoints`). FlightGear's wingtips (±232 in) are wider than the stock
+  file's and the published span (35.8 ft, ±214.8 in), and its nose points lie about 2 m ahead of the propeller
+  hub; both make the hull larger, which is conservative.
 - **Beyond the 6 km map, terrain continues the edge profile** (the clamp in `World::terrain`, 731 to 927 m on the
   demo map). Leaving the map is neither a crash nor an escape. The current gate filter treats leaving the map as
   clear, which is not sound under this definition.

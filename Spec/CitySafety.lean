@@ -10,7 +10,7 @@ Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` 
 * this file: `ratOf`, `InRange`, `Surfaces`, `Surfaces.Valid`, `clampTo`, `Surfaces.clamp`, `Surfaces.toInput`,
   `StartCond`, `StartCond.state`, `startConds`, `Init`, `Filter`, `Filter.frame`, `Reach`, `Pt`, `Box`,
   `Box.Contains`, `CityMap`, `clampR`, `CityMap.terrain`, `Solid`, `combo`, `InHull`, `contactPoints`,
-  `outlinePoints`, `ft`, `pointEcef`, `altitudeFt`, `mapPoint`, `airframe`, `HullHits`, `SweptCrash`, `Safe`;
+  `flightGearPoints`, `ft`, `pointEcef`, `altitudeFt`, `mapPoint`, `airframe`, `HullHits`, `SweptCrash`, `Safe`;
 * the plant: `JsbExact.step` and what it calls, the generated `JsbExact.Gen` (from `c172p.xml`),
   `CityJsb.template` and `CityJsb.initAt`. These are trusted because they match JSBSim 1.3.3 bit for bit on the
   validation datasets (measured, not proved);
@@ -19,8 +19,8 @@ Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` 
   nothing about their values, so a proof of `Safe` needs stated contracts for them (for example error bounds).
 
 Decisions:
-1. Airframe: the convex hull of the 7 JSBSim contact points and 5 outline points from FlightGear's c172p visual
-   model (fin top, each wingtip's leading and trailing edge).
+1. Airframe: the convex hull of the stock c172p's 7 contact points and FlightGear's c172p's 13 default contact
+   points, the points at which FlightGear decides crashes.
 2. Numbers: each airframe point's map position is the plant's own `Float` computation, read exactly (`ratOf`);
    hulls, terrain and buildings are exact in `Rat` from there. A non-finite pose is a crash.
 3. Map frame: the demo's. East and north are ECEF y and z, up is altitude above sea level (`Diag.hsl`'s formula),
@@ -182,16 +182,24 @@ def InHull (ps : List Pt) (q : Pt) : Prop :=
 left and right main gear, propeller hub, tail skid, left and right wingtips. -/
 def contactPoints : List (V3 Float) := Gen.gears.toList.map fun g => ⟨g[1]!, g[2]!, g[3]!⟩
 
-/-- Points of the aircraft's outline that are not contact points, in the frame and units of `contactPoints`: vertices
-of FlightGear's c172p visual model (FGData 2024.1, `Aircraft/c172p/Models/c172-common.ac`, metres, x aft, y up,
-z left), placed as that aircraft's `Models/c172p.xml` places it: pitched 3° nose down about the VRP (34, 0, 35.75) in
-of its `c172p.xml`. Its gear wheels land within 1 in of `contactPoints`' gear. -/
-def outlinePoints : List (V3 Float) :=
-  [⟨246.6, 0, 88.7⟩,       -- fin top: highest vertex of object `vstab.001`, (5.463, 1.061, 0) m
-   ⟨32.2, -221.5, 58.0⟩,   -- left wingtip leading edge: `wing_left` tip rib, (-0.015, 0.567, 5.626) m
-   ⟨75.2, -221.5, 52.5⟩,   -- left wingtip trailing edge: `wing_left` tip rib, (1.067, 0.370, 5.626) m
-   ⟨32.2, 221.5, 58.0⟩,    -- right wingtip leading edge: mirror of the left
-   ⟨75.2, 221.5, 52.5⟩]    -- right wingtip trailing edge: mirror of the left
+/-- FlightGear's c172p contact points (FGData 2024.1, `Aircraft/c172p/c172p.xml`), at their positions in the default
+configuration (no float, amphibian or ski kit, gear intact, solid ground), in the frame and units of `contactPoints`.
+FlightGear decides crashes at these points. Its structural frame is shifted by (+0.77, 0, +0.07) in from this one: the
+mean offset of the three gear points both files share, which then agree to within 0.8 in (0.56 in RMS). -/
+def flightGearPoints : List (V3 Float) :=
+  [⟨-6.5, 0, -20.2⟩,      -- NOSE (-7.3, 0, -20.3)
+   ⟨58.1, -43, -15.2⟩,    -- LEFT_MAIN (57.3, -43, -15.3)
+   ⟨58.1, 43, -15.0⟩,     -- RIGHT_MAIN (57.3, 43, -15.1)
+   ⟨227.5, 0, 17.1⟩,      -- TAIL_SKID (226.7, 0, 17)
+   ⟨20.8, -232, 50.1⟩,    -- LEFT_TIP (20, -232, 50)
+   ⟨20.8, 232, 50.1⟩,     -- RIGHT_TIP (20, 232, 50)
+   ⟨-6.0, 0, 0.1⟩,        -- FRONT_BROKEN_GEAR (-6.8, 0, 0)
+   ⟨59.0, -48, 0.1⟩,      -- LEFT_BROKEN_GEAR (58.2, -48, 0)
+   ⟨59.0, 48, 0.1⟩,       -- RIGHT_BROKEN_GEAR (58.2, 48, 0)
+   ⟨-118.2, 0, 35.1⟩,     -- NOSE_TOP (-119, 0, 35)
+   ⟨-118.2, 0, 8.1⟩,      -- NOSE, type STRUCTURE (-119, 0, 8)
+   ⟨-3.9, 0, 60.1⟩,       -- COCKPIT_TOP (-4.7, 0, 60)
+   ⟨254.3, 0, 90.1⟩]      -- TOP_VS (253.5, 0, 90)
 
 /-- One foot in metres, exactly. -/
 def ft : Rat := 3048 / 10000
@@ -223,7 +231,7 @@ def mapPoint (s : State Float) (r : V3 Float) : Option Pt := do
   return ⟨(← ratOf p.y) * ft, (← ratOf p.z) * ft, (← ratOf (altitudeFt p)) * ft⟩
 
 /-- Map positions of the airframe points in state `s`, or `none` if any is undefined. -/
-def airframe (s : State Float) : Option (List Pt) := (contactPoints ++ outlinePoints).mapM (mapPoint s)
+def airframe (s : State Float) : Option (List Pt) := (contactPoints ++ flightGearPoints).mapM (mapPoint s)
 
 /-- Some point of the convex hull of `ps` is in something solid. -/
 def HullHits (M : CityMap) (ps : List Pt) : Prop := ∃ q, InHull ps q ∧ Solid M q

@@ -182,14 +182,19 @@ def tiny : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [tower, pole]⟩
 theorem tiny_terrain (x y : Rat) : tiny.terrain x y = 0 := by
   simp [CityMap.terrain, tiny, Rat.sub_self, Rat.mul_zero, Rat.add_zero]
 
--- `contactPoints ++ outlinePoints` (CG at structural (42, 0, 38) in) of a level aircraft heading north, to the cm
+-- `contactPoints ++ flightGearPoints` (CG at structural (42, 0, 38) in) of a level aircraft heading north, to the cm
 def level (x y z : Rat) : List Pt :=
   [⟨x, y + 124 / 100, z - 146 / 100⟩, ⟨x - 109 / 100, y - 41 / 100, z - 136 / 100⟩,
    ⟨x + 109 / 100, y - 41 / 100, z - 136 / 100⟩, ⟨x, y + 202 / 100, z - 29 / 100⟩,
-   ⟨x, y - 371 / 100, z - 76 / 100⟩, ⟨x - 546 / 100, y - 3 / 100, z + 54 / 100⟩,
-   ⟨x + 546 / 100, y - 3 / 100, z + 54 / 100⟩, ⟨x, y - 520 / 100, z + 129 / 100⟩,
-   ⟨x - 563 / 100, y + 25 / 100, z + 51 / 100⟩, ⟨x - 563 / 100, y - 84 / 100, z + 37 / 100⟩,
-   ⟨x + 563 / 100, y + 25 / 100, z + 51 / 100⟩, ⟨x + 563 / 100, y - 84 / 100, z + 37 / 100⟩]
+   ⟨x, y - 371 / 100, z - 76 / 100⟩,
+   ⟨x - 546 / 100, y - 3 / 100, z + 54 / 100⟩, ⟨x + 546 / 100, y - 3 / 100, z + 54 / 100⟩,
+   ⟨x, y + 123 / 100, z - 148 / 100⟩, ⟨x - 109 / 100, y - 41 / 100, z - 135 / 100⟩,
+   ⟨x + 109 / 100, y - 41 / 100, z - 135 / 100⟩, ⟨x, y - 471 / 100, z - 53 / 100⟩,
+   ⟨x - 589 / 100, y + 54 / 100, z + 31 / 100⟩, ⟨x + 589 / 100, y + 54 / 100, z + 31 / 100⟩,
+   ⟨x, y + 122 / 100, z - 96 / 100⟩, ⟨x - 122 / 100, y - 43 / 100, z - 96 / 100⟩,
+   ⟨x + 122 / 100, y - 43 / 100, z - 96 / 100⟩, ⟨x, y + 407 / 100, z - 7 / 100⟩,
+   ⟨x, y + 407 / 100, z - 76 / 100⟩,
+   ⟨x, y + 117 / 100, z + 56 / 100⟩, ⟨x, y - 539 / 100, z + 132 / 100⟩]
 
 deriving instance DecidableEq for Pt
 
@@ -199,7 +204,7 @@ instance (b : Box) (q : Pt) : Decidable (b.Contains q) := by unfold Box.Contains
 example : ¬ HullHits tiny (level (-10) 0 50 ++ level (-10) (1 / 2) 50) := by
   rintro ⟨q, hq, hs⟩
   have hz := hull_lin_ge 0 0 1 48 (by decide +kernel) hq
-  have hy := hull_lin_ge 0 (-1) 0 (-3) (by decide +kernel) hq
+  have hy := hull_lin_ge 0 (-1) 0 (-5) (by decide +kernel) hq
   rcases hs with h | ⟨b, hb, hc⟩
   · rw [tiny_terrain] at h; grind
   · simp [tiny] at hb; rcases hb with rfl | rfl <;> (simp [Box.Contains, tower, pole] at hc; grind)
@@ -213,11 +218,11 @@ example : (∀ p ∈ level 0 0 20 ++ level 0 (1 / 2) 20, ¬ pole.Contains p) ∧
     HullHits tiny (level 0 0 20 ++ level 0 (1 / 2) 20) := by
   refine ⟨by decide +kernel, ⟨30576 / 10000, -3 / 100, 2054 / 100⟩, ?_,
     Or.inr ⟨pole, by simp [tiny], by decide +kernel⟩⟩
-  exact ⟨[0, 0, 0, 0, 0, 22 / 100, 78 / 100] ++ List.replicate 17 0, rfl, by decide +kernel, by decide +kernel,
+  exact ⟨[0, 0, 0, 0, 0, 22 / 100, 78 / 100] ++ List.replicate 33 0, rfl, by decide +kernel, by decide +kernel,
     by decide +kernel⟩
 
-/-- A 2 cm ledge just inside the right wingtip, 20.31 to 20.33 m up. -/
-def ledge : Box := ⟨560 / 100, 563 / 100, 2 / 10, 3 / 10, 2031 / 100, 2033 / 100⟩
+/-- A 2 cm ledge just inside the right wingtip (FlightGear's RIGHT_TIP), 20.10 to 20.12 m up. -/
+def ledge : Box := ⟨588 / 100, 589 / 100, 1 / 2, 6 / 10, 2010 / 100, 2012 / 100⟩
 
 def ledgeMap : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [ledge]⟩
 
@@ -230,18 +235,19 @@ example : ¬ HullHits ledgeMap (level 0 0 20) ∧ ¬ HullHits ledgeMap (level 0 
   refine ⟨?_, ?_, ?_⟩
   · rintro ⟨q, hq, hs⟩
     have hz := hull_lin_ge 0 0 1 18 (by decide +kernel) hq
-    have hl := hull_lin_ge (-1) 0 1 (737 / 50) (by decide +kernel) hq
+    have hl := hull_lin_ge (-1 / 2) 0 1 (3473 / 200) (by decide +kernel) hq
     rcases hs with h | ⟨b, hb, hc⟩
     · rw [ledgeMap_terrain] at h; grind
     · simp [ledgeMap] at hb; subst hb; simp [Box.Contains, ledge] at hc; grind
   · rintro ⟨q, hq, hs⟩
     have hz := hull_lin_ge 0 0 1 18 (by decide +kernel) hq
-    have hl := hull_lin_ge (-1 / 2) 0 (-1) (-923 / 40) (by decide +kernel) hq
+    have hl := hull_lin_ge (-3 / 4) 0 (-1) (-9791 / 400) (by decide +kernel) hq
     rcases hs with h | ⟨b, hb, hc⟩
     · rw [ledgeMap_terrain] at h; grind
     · simp [ledgeMap] at hb; subst hb; simp [Box.Contains, ledge] at hc; grind
-  · refine ⟨⟨563 / 100, 1 / 4, 508 / 25⟩, ?_, Or.inr ⟨ledge, by simp [ledgeMap], by decide +kernel⟩⟩
-    exact ⟨List.replicate 10 0 ++ [6 / 25] ++ List.replicate 11 0 ++ [19 / 25, 0], rfl, by decide +kernel,
+  · refine ⟨⟨589 / 100, 27 / 50, 2011 / 100⟩, ?_, Or.inr ⟨ledge, by simp [ledgeMap], by decide +kernel⟩⟩
+    exact ⟨List.replicate 12 0 ++ [1 / 5] ++ List.replicate 19 0 ++ [4 / 5] ++ List.replicate 7 0, rfl,
+      by decide +kernel,
       by decide +kernel, by decide +kernel⟩
 
 /-! ## The spec rejects a filter that does nothing -/
