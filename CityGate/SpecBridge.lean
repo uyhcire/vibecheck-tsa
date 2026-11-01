@@ -343,7 +343,7 @@ theorem clearSoundH {h : Rat} (hh : h ≤ 17 / 2) : ClearSound cityGate (CrashH 
   fun x hx => (cityGate_clear x hx).elim fun e he => clear_soundH hh e x.2 he
 
 /-- **The city gate is safe against the spec**, given three assumptions: `hT`, the end-of-escape test means safe
-forever for the `h` m cube (unproved; and false as stated while `JsbExact` burns fuel); `hInit`, the 4 starts pass
+forever for the `h` m cube (known false for the current helix end test, see tracker #30); `hInit`, the 4 starts pass
 the gate's initial check (`specbridgeinit` reports true); `hNear`, see `AirframeNear`. -/
 theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGate (CrashH h))
     (hInit : InitChecked cityGate GInit) (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter :=
@@ -351,8 +351,8 @@ theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGat
 
 /-- **`cityGate_spec_safe` with the end-of-escape assumption on the gate's own rollouts only** (`TermSoundR`: the
 rollouts of its start controller, or of a candidate it proposes at a reachable state, which `TermSound` implies).
-`TermSoundR` is believed to hold now that leaving the map is not an end and the straight ending needs a settled
-climb, but it is unproved, and false as stated while `JsbExact` burns fuel (the spec's horizon is being revised). -/
+`TermSoundR` is currently known false for the helix end test (counterexamples in tracker #30), and false as stated
+while `JsbExact` burns fuel; the theorem is conditional on a redesigned certifying end test. -/
 theorem cityGate_spec_safe_R {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR cityGate (CrashH h) GInit)
     (hInit : InitChecked cityGate GInit) (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter :=
   spec_safe_of_gate_safe (GateSafety.safeR cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hNear

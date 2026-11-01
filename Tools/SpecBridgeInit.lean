@@ -1,13 +1,11 @@
-import CityGate.SpecBridge
+import CityGate.SpecBridgeNear
 
 /-! Numeric check of `InitChecked cityGate GInit`, the bridge's start assumption: from each of the spec's 4 starts,
 after the first frame, the gate's initial escape checks out. Also flies `specFilter` from each start under a few
-pilot commands and reports the margins of `AirframeNear` and of the controls' ranges along the way.
+pilot commands and reports the margins of `AirframeNear`, `PoseBounded` and `ReportMatchesObs` along the way.
 `lake build specbridgeinit && .lake/build/bin/specbridgeinit [frames]`. -/
 
 open CityGate CityGate.SpecBridge
-
-def absR (r : Rat) : Rat := if r < 0 then -r else r
 
 def maxDev (c : Rat × Rat × Rat) (ps : List CitySafety.Pt) : Rat :=
   ps.foldl (fun m q => max m (max (max (absR (q.x - c.1)) (absR (q.y - c.2.1))) (absR (q.z - c.2.2)))) 0
@@ -34,6 +32,9 @@ def main (args : List String) : IO Unit := do
       let mut worst : Rat := 0
       let mut inRange := true
       let mut defined := true
+      let mut tbMax : Rat := 0
+      let mut gap : Rat := 0
+      let mut cgIn := true
       for _ in [0:frames] do
         let a := (specFilter.act p.2 p.1 u).1
         inRange := inRange && a.clamp.elev.toBits == a.elev.toBits && a.clamp.ail.toBits == a.ail.toBits &&
@@ -42,5 +43,18 @@ def main (args : List String) : IO Unit := do
         match exactPos (refPlane p'), CitySafety.airframe p'.1 with
         | some e, some ps => worst := max worst (maxDev e ps)
         | _, _ => defined := false
+        match (tb2lEntries p'.1).mapM CitySafety.ratOf with
+        | some T => tbMax := T.foldl (fun m t => max m (absR t)) tbMax
+        | none => defined := false
+        match CitySafety.ratOf p'.1.cg.x, CitySafety.ratOf p'.1.cg.y, CitySafety.ratOf p'.1.cg.z with
+        | some x, some y, some z => cgIn := cgIn && decide (cgLo.1 ≤ x ∧ x ≤ cgHi.1 ∧ cgLo.2.1 ≤ y ∧ y ≤ cgHi.2.1 ∧
+            cgLo.2.2 ≤ z ∧ z ≤ cgHi.2.2)
+        | _, _, _ => defined := false
+        let rep := CitySafety.report p'.1
+        match exactPos (refPlane p'), CitySafety.ratOf rep.loc.y, CitySafety.ratOf rep.loc.z, CitySafety.ratOf rep.hsl with
+        | some e, some ly, some lz, some hs =>
+          gap := max gap (max (max (absR (ly * CitySafety.ft - e.1)) (absR (lz * CitySafety.ft - e.2.1)))
+            (absR (hs * CitySafety.ft - e.2.2)))
+        | _, _, _, _ => defined := false
         p := p'
-      IO.println s!"{nm} {pn}: {frames} frames, airframe within {ratD worst} m of the reported position (all defined: {defined}), controls in range: {inRange}"
+      IO.println s!"{nm} {pn}: {frames} frames, airframe within {ratD worst} m of the reported position (all defined: {defined}), controls in range: {inRange}; max |Tb2l| {ratD tbMax}, CG in box {cgIn}, report-obs gap {ratD gap} m"
