@@ -7,3 +7,4 @@ scratch/
 sysid/*.csv
 sysid/*.npy
 sysid/__pycache__/
+ext/

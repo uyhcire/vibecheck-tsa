@@ -8,6 +8,7 @@ lean_lib App
 lean_lib Tools
 lean_lib Jsb
 lean_lib Envelope
+lean_lib JsbExact
 
 /-- SDL3 install prefix; `make` passes `-K sdl=$(brew --prefix sdl3)`. -/
 def sdlPrefix : String := (get_config? sdl).getD "/opt/homebrew/opt/sdl3"
@@ -36,3 +37,14 @@ lean_exe jsbresid where
 
 lean_exe jsbbench where
   root := `Tools.Bench
+
+/-- C shims for `JsbExact`: libm `sin`/`cos` and Darwin's combined `__sincos_stret`. -/
+target jxmath.o pkg : FilePath := do
+  let oFile := pkg.buildDir / "c" / "jxmath.o"
+  let srcJob ← inputTextFile <| pkg.dir / "c" / "jxmath.c"
+  buildO oFile srcJob #["-O2", "-fPIC", "-fno-builtin"] #[] "cc"
+
+/-- Offline comparison of `JsbExact` against a JSBSim harness dump. -/
+lean_exe jsbx where
+  root := `Tools.JsbExactResid
+  moreLinkObjs := #[jxmath.o]

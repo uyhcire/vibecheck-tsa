@@ -90,7 +90,33 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 - `Envelope/`: the performance-envelope filter and its theorem (core Lean only).
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Jsb/`: fixed-point Lean port of JSBSim's c172p longitudinal model (unverified; not imported by `Vibecheck/`), with residual tooling in `sysid/` and `Tools/JsbResid.lean`.
+- `JsbExact/`, `Tools/JsbExactResid.lean`, `jsbx/`, `c/jxmath.c`: offline bit-exact Lean port of JSBSim's c172p (see below; unverified, not imported by anything else).
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
 - `proofs/`: the Mathlib fidelity package above.
 - `problems/`: open problems with checkable goals, for semi-independent work (start with `problems/robust-safety/`).
 - `sysid/`: unverified Python experiments against JSBSim (residuals, tube widths).
+
+## JsbExact: JSBSim's C172 in Lean, bit for bit (offline tooling)
+
+`JsbExact.step` reproduces one `FGFDMExec::Run` (dt = 1/128 s) of JSBSim 1.3.3's `c172p` with identical IEEE doubles: 6-DOF (quaternion attitude in ECI, WGS84 gravity, Earth rotation, Adams-Bashforth integrator histories), the aerodynamics and FCS, the IO-320 engine and fixed-pitch propeller, fuel burn with CG and inertia updates, and the landing gear with JSBSim's friction solver. It is written over a `Scalar` class whose only instance is `Float`.
+
+It is offline tooling, not a runtime safety filter, and no theorem depends on it. Intended uses: a target for future interval-based proofs that the model satisfies the envelope filter's one-tick bounds (`Envelope/`), measuring envelope parameters, and a ground-truth lockstep harness.
+
+Limits: no flap kinematic (flaps retracted), no gusts or turbulence (constant wind from the initial condition), engine temperatures skipped, no initial-condition or trim port (state comes from a harness dump), flat terrain for the gear.
+
+Compiler effects reproduced: fused multiply-add sites (clang `-ffp-contract=on`) are written with `fma`; macOS clang's combined `sin`/`cos` (`__sincos_stret`) is reached through `c/jxmath.c`. Trusted for the `Float` instance: libm `fma` and `c/jxmath.c`. `JsbExact/C172Gen.lean` is generated; its constants are the bit patterns of JSBSim's loaded model.
+
+Cost per step on an M-series Mac, measured with `jsbx ... bench`: about 6.8 us in the air, about 13 us on the ground (gear solver).
+
+The Lean side needs no JSBSim source: `lake build JsbExact jsbx`. The comparison needs a harness dump; producing one is optional and needs `cmake`, a C++17 compiler and a pip `jsbsim==1.3.3` install (`python -m venv .venv && .venv/bin/pip install jsbsim==1.3.3`). The harness builds JSBSim v1.3.3 under the gitignored `ext/`:
+
+```
+git clone --depth 1 --branch v1.3.3 https://github.com/JSBSim-Team/jsbsim.git ext/jsbsim
+cmake -S ext/jsbsim -B ext/build-on -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCS=OFF -DBUILD_PYTHON_MODULE=OFF
+cmake --build ext/build-on -j 6 --target libJSBSim && jsbx/build.sh on && mkdir -p ext/data
+R=$(.venv/bin/python -c 'import jsbsim,os;print(os.path.dirname(jsbsim.__file__))')
+ext/harness-on $R ext/data/bank bank 20 8000 3       # modes: level, rud0, bank, takeoff, land
+.venv/bin/python -I jsbx/replay_pip.py ext/data/bank  # source build equals the pip binary bitwise
+.venv/bin/python -I jsbx/gen_lean.py ext/data/bank.cfg.json $R/aircraft/c172p/c172p.xml JsbExact/C172Gen.lean
+lake build jsbx && .lake/build/bin/jsbx ext/data/bank step   # also: tick (8 steps), free (open-loop episode), bench
+```
