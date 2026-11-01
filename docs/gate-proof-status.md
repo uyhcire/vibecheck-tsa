@@ -1,6 +1,6 @@
 # Proof status of the city gatekeeper filter
 
-The gatekeeper filter (`flight/src/envfilter.rs`, `--env gate`; packaged as `libgate` in `gate/`) is tested, not
+The gatekeeper filter (`flight/src/envfilter.rs`, `--safety-filter exact-rollout`; packaged as `libgate` in `gate/`) is tested, not
 proved. This page separates what is exact, what is only checked numerically, and what is proved elsewhere in the
 repository, and lists where a proof of the gate would start.
 

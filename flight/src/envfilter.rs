@@ -10,7 +10,7 @@
 //! - turns: a steady climbing helix whose ground circle (with margin for radius and centre drift) is clear
 //!   at the current height, so climbing around it from here on never meets anything.
 //!
-//! `--env gate` schedules the checks gatekeeper-style (see `Gate`): either sequentially under a per-tick
+//! `--safety-filter exact-rollout` schedules the checks gatekeeper-style (see `Gate`): either sequentially under a per-tick
 //! frame budget, or (`CHECK_THREADS` ≥ 1) every escape to its full horizon, in parallel (`verify_first`).
 
 use crate::jsb::*;
@@ -44,7 +44,7 @@ pub fn parse(name: &str) -> u8 {
         "exact" => 1,
         "fitted" => 2,
         "fitted25" => 3,
-        "gate" => 4,
+        "exact-rollout" => 4,
         _ => 0,
     }
 }

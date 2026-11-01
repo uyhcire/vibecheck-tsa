@@ -134,7 +134,7 @@ fn main() {
             // The scripted Tower gap flight under the gate filter, every 0.25 s.
             use cityflight::pilot::{Fbw, Showcase};
             use cityflight::sim::*;
-            ENV_FILTER.store(parse("gate"), std::sync::atomic::Ordering::Relaxed);
+            ENV_FILTER.store(parse("exact-rollout"), std::sync::atomic::Ordering::Relaxed);
             JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
             let world = cityflight::world::World::new(1337);
             let s0 = scenario_start(&world, 4);

@@ -1,4 +1,4 @@
-//! Gap-guided search for pilot programs that crash an exact-rollout filter (`exact`, `fitted`, `gate`);
+//! Gap-guided search for pilot programs that crash an exact-rollout filter (`exact`, `fitted`, `exact-rollout`);
 //! `--verify F` re-flies them under F.
 //! `cargo run --release --no-default-features --features jsb --bin adversary -- OUT_DIR FILTER [trials] [--threads N]`
 use cityflight::envfilter::{self, check, Kind};

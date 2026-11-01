@@ -5,7 +5,7 @@ city, with a photorealistic renderer and a safety filter that stops the pilot fr
 is the equivalent of this desktop command, on a smart TV:
 
 ```sh
-cd flight && cargo run --release --features jsb -- --env gate
+cd flight && cargo run --release --features jsb -- --safety-filter exact-rollout
 ```
 
 This guide covers what that command runs, how to build it on a Mac, and where the parts that matter for a TV port
@@ -17,7 +17,7 @@ Three layers, in one process:
 1. **The aircraft dynamics** (`--features jsb`): JSBSim's c172p flight model, through `JsbExact`, a Lean 4 port of
    JSBSim 1.3.3 that is bit-for-bit identical to JSBSim on the platform it was validated on (macOS, Apple silicon).
    Lean compiles it to C; it is linked into the app as a dynamic library, `libcityjsb.dylib`, with a small C API.
-2. **The safety filter** (`--env gate`): at every 1/50 s control tick it copies the aircraft, flies candidate escape
+2. **The safety filter** (`--safety-filter exact-rollout`): at every 1/50 s control tick it copies the aircraft, flies candidate escape
    manoeuvres on the copy (exact rollouts, about 6 ms per tick on an M4 Max, at most about 15 ms), and only lets the
    pilot's input through if some escape still works. Otherwise it flies the escape and hands control back when safe.
 3. **The app** (Rust): window, input, the city, the renderer, and the simulation loop. It uses macroquad on top of
@@ -32,7 +32,7 @@ is pinned in `lean-toolchain`; `elan` installs it automatically).
 git clone https://github.com/uyhcire/vibecheck-tsa.git && cd vibecheck-tsa   # main
 lake build libcityjsb                        # the aircraft dynamics library (first build takes a while)
 cd flight
-cargo run --release --features jsb -- --env gate
+cargo run --release --features jsb -- --safety-filter exact-rollout
 ```
 
 Useful variants:

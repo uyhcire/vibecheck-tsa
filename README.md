@@ -89,13 +89,13 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 - `Vibecheck/` the verified core (core Lean only, no Mathlib).
 - `Envelope/`: the performance-envelope filter and its theorem (core Lean only).
 - `GateSafety/`: the gatekeeper's safety by induction (`GateSafety.safe`, core Lean only); see `docs/gate-proof-status.md`.
-- `CityGate/`: the city gate in Lean on `JsbExact`, proved safe (`CityGate.city_safe`); flown with `--env lean`. See `notes/lean-city-gate.md`.
+- `CityGate/`: the city gate in Lean on `JsbExact`, proved safe (`CityGate.city_safe`); flown with `--safety-filter exact-rollout-lean`. See `notes/lean-city-gate.md`.
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Jsb/`: fixed-point Lean port of JSBSim's c172p longitudinal model (unverified; not imported by `Vibecheck/`), with residual tooling in `sysid/` and `Tools/JsbResid.lean`.
 - `JsbExact/`, `Tools/JsbExactResid.lean`, `jsbx/`, `c/jxmath.c`: offline bit-exact Lean port of JSBSim's c172p (see below; unverified, not imported by anything else).
 - `VcFilter/`, `c/vcfilter.h`, `c/filter_abi.c`: the safety-filter C ABI (`docs/filter-interface.md`) with the envelope filter behind it (`make filter-lib`; mappings in `docs/vcfilter-envelope.md`).
 - `host/`: Python host for the C ABI: conformance tests and a JSBSim lockstep run (`make filter-test`).
-- `flight/`: Luis Pabon's procedural-city flight demo (Rust), with `JsbExact` as its plant (`--jsb`) and the gatekeeper filter (`--env gate`); see `flight/README.md`.
+- `flight/`: Luis Pabon's procedural-city flight demo (Rust), with `JsbExact` as its plant (`--jsb`) and the gatekeeper filter (`--safety-filter exact-rollout`); see `flight/README.md`.
 - `CityJsb/`, `c/cityjsb_abi.c`: `JsbExact` as a plant (`libcityjsb`): start, step, clone, and import of a JSBSim state dump.
 - `gate/`: the gatekeeper filter as a C library for a host running JSBSim (`libgate`, `gate/gate.h`, `make gate`).
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
