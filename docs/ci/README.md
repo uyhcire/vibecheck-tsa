@@ -73,6 +73,11 @@ structure Submission where name : String; laws : List Law; horizon : Nat
 
 ### 2.2 `Ci/Audit.lean` defines `Ci.Audit.claimed : List Lean.Name`
 
+Proofs that need Mathlib (for example real-valued arguments) go in the `proofs/` package instead: list them in
+`proofs/Proofs/CiClaims.lean` (`Proofs.CiClaims.claimed`), with the same goal types. The maintainer scores them
+with `cd proofs && lake build ciaudit && .lake/build/bin/ciaudit ../ci-out/external-proofs.txt`, then
+`ciscore --external-proofs ci-out/external-proofs.txt`; the rows are audited exactly like `Ci/Audit.lean`'s.
+
 The scoreboard reports every claimed theorem with its axioms. A theorem counts as proved only if its axioms
 are a subset of {`propext`, `Classical.choice`, `Quot.sound`}. So `sorry`, `native_decide` and new axioms do
 not count.
@@ -130,7 +135,8 @@ For every benchmark state `ciscore` runs the filter's check at the stored altitu
 
 - **accepted**: the check accepts at the stored altitude. **Coverage** is the accepted fraction.
 - **h\***: the lowest commit height on a 0.25 m grid at which the same state is accepted. The search starts
-  1 m below clearance + (loss at the stored altitude), climbs 12 m, then doubles. If nothing is accepted below
+  1 m below clearance + (loss at the stored altitude), climbs 12 m, then bisects up to the stored altitude
+  (assuming acceptance is monotone in height there). If nothing is accepted below
   the stored altitude, h\* is the stored altitude. This happens for a few fast states: denser low air raises
   the load factor above 3.8.
 - **rollout ticks to T** at the stored altitude and at h\*, plus the ticks spent per check (summed over the laws
@@ -157,7 +163,8 @@ The headline components:
 
 ```
 headline = 0                                        if not valid
-         = 1 + P + 0.5·Q + 0.4·R + 0.1·B             otherwise
+         = 1 + P·coverage + 0.5·Q + 0.4·R + 0.1·B    otherwise   (P weighted by coverage: an empty T is
+                                                      trivially "proved" and must not score)
 ```
 
 So the headline rewards, in order:
@@ -194,8 +201,9 @@ In addition:
 - every seed on a stride is tested ("entry");
 - 64 seeds get a 120 s long test.
 
-All draws come from splitmix64 with seed 0xC172 + law index. `--seed N` overrides the seed for unofficial
-probing. Counterexamples go to `ci-out/<sub>/t-counterexamples.csv`, one row each: the mode, the failure
+All draws come from splitmix64 with seed 0xC172 + law index. A full (official) run repeats the whole attack with
+seeds {0xC172, 3, 5, 7, 11, 13, 17, 19}, because competitors found counterexamples that four seeds missed;
+`--quick` uses one seed. `--seed N` replaces the first seed for unofficial probing. Counterexamples go to `ci-out/<sub>/t-counterexamples.csv`, one row each: the mode, the failure
 (`alpha|load|speed|stall|clearance@tickK` or `no-climb@tickK`) and the raw vector.
 
 The adversary judges T as a set of full model states. If T admits states with inconsistent derivative or

@@ -71,18 +71,26 @@ def rejectWhy (S : Submission) (c : Commit) : String :=
     | some i => s!"{L.name}:{failKind L c i}@tick{i / 8}"
     | none => s!"{L.name}:T-not-reached")
 
-/-- Lowest commit height on a 0.25 m grid, from 1 m below `clearance + loss`, at which the filter accepts. -/
+/-- Lowest commit height on a 0.25 m grid, from 1 m below `clearance + loss`, at which the filter accepts:
+a 12 m scan, then bisection up to the stored altitude (assumes acceptance is monotone in height there). -/
 def hstar (S : Submission) (c : Commit) (loss : Int) : Option (Int × Nat × Nat) := Id.run do
   let q : Int := 16384
   let start := ((clearance + loss + q - 1) / q) * q - 4 * q
   for j in [0:48] do
     let hc := start + j * q
     if let (some (_, r), t) := check S (c.atHeight hc) then return some (hc, r.ticks, t)
-  for j in [0:8] do
-    let hc := start + 48 * q * 2 ^ j
-    if hc ≥ c.s.h.raw then break
-    if let (some (_, r), t) := check S (c.atHeight hc) then return some (hc, r.ticks, t)
-  return none
+  let mut lo := start + 47 * q
+  let mut hi := (c.s.h.raw / q) * q
+  let some (best, tk, sp) := (match check S (c.atHeight hi) with
+    | (some (_, r), t) => some (hi, r.ticks, t) | _ => none) | return none
+  let mut res := (best, tk, sp)
+  while hi - lo > q do
+    let mid := ((lo + hi) / 2 / q) * q
+    if mid ≤ lo then break
+    match check S (c.atHeight mid) with
+    | (some (_, r), t) => hi := mid; res := (mid, r.ticks, t)
+    | _ => lo := mid
+  return some res
 
 def runBench (S : Submission) (es : Array Entry) : IO (Array StateRes) := do
   let mut out := #[]
@@ -264,8 +272,8 @@ structure Audit where
   rows : List (String × String × Bool × String × Int)
   provedLaws : List Nat
 
-def audit (nLaws : Nat) : Audit :=
-  let rows := Ci.Report.auditRows.map fun l =>
+def audit (nLaws : Nat) (ext : List String := []) : Audit :=
+  let rows := (Ci.Report.auditRows ++ ext).map fun l =>
     match l.splitOn "|" with
     | [n, a, s, k, i] => (n, a, s == "true", k, (i.toInt?).getD (-1))
     | _ => (l, "", false, "other", -1)
@@ -327,6 +335,13 @@ def main (args : List String) : IO UInt32 := do
     | _ :: rest => optSeed rest
     | [] => 0xC172
   let advSeed := optSeed args
+  let rec optExt : List String → Option String
+    | "--external-proofs" :: p :: _ => some p
+    | _ :: rest => optExt rest
+    | [] => none
+  let ext ← match optExt args with
+    | some p => do pure ((← IO.FS.lines p).toList.filter (· ≠ ""))
+    | none => pure []
   let quick := args.contains "--quick"
   let outDir : System.FilePath := "ci-out" / subName
   IO.FS.createDirAll outDir
@@ -373,16 +388,20 @@ def main (args : List String) : IO UInt32 := do
         if let some h := r.hstar then
           if let some p := rollToT L (r.e.c.atHeight (h * 65536).round.toInt64.toInt) S.horizon then
             seeds := seeds.push p
-    let a := adversary L seeds (if quick then 200 else 2000) (if quick then 8 else 64) (advSeed + li.toUInt64)
-    advLines := advLines.push s!"\{\"law\":{jsonStr L.name},\"seeds\":{seeds.size},\"tests\":{a.tests},\"long_tests\":{a.longTests},\"counterexamples\":{a.ces.size}}"
-    ces := ces ++ a.ces.map (L.name, ·)
+    -- Official runs attack with eight seeds: competitors found counterexamples that four seeds missed.
+    let advSeeds : List UInt64 := if quick then [advSeed] else [advSeed, 3, 5, 7, 11, 13, 17, 19]
+    for sd in advSeeds do
+      let a := adversary L seeds (if quick then 200 else 2000) (if quick then 8 else 64) (sd + li.toUInt64)
+      advLines := advLines.push s!"\{\"law\":{jsonStr L.name},\"adv_seed\":{sd},\"seeds\":{seeds.size},\"tests\":{a.tests},\"long_tests\":{a.longTests},\"counterexamples\":{a.ces.size}}"
+      ces := ces ++ a.ces.map (L.name, ·)
     li := li + 1
   let tAdv ← IO.monoMsNow
-  let au := audit S.laws.length
+  let au := audit S.laws.length ext
   let provedAll := !S.laws.isEmpty && au.provedLaws.length == S.laws.length
   let valid := hashOk && staticBad.isEmpty && ces.isEmpty && !S.laws.isEmpty && S.horizon > 0
   let P : Float := if provedAll then 1 else 0
-  let headline : Float := if valid then 1 + P + 0.5 * Q + 0.4 * R + 0.1 * B else 0
+  -- P counts in proportion to coverage, so a proved but empty or useless T earns nothing.
+  let headline : Float := if valid then 1 + P * coverage + 0.5 * Q + 0.4 * R + 0.1 * B else 0
   let ceText := "law,kind,why,vec\n" ++ "\n".intercalate (ces.toList.map fun (n, c) =>
     s!"{n},{c.kind},{c.why},{" ".intercalate (c.vec.toList.map toString)}")
   IO.FS.writeFile (outDir / "t-counterexamples.csv") (ceText ++ "\n")

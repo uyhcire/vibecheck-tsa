@@ -12,3 +12,7 @@ path = ".."
 
 [[lean_lib]]
 name = "Proofs"
+
+[[lean_exe]]
+name = "ciaudit"
+root = "Proofs.CiAuditMain"
