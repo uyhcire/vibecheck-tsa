@@ -255,6 +255,9 @@ fn main() {
     if let Some(b) = args.iter().position(|a| a == "--budget").and_then(|i| args.get(i + 1)?.parse().ok()) {
         cityflight::envfilter::BUDGET.store(b, std::sync::atomic::Ordering::Relaxed);
     }
+    if let Some(h) = args.iter().position(|a| a == "--street-horizon").and_then(|i| args.get(i + 1)?.parse().ok()) {
+        cityflight::envfilter::set_street_horizon(h);
+    }
     if let Some(n) = args.iter().position(|a| a == "--escapes").and_then(|i| args.get(i + 1)?.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }

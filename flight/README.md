@@ -175,6 +175,9 @@ same way.
 | 50 hostile + 50 kamikaze pilots | 0 / 100 | 100 / 100 | 31.3% |
 | showcase pilot (60 s) | 0 | yes | 208 of 3,000 |
 
+Why the spawn is inside the gap, and how to fly in from open air (`--street-horizon 24`):
+[`docs/gap-entry`](../docs/gap-entry/README.md).
+
 `adversary -- /tmp/a exact-rollout 200`: 0 crashes in 2,640 gap-guided flights from 200 verified starts. An
 unlimited budget (`--budget 100000`) commits 29.5% of ticks too: the interventions are what the escapes
 require, not budget starvation.

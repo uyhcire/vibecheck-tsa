@@ -1602,6 +1602,14 @@ async fn main() {
         cityflight::envfilter::set_filter_margin(m, arg("--check-every").and_then(|s| s.parse().ok()).unwrap_or(cityflight::envfilter::SAMPLE));
     }
     #[cfg(feature = "jsb")]
+    if let Some(h) = arg("--street-horizon").and_then(|s| s.parse::<f64>().ok()) {
+        cityflight::envfilter::set_street_horizon(h);
+    }
+    #[cfg(feature = "jsb")]
+    if let Some(b) = arg("--budget").and_then(|s| s.parse::<usize>().ok()) {
+        cityflight::envfilter::BUDGET.store(b, std::sync::atomic::Ordering::Relaxed);
+    }
+    #[cfg(feature = "jsb")]
     if let Some(n) = arg("--escapes").and_then(|s| s.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }

@@ -191,7 +191,7 @@ pub fn contact_verdict(world: &World, s: &State) -> Verdict {
     verdict_cfg(world, &JsbPlant::new(s), &CONTACT)
 }
 
-pub const CONTACT: RollCfg<'static> = RollCfg { margin: 0.0, term_margin: 0.0, horizon: HORIZON, prefix: &[], check_every: 1, offmap_clear: false };
+pub const CONTACT: RollCfg<'static> = RollCfg { margin: 0.0, term_margin: 0.0, horizon: HORIZON, prefix: &[], check_every: 1, offmap_clear: false, street_horizon: HORIZON };
 
 pub fn filter_verdict_plant(world: &World, p: &JsbPlant) -> Verdict {
     verdict_cfg(world, p, &RollCfg::filter())
