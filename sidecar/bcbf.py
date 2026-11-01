@@ -114,7 +114,8 @@ class Bcbf:
         return self.loops.controls(fdm, nc, pc, thrc, dt)
 
     def status(self):
-        return (f"cbf {'ON ' if self.on else 'off'} {self.MODES[self.mode]:6s} h {self.h:5.0f} m clear {self.clear:5.0f} m"
+        h = "NO ESCAPE" if self.on and self.h == float("-inf") else f"h {self.h:5.0f} m"
+        return (f"cbf {'ON ' if self.on else 'off'} {self.MODES[self.mode]:6s} {h} clear {self.clear:5.0f} m"
                 + (" KAMIKAZE" if self.kamikaze else ""))
 
     def close(self):

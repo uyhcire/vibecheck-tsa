@@ -262,8 +262,8 @@ def main():
     ap.add_argument("--scenario", choices=sorted(SCENARIOS), help="airborne start: " + "; ".join(f"{k}: {v['note']}" for k, v in SCENARIOS.items()))
     ap.add_argument("--filter", choices=["none", "bcbf"], default="none",
                     help="bcbf: guard the pilot with the bcbf-city-flight backup CBF (flight/target/release/filterd)")
-    ap.add_argument("--filter-on", action="store_true", help="start with the filter active")
-    ap.add_argument("--toggle-button", type=int, default=2, help="HOTAS button that toggles the filter (1 = trigger)")
+    ap.add_argument("--filter-off", action="store_true", help="start with the filter inactive (default: active)")
+    ap.add_argument("--toggle-button", type=int, default=4, help="HOTAS button that toggles the filter (the stick button labelled 2 reports as 4; 1 = trigger)")
     ap.add_argument("--kamikaze-button", type=int, default=3, help="HOTAS button that toggles the kamikaze autopilot")
     ap.add_argument("--kamikaze", action="store_true", help="start with the kamikaze autopilot flying (tests)")
     ap.add_argument("--selftest", action="store_true")
@@ -295,7 +295,7 @@ def main():
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir
         from bcbf import Bcbf
         bcbf = Bcbf()
-        bcbf_on = args.filter_on
+        bcbf_on = not args.filter_off
         kamikaze = args.kamikaze
         print(f"backup CBF loaded; button {args.toggle_button} toggles it (starts {'ON' if bcbf_on else 'off'})")
     buildings = Buildings()
@@ -383,6 +383,8 @@ def main():
                 yaw *= 0.5   # ponytail: nosewheel gain; a twist grip at taxi speed loops the plane otherwise
             if bcbf:
                 pressed = hotas.buttons if hotas else 0
+                if pressed & ~last_buttons:
+                    print(f"\nbutton(s) pressed: {[i + 1 for i in range(15) if pressed & ~last_buttons & (1 << i)]}", flush=True)
                 if pressed & ~last_buttons & (1 << (args.toggle_button - 1)):
                     bcbf_on = not bcbf_on
                     print(f"\n*** BACKUP CBF {'ON' if bcbf_on else 'OFF'} ***", flush=True)
