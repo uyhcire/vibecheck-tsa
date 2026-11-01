@@ -16,7 +16,7 @@ def _rnode(h):
 r2N = np.array([_rnode(h) ** 2 for h in HN])
 def rat(h): return float(np.sqrt(sm.interpN(r2N, h)))
 rng = np.random.default_rng(int(sys.argv[2]) if len(sys.argv) > 2 else 1)
-def ksample(n, r=R, fl=1.0, fp=1.0, hlo=10, hhi=2635):
+def ksample(n, r=R, fl=1.0, fp=1.0, hlo=10, hhi=2685):
     pts = []
     for _ in range(n):
         h = rng.uniform(hlo, hhi); c = center(h); P = Pat(h)

@@ -14,7 +14,7 @@ samples = []   # (interval index, t, A)
 for i in range(len(HN) - 1):
     pts = []; meta = []
     for k in range(K):
-        h = float(np.clip(HN[i] + (k + 0.5) / K * 100 + rngj.uniform(-5, 5), 10, 2635))
+        h = float(np.clip(HN[i] + (k + 0.5) / K * 100 + rngj.uniform(-5, 5), 10, 2685))
         y0 = np.zeros(7) if k == 0 else (lambda u: u / np.sqrt(u @ Pat(h) @ u) * rat(h) * rngj.uniform(0.3, 1.0))(rngj.normal(size=7))
         meta.append(h)
         for a in range(7):

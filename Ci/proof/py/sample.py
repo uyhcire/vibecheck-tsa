@@ -22,7 +22,7 @@ def coords(x):
 def V(h, y): return y @ Pat(h) @ y
 CORNER = os.environ.get('CORNER') == '1'
 rng = np.random.default_rng(int(sys.argv[3]) if len(sys.argv) > 3 else 1)
-def sample(n, r, eg, hlo=10, hhi=2635, tolfun=None):
+def sample(n, r, eg, hlo=10, hhi=2685, tolfun=None):
     pts = []
     for _ in range(n):
         h = rng.uniform(hlo, hhi); c = center(h); P = Pat(h)

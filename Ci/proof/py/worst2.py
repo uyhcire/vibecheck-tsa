@@ -39,7 +39,7 @@ for it in range(15):
     cand = []
     for (h, y, lam, perp) in pop:
         for _ in range(5):
-            h2 = float(np.clip(h + rng2.normal() * 3, 10, 2635))
+            h2 = float(np.clip(h + rng2.normal() * 3, 10, 2689.9))
             cand.append(proj(h2, y + rng2.normal(size=7) * 0.2, lam + rng2.normal() * 0.1 * tkat(h2), perp + rng2.normal(size=11) * 0.1 * tpat(h2)))
     cs = score(cand)
     allp = pop + cand; alls = np.concatenate([ps, cs]); o = np.argsort(-alls)[:60]

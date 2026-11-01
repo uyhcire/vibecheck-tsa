@@ -42,7 +42,7 @@ def check(cells, elev=(-65536, 65536)):
     return out.strip().split("\n")
 if __name__ == "__main__":
     w = float(sys.argv[1]); el = (int(sys.argv[2]), int(sys.argv[3])) if len(sys.argv) > 3 else (-65536, 65536)
-    cells = [(a, min(a + w, 2640)) for a in np.arange(10, 2640, w)]
+    cells = [(a, min(a + w, 2690)) for a in np.arange(10, 2690, w)]
     res = check(cells, el); nbad = 0
     for (ha, hb), r in zip(cells, res):
         flags = [seg.split(" vz")[0] for seg in r.split(" | ")]

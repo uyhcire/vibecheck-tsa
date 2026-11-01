@@ -18,7 +18,7 @@ dn_ok = dn[700:]; dn_ok = dn_ok[dn_ok[:, 1] > hf + 1]
 M = np.concatenate([up, dn_ok]); M = M[np.argsort(M[:, 1], kind="stable")]
 hs = M[:, 1] / 65536
 print("fixed point", hf / 65536, "range", hs.min(), hs.max(), "down part starts at", dn_ok[0, 1] / 65536 if len(dn_ok) else None)
-HT = np.arange(0, 2660, 10)
+HT = np.arange(0, 2710, 10)
 tab = np.array([[np.interp(h, hs, M[:, j]) for j in range(21)] for h in HT])
 tab[:, 1] = HT * 65536
 np.save("man2.npy", np.round(tab).astype(np.int64))

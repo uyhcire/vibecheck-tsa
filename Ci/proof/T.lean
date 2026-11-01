@@ -11,7 +11,7 @@ manifold state (table at 10 m spacing, linear interpolation). With `d` the devia
   `e` from `c(h) + G(h) d` has a component along a kink direction `k(h)` bounded by `τk(h)` (this covers the
   breakpoints of the piecewise-linear lift and drag tables, which the linear slaving cannot follow), and the rest of
   `e` bounded componentwise by `τ⊥(h)`;
-* 10 m ≤ h < 2640 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
+* 10 m ≤ h < 2690 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
 * the state and `eI` inside the bounding box of the above over the state's 50 m altitude cell (`boxOk`); redundant
   by construction, it lets the one-tick safety proof work on boxes.
 
@@ -22,7 +22,7 @@ open Vibecheck Jsb Ci.Lawfirst
 
 -- centre table: frozen-altitude equilibria of the climb (h held fixed), see `Ci/proof/py/frozen_tab.py`
 def hLoT : Int := 10 * 65536
-def hHiT : Int := 2640 * 65536
+def hHiT : Int := 2690 * 65536
 
 /-- Raw value of coordinate `i` (state field index, 19 = integrator memory). -/
 def coord (s : State) (m : Mem) (i : Nat) : Int :=
