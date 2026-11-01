@@ -122,3 +122,42 @@ def _stepn_many(self, hs, ys, n, psi=0.0, north=0.0):
 
 
 TsMap.stepn_many = _stepn_many
+
+
+DIAG = ["alpha", "beta", "vt_fps", "mach", "p_psf", "rho", "h_over_b", "J", "tipMach", "fuel_air", "rpm", "map",
+        "thrust", "hp", "elev", "ail", "rud", "gc_raw", "n_raw", "acmd_raw", "elev_raw", "ail_raw", "rud_raw",
+        "phiT_raw", "sc", "adot", "stall"]
+
+
+def _diag(self, h, y, psi=0.0, north=0.0):
+    self._send(" ".join(["D", b(psi), b(north), b(h)] + [b(v) for v in y]))
+    return dict(zip(DIAG, [f(s) for s in self.p.stdout.readline().split()]))
+
+
+def _wind(self, wn, we, wd):
+    """Constant wind (NED, ft/s) for following M, S and D commands."""
+    self._send(" ".join(["W", b(wn), b(we), b(wd)]))
+
+
+def _keys(self):
+    self._send("K")
+    out = {}
+    while True:
+        ln = self.p.stdout.readline().strip()
+        if ln == "END":
+            return out
+        w = ln.split()
+        out[w[0]] = [float(x) for x in w[1:]]
+
+
+TsMap.diag = _diag
+TsMap.wind = _wind
+TsMap.keys = _keys
+
+
+def _hold(self, h_ref):
+    """Candidate level-off at h_ref (m) for following M and S commands; None restores the gate's law."""
+    self._send("H " + b(float("nan") if h_ref is None else h_ref))
+
+
+TsMap.hold = _hold

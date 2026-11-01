@@ -14,6 +14,10 @@ plant (`CityGate.Plane.step`, i.e. `JsbExact.step` with fuel frozen) under the r
 Numbers cross the pipe as the decimal `UInt64` bit patterns of `Float`s, so nothing is lost in printing.
 
 Commands, one per stdin line (`b` = a bit pattern):
+* `W wn we wd` (bits): a constant wind (NED, ft/s, JSBSim's `wind` state) for the following `M`, `S`, `D`.
+* `D psi north h y1..y32`: the internals of one frame (`diag`).
+* `H b`: the candidate level-off at altitude `b` (m) for following `M` and `S` (`H` of NaN: the gate's law).
+* `K`: the row keys of the tables the climb reads (`tableKeys`).
 * `Z 1` / `Z 0`: the smoothed loop (`unitQ` before every frame) for the following `M` and `S` commands, or the
   plain one (the default).
 * `M psi north h y1..y32` (all `b`): one frame from `place`, prints `h' y' east north` (the last two: the CG's
@@ -132,14 +136,140 @@ def unitQ (st : State Float) : State Float :=
   let q : Quat Float := ⟨q.q0 / n, q.q1 / n, q.q2 / n, q.q3 / n⟩
   { st with q, qdot := q.qdot st.pqri }
 
+/-! ### A candidate level-off (not in the gate)
+
+The straight escape with the commanded flight-path gradient capped by an altitude hold:
+`gc = min(gc_climb, clamp(K_HOLD · (hRef − h), −GC_HI, GC_HI))`. Below `hRef − gc_climb / K_HOLD` it is the gate's law
+exactly; at `hRef` it commands level flight. Everything else is copied from `CityGate.Esc.Law` unchanged. Used only
+to evaluate the level-flight trim the proof would need above `zTop` (`docs/termsound-proof.tex`). -/
+
+def K_HOLD : Float := 0.005
+
+def elevHold (hRef : Float) (l : Law) (o : FloatArray) (v g cphi vRef : Float) : Float × Law :=
+  let gc := fmin (clamp (GC_REF + KV * (v - vRef)) GC_LO GC_HI) (clamp (K_HOLD * (hRef - o[2]!)) (-GC_HI) GC_HI)
+  let nLong := g.cos + v * KG * (gc - g) / G0
+  let ncmd := if cphi < 0.35 then NMIN else clamp (nLong / cphi) NMIN NMAX
+  let rv2 := rhoOf o[2]! * v * v
+  let acmd := fmin (A0 + KA0 * ncmd / rv2) AMAX
+  let nAch := (acmd - A0) * rv2 / KA0
+  let qcmd := G0 * (nAch - g.cos * cphi) / v
+  let sc := if VS > 0.0 then fmin ((VS / v) * (VS / v)) 1.0 else 1.0
+  let ea := acmd - o[13]!
+  let eRaw := E0 + E1 * acmd + KQF * qcmd * 40.0 / v + sc * (KA * ea - KQ * (o[11]! - qcmd)) + l.ia
+  let e := clamp eRaw (-1.0) 1.0
+  let ia := if e == eRaw || ea * l.ia < 0.0 then clamp (l.ia + KI_A * ea * DT_JSB) (-0.4) 0.4 else l.ia
+  (e, { l with ia })
+
+def controlsHold (hRef : Float) (l : Law) (o : FloatArray) : Surf × Law :=
+  let gh := (obN o * obN o + obE o * obE o).sqrt
+  let v := fmax o[6]! 10.0
+  let g := Float.atan2 (-(obD o)) gh
+  let phi := o[7]!
+  let sphi := phi.sin
+  let cphi := phi.cos
+  let dir := ESC_DIR[l.esc]!
+  let bank := ESC_BANK[l.esc]!
+  let (e, l) := elevHold hRef l o v g cphi V_REF[l.esc]!
+  let track := Float.atan2 (obE o) (obN o)
+  let l := if !l.turning && l.t ≥ T_PULL_MIN[l.esc]! && (g ≥ GAM_TURN || l.t ≥ T_PULL_MAX) then
+      { l with psiRef := track } else l
+  let phiT :=
+    if l.esc == STREET then
+      if l.side != 0.0 then l.side * bank
+      else if l.axis.isNaN then 0.0
+      else clamp (K_STREET * wrap (l.axis - track)) (-BANK_STREET) BANK_STREET
+    else if !l.turning then
+      if KEEP_BANK && dir * phi > 0.0 then dir * fmin phi.abs bank else 0.0
+    else if dir == 0.0 then clamp (KPSI * wrap (l.psiRef - track)) (-0.15) 0.15
+    else dir * bank
+  let ephi := phiT - phi
+  let (kphi, kp) := if l.esc == STREET then (ROLL_STREET_PHI, ROLL_STREET_P) else (KPHI, KP)
+  let ailRaw := kphi * ephi - kp * o[10]! + l.iphi
+  let ail := clamp ailRaw (-1.0) 1.0
+  let iphi :=
+    if l.esc == STREET then
+      if ail == ailRaw && ephi.abs < 0.1 then clamp (l.iphi + ROLL_STREET_I * ephi * DT_JSB) (-0.45) 0.45
+      else l.iphi
+    else if ail == ailRaw || ephi * l.iphi < 0.0 then clamp (l.iphi + KI_PHI * ephi * DT_JSB) (-0.3) 0.3
+    else l.iphi
+  let rTurn := G0 / v * sphi
+  let beta := o[14]!
+  let rudRaw := -KB * beta + KR * (o[12]! - rTurn) + l.ib
+  let rud := clamp rudRaw (-1.0) 1.0
+  let ib := if rud == rudRaw || beta * l.ib > 0.0 then clamp (l.ib - KI_B * beta * DT_JSB) (-0.5) 0.5 else l.ib
+  (⟨-e, ail, rud, 1.0⟩, { l with iphi, ib })
+
+/-- `Law.step` with the level-off (straight escape: no capture or street turn). -/
+def stepHold (hRef : Float) (l : Law) (p : Plane) : Surf × Law :=
+  let (u, l) := controlsHold hRef l p.ob
+  (u, { l with t := l.t + DT_JSB })
+
 /-- One frame of the closed loop (`Law.step`, then `Plane.step`); with `smooth`, the quaternion is first scaled to
 unit length (`unitQ`). The law reads only `ob`, which does not depend on the quaternion's norm. -/
-def frame (st : State Float) (l : Law) (ob : FloatArray) (smooth : Bool := false) : State Float × Law × FloatArray :=
+def frame (st : State Float) (l : Law) (ob : FloatArray) (smooth : Bool := false) (hold : Float := NAN) :
+    State Float × Law × FloatArray :=
   let st := if smooth then unitQ st else st
   let p : Plane := { st, ob, ox := 0, oy := 0 }
-  let (u, l') := l.step p
+  let (u, l') := if hold.isNaN then l.step p else stepHold hold l p
   let p' := p.step u
   (p'.st, l', p'.ob)
+
+/-- Discrete-relevant internals of one frame from `(st, l, ob)`, for locating switches: the plant's diagnostics
+(alpha, beta, airspeed ft/s, Mach, static pressure psf, density, h/b for ground effect), the propeller's advance
+ratio and tip Mach (as `propeller` computes them), the engine's fuel/air ratio (`mdotFuel / mdotAir`), rpm and
+manifold pressure, the surface commands, and the law's pre-clamp values (`gc`, `nLong / cos φ`, `acmd`, elevator,
+aileron and rudder before clamping, bank target before clamping, gain scheduling factor `sc`). -/
+def diag (st : State Float) (l : Law) (ob : FloatArray) : Array Float :=
+  let p : Plane := { st, ob, ox := 0, oy := 0 }
+  let (u, _) := l.step p
+  let i : JsbExact.Input Float := { elev := u.elev, ail := u.ail, rud := u.rud, thr := u.thr, mix := 0.9, brkL := 0, brkR := 0 }
+  let (s', d) := JsbExact.step st i (fuelFreeze := true)
+  -- propeller advance ratio and tip Mach, as `JsbExact.propeller` with the frame's aero velocities
+  let mT : M33 Float := m9 Gen.propT
+  let loc : V3 Float := v3 Gen.propXYZ
+  let dxyz := structToBody s'.cg loc
+  let lv := mT.T.mulV (V3.add d.uvw (V3.cross d.pqr dxyz))
+  let rps := st.rpm / 60.0
+  let dia := Gen.Diameter
+  let vtip := rps * dia * 3.141592653589793
+  let tipMach := Float.sqrt (vtip * vtip + lv.x * lv.x) / d.a
+  let jAdv := if rps > 0.01 then lv.x / (dia * rps) else lv.x / dia
+  let pAmb := d.p * Gen.psftopa
+  let far := 1.3 * 0.9 * 101325.0 / pAmb / 14.7
+  -- law internals (`Law.elevCegis`, `Law.controls`)
+  let o := ob
+  let gh := (obN o * obN o + obE o * obE o).sqrt
+  let v := fmax o[6]! 10.0
+  let g := Float.atan2 (-(obD o)) gh
+  let cphi := o[7]!.cos
+  let gcRaw := GC_REF + KV * (v - V_REF[0]!)
+  let gc := clamp gcRaw GC_LO GC_HI
+  let nLong := g.cos + v * KG * (gc - g) / G0
+  let nRaw := nLong / cphi
+  let ncmd := if cphi < 0.35 then NMIN else clamp nRaw NMIN NMAX
+  let rv2 := rhoOf o[2]! * v * v
+  let acmdRaw := A0 + KA0 * ncmd / rv2
+  let acmd := fmin acmdRaw AMAX
+  let nAch := (acmd - A0) * rv2 / KA0
+  let qcmd := G0 * (nAch - g.cos * cphi) / v
+  let sc := if VS > 0.0 then fmin ((VS / v) * (VS / v)) 1.0 else 1.0
+  let ea := acmd - o[13]!
+  let eRaw := E0 + E1 * acmd + KQF * qcmd * 40.0 / v + sc * (KA * ea - KQ * (o[11]! - qcmd)) + l.ia
+  let track := Float.atan2 (obE o) (obN o)
+  let phiTRaw := KPSI * wrap (l.psiRef - track)
+  let ailRaw := KPHI * (clamp phiTRaw (-0.15) 0.15 - o[7]!) - KP * o[10]! + l.iphi
+  let rudRaw := -KB * o[14]! + KR * (o[12]! - G0 / v * o[7]!.sin) + l.ib
+  #[d.alpha, d.beta, d.vt, d.mach, d.p, d.rho, d.hmac, jAdv, tipMach, far, st.rpm, st.tmap, d.thrust, d.hp,
+    u.elev, u.ail, u.rud, gcRaw, nRaw, acmdRaw, eRaw, ailRaw, rudRaw, phiTRaw, sc, d.adot, s'.stall]
+
+/-- Row keys of the tables a straight climb reads, one table per line (name, then keys). -/
+def tableKeys : List (String × Array Float) :=
+  let col0 (t : Table) : Array Float := (List.range t.rows).toArray.map fun r => t.data[(r + 1) * (t.cols + 1)]!
+  [("CLwbh", col0 Gen.tab_CLwbh_7), ("CDwbh", col0 Gen.tab_CDwbh_3), ("CYp", col0 Gen.tab_CYp_5),
+   ("CYr", col0 Gen.tab_CYr_6), ("Clr", col0 Gen.tab_Clr_10), ("kCLge", col0 Gen.tab_kCLge_1),
+   ("kCDge", col0 Gen.tab_kCDge_0), ("cThrust", col0 Gen.tab_cThrust), ("cPower", col0 Gen.tab_cPower),
+   ("CtMach", col0 Gen.tab_CtMach), ("CpMach", col0 Gen.tab_CpMach), ("mixEff", col0 Gen.tab_mixEff),
+   ("stdTemp", col0 Gen.tab_stdTemp)]
 
 def bits (f : Float) : String := toString f.toBits.toNat
 def ofBits (s : String) : Float := Float.ofBits (s.toNat!.toUInt64)
@@ -160,6 +290,8 @@ def main : IO Unit := do
   let stdin ← IO.getStdin
   let stdout ← IO.getStdout
   let mut smooth := false
+  let mut wind : V3 Float := V3.zero
+  let mut hold : Float := NAN
   repeat
     let ln ← stdin.getLine
     if ln.isEmpty then break
@@ -168,24 +300,41 @@ def main : IO Unit := do
     let cmd := w[0]!
     if cmd == "Z" then
       smooth := w[1]! == "1"
+    else if cmd == "K" then
+      for (n, ks) in tableKeys do
+        stdout.putStrLn (n ++ " " ++ " ".intercalate (ks.toList.map toString))
+      stdout.putStrLn "END"
+    else if cmd == "H" then
+      hold := ofBits w[1]!
+    else if cmd == "W" then
+      wind := ⟨ofBits w[1]!, ofBits w[2]!, ofBits w[3]!⟩
+    else if cmd == "D" then
+      let psi := ofBits w[1]!; let north := ofBits w[2]!; let h := ofBits w[3]!
+      let y := (w.extract 4 36).map ofBits
+      let (st, l, _) := place base psi north h y
+      let st := { st with wind }
+      let ob := obsOf st
+      stdout.putStrLn (line (diag (if smooth then unitQ st else st) l ob))
     else if cmd == "M" then
       let psi := ofBits w[1]!; let north := ofBits w[2]!; let h := ofBits w[3]!
       let y := (w.extract 4 36).map ofBits
-      let (st, l, ob) := place base psi north h y
-      let (st', l', ob') := frame st l ob smooth
+      let (st, l, _) := place base psi north h y
+      let st := { st with wind }
+      let ob := obsOf st
+      let (st', l', ob') := frame st l ob smooth hold
       let (h', y') := chart psi st' l' ob'
       stdout.putStrLn (line (#[h'] ++ y' ++ #[ob'[1]!, ob'[0]!]))
     else if cmd == "S" then
       let psi := ofBits w[1]!; let north := ofBits w[2]!; let h := ofBits w[3]!
       let y := (w.extract 4 36).map ofBits
       let n := w[36]!.toNat!; let k := w[37]!.toNat!
-      let (st0, l0, ob0) := place base psi north h y
-      let mut st := st0; let mut l := l0; let mut ob := ob0
+      let (st0, l0, _) := place base psi north h y
+      let mut st := { st0 with wind }; let mut l := l0; let mut ob := obsOf { st0 with wind }
       for i in [0:n+1] do
         if i % k == 0 then
           let (h', y') := chart psi st l ob
           stdout.putStrLn (toString i ++ " " ++ line (#[ob[1]!, ob[0]!, h'] ++ y'))
-        let r := frame st l ob smooth
+        let r := frame st l ob smooth hold
         st := r.1; l := r.2.1; ob := r.2.2
       stdout.putStrLn "END"
     else if cmd == "R" || cmd == "O" then
