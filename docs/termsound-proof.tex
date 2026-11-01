@@ -297,6 +297,24 @@ With $h_{\mathrm{ref}} = 1{,}000$\,m ($\zTop$ plus 66\,m), the escape flown from
 
 So a level-off turns the part above $\zTop$ into one equilibrium, contracting in one norm at $0.93$ per second (linear part), with no altitude band and no ceiling. Proving it needs the same covering bound on the remainder as below. It also needs a handover from the climb's settled set to the level trim's, between 972 and 1{,}000\,m, which is above $\zTop$ and so needs no clearance. Then the band that needs the climbing certificate is entry to 934\,m, and both $\alpha$ breakpoints lie inside it.
 
+\subsection{The redesigned terminal phase (specified, not yet in the gate)}\label{sec:newlaw}
+
+\texttt{docs/escape-law-terminal.md} specifies a terminal phase for the straight escape and a level-off for all escapes, chosen so that S1 has one $\alpha$ regime. Once the escape is past its pull-up it flies a constant equivalent airspeed of 35.2\,m/s ($K_V = 0.06$, $K_{I,\alpha} = 6$, gradient limits $[0, 0.5]$). Every escape's commanded gradient is capped by $0.005\,(1000 - h)$.
+
+\begin{cert}[new law, linear part]\label{cert:newlaw}
+\texttt{terminal.py}, on the candidate law \texttt{Cand} in \texttt{TsMap.lean}:
+\begin{itemize}
+\item the trim's $\alpha$ is $0.0777$--$0.0782$ over 10--1{,}000\,m, inside one segment of \texttt{CLwbh} and \texttt{CDwbh} (margins $0.0079$ and $0.0091$ to the drag table's breakpoints);
+\item the climb is 5.0--5.35\,m/s at gradient 0.144--0.147;
+\item the per-frame spectral radius is 0.99833--0.99837 and the one-second factor 0.807--0.811, changing smoothly with altitude;
+\item one norm $Q_N$ (one-second Lyapunov at 450\,m) gives $\max_h \|A_\pm(h)^{128}\|_{Q_N} = 0.902$ over the whole band and both sides of the $|\beta|$ kink (old law: two regimes, up to 1.26);
+\item the level trim (1{,}000.2\,m, 70.8\,m/s, $\alpha = -0.022$, inside one segment of each table) has one-second factor 0.915.
+\end{itemize}
+Settling into the box of Section~\ref{sec:conserv} from the 48 starts: median 10.0\,s, p90 13.9\,s, all within 16\,s (gate law: 18.8\,s, 26.5\,s, 14 of 48).
+\end{cert}
+
+With the new law, S1's linear obstacle (Certificates~\ref{cert:frame}--\ref{cert:nstep}) is gone. What remains for S1 is the covering bound on the nonlinear remainder, the switching at the $|\beta|$ kink inside each second, and the heading disturbance; the climb-to-level handover above $\zTop$ remains for S3. That work waits for the law to land in both gates, so that the certified law is the one the gate flies.
+
 \subsection{Non-vacuity and conservatism}\label{sec:conserv}
 
 Since $r$ and $Q$ are not certified, the certified test's acceptance cannot be computed yet. As a proxy for the settling cost, \texttt{probe.py}~(b) flies the real straight escape from 150\,m at speeds 25--60\,m/s, flight-path angles $-0.35$ to $0.2$\,rad and banks 0 to 1.1\,rad, and records the first time it is within a box around the reference climb: $|\Delta V| \le 0.5$\,m/s, $|\Delta\,\text{climb}| \le 0.5$\,m/s, $|\Delta\phi|, |\Delta\psi| \le 0.02$\,rad and each integrator within $0.02$. Results: from 35\,m/s, 4.2--11.6\,s; from 25\,m/s, 15.1--26.5\,s; from 45\,m/s, 17.5--19.4\,s; from 60\,m/s, 25.6--27.5\,s. Of the 48 starts, all settle within 60\,s and 14 within 16\,s; the median is 18.6\,s. After entering, every run stayed within about 1.03 times the box for the rest of 60\,s. Against the gate's 16\,s horizon, starts near the climb speed settle in time and slow or fast starts do not. Rung 1's sets ($\pm 0.11$\,m/s speed, $\pm 0.6$\,m/s climb) are tighter than this box, so these times are lower bounds on the entry time into a rung-1-sized set. On the box the attitude stays within $0.03$\,rad of level flight at $\theta \approx 0.23$, where the airframe's extent (half-span 5.5\,m) is inside the 7\,m cube, consistent with S4.
@@ -319,10 +337,11 @@ Certificate & Code & Margin or status\\
 \ref{cert:dist} disturbances & \texttt{cert.py} C3 & heading term dominates\\
 \ref{cert:regime}, \ref{cert:wind} regimes & \texttt{regime.py}, \texttt{akink.py} & $\alpha$ breakpoints 0.0873, 0.09\\
 \ref{cert:level} level-off & \texttt{leveloff.py} & $0.932$ per second (linear)\\
+\ref{cert:newlaw} new law & \texttt{terminal.py}, \texttt{reftraj.py} & one norm, $0.902$ per second (linear)\\
 \bottomrule
 \end{tabular}
 \end{center}
-Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
+Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py}, \texttt{terminal.py}, \texttt{reftraj.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
 
 \section{Gaps}\label{sec:gaps}
 
@@ -332,6 +351,7 @@ Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy
 \item[G3] \textbf{S2 constants} $\gamma, \kappa, v_{\min}, v_{\max}$ depend on $r$; without S1 they are not computed. At the trim: climb 4.6--4.9\,m/s, along-track speed about 34\,m/s, cross-track speed 0 relative to the steady track.
 \item[G4] \textbf{S3 above the release altitude.} A level-off (Section~\ref{sec:leveloff}) would reduce this to one trim, contracting at $0.93$ per second; it is not in the gate's law, and its certificate and the climb-to-level handover are not done. Without it: The climb continues to the $g_c$-clamp regime (about 2{,}500\,m, rung 1) and a ceiling near 3{,}150\,m (falsifier, \#30). Needs either a certified set near the ceiling equilibrium or a terminal level-off in the law; neither is done.
 \item[G5] \textbf{Conservatism} against today's accepted states needs S1; only the settling proxy (Section~\ref{sec:conserv}) is reported.
+\item[G10] \textbf{The redesigned terminal phase} (Section~\ref{sec:newlaw}) is specified but not yet in either gate; S1 is to be re-certified on it once it lands.
 \item[G6] \textbf{The 30$^\circ$ and 40$^\circ$ circles} wait for the speed-first law change (\#36 step 0); not attempted.
 \item[G7] \textbf{Tube handover} to a circling end set: condition stated (Section~\ref{sec:dyn}), not proved.
 \item[G8] \textbf{The finite $\Geo$ checker} on the exported map is not written; $T^\star$ is computed exactly.
