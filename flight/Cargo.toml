@@ -6,11 +6,15 @@ default-run = "cityflight"
 
 [features]
 default = ["gui"]
-gui = ["dep:macroquad"]
+gui = ["dep:macroquad", "dep:image"]
 jsb = []
 
 [dependencies]
 macroquad = { version = "0.4", optional = true, default-features = false }
+image = { version = "0.24", optional = true, default-features = false, features = ["jpeg"] }
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc = { package = "objc-rs", version = "0.2" }
 
 [[bin]]
 name = "cityflight"
@@ -47,3 +51,8 @@ required-features = ["jsb"]
 name = "esclab"
 path = "src/bin/esclab.rs"
 required-features = ["jsb"]
+
+# miniquad 0.4.11 with its Metal backend completed (render-target formats, MSAA resolve,
+# 32-bit indices, capture, raw handles); diff against the crates.io 0.4.11 source.
+[patch.crates-io]
+miniquad = { path = "vendor/miniquad" }
