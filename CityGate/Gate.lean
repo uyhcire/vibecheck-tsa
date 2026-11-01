@@ -1,5 +1,5 @@
 import GateSafety.Spec
-import CityGate.Geometry
+import CityGate.ClearFast
 import CityGate.Law
 
 /-! The city gate as a `GateSafety.Gate`: `flight/src/envfilter.rs`'s exact-rollout gatekeeper (escapes,
