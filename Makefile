@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test clean
+.PHONY: install run build verify proofs test filter-lib filter-test clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -37,6 +37,14 @@ proofs:
 test: build
 	lake build $(LAKE_OPTS) simtest
 	.lake/build/bin/simtest 1 160
+
+filter-lib:
+	lake build $(LAKE_OPTS) libvcfilter libvcfilter_static
+
+# needs .venv with jsbsim (sysid/README.md)
+filter-test: filter-lib
+	.venv/bin/python -I host/conformance.py --leak-ticks 200000
+	.venv/bin/python -I host/lockstep.py --episodes 100
 
 clean:
 	lake clean

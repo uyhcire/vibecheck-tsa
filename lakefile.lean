@@ -9,6 +9,7 @@ lean_lib Tools
 lean_lib Jsb
 lean_lib Envelope
 lean_lib JsbExact
+lean_lib VcFilter
 
 /-- SDL3 install prefix; `make` passes `-K sdl=$(brew --prefix sdl3)`. -/
 def sdlPrefix : String := (get_config? sdl).getD "/opt/homebrew/opt/sdl3"
@@ -48,3 +49,41 @@ target jxmath.o pkg : FilePath := do
 lean_exe jsbx where
   root := `Tools.JsbExactResid
   moreLinkObjs := #[jxmath.o]
+
+target filter_abi.o pkg : FilePath := do
+  let oFile := pkg.buildDir / "c" / "filter_abi.o"
+  let srcJob ← inputTextFile <| pkg.dir / "c" / "filter_abi.c"
+  let hdr ← inputTextFile <| pkg.dir / "c" / "vcfilter.h"
+  let args := #["-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "c").toString, "-O2", "-fPIC"]
+  buildO oFile srcJob args #[] "cc" (do let _ ← hdr.await; return hdr.getTrace)
+
+/-- Lean modules of the filter library and the C shim, as static archives. -/
+def vcfilterArchives : FetchM (Job (Array FilePath)) := do
+  let abi ← filter_abi.o.fetch
+  let vc ← (← VcFilter.get).static.fetch
+  let env ← (← Envelope.get).static.fetch
+  return Job.collectArray #[abi, vc, env]
+
+/-- `libvcfilter.a`: the C ABI and the Lean filter code; link with the Lean runtime libraries. -/
+target libvcfilter_static pkg : FilePath := do
+  let lib := pkg.buildDir / "lib" / "libvcfilter.a"
+  (← vcfilterArchives).mapM fun files => do
+    buildFileUnlessUpToDate' lib do
+      IO.FS.createDirAll (pkg.buildDir / "lib")
+      if (← lib.pathExists) then IO.FS.removeFile lib
+      proc {cmd := "libtool", args := #["-static", "-o", lib.toString] ++ files.map (·.toString)}
+    return lib
+
+/-- `libvcfilter.dylib`: self-contained (Lean runtime linked in), exports only `vc_*`. -/
+target libvcfilter pkg : FilePath := do
+  let lib := pkg.buildDir / "lib" / "libvcfilter.dylib"
+  let leanLib := (← getLeanLibDir).toString
+  let sysLib := ((← getLeanSysroot) / "lib").toString
+  (← vcfilterArchives).mapM fun files => do
+    buildFileUnlessUpToDate' lib do
+      IO.FS.createDirAll (pkg.buildDir / "lib")
+      proc {cmd := "cc", args := #["-shared", "-o", lib.toString, "-Wl,-force_load," ++ files[0]!.toString]
+        ++ (files.extract 1).map (·.toString) ++ #["-L", leanLib, "-L", sysLib, "-lInit", "-lStd", "-lleanrt",
+        "-lgmp", "-luv", "-lc++", "-Wl,-dead_strip", "-Wl,-exported_symbol,_vc_*",
+        "-Wl,-install_name,@rpath/libvcfilter.dylib"]}
+    return lib
