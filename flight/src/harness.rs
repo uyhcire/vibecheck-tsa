@@ -252,7 +252,7 @@ impl SfStreetSegs {
         let mut total = 0.0;
         for st in world.streets.iter().filter(|s| s.is_surface()) {
             for w in st.pts.windows(2) {
-                if w.iter().all(|p| p[0].abs() < MAP_HALF - 100.0 && p[1].abs() < MAP_HALF - 100.0) {
+                if w.iter().all(|p| p[0] > world.x0 + 100.0 && p[0] < world.x1 - 100.0 && p[1] > world.y0 + 100.0 && p[1] < world.y1 - 100.0) {
                     total += ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt();
                     segs.push((w[0], w[1]));
                     cum.push(total);

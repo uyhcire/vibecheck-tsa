@@ -39,13 +39,14 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from geo import HALF, ORIGIN_LAT, ORIGIN_LON, to_local, utm_forward
+from geo import ORIGIN_LAT, ORIGIN_LON, X0, X1, Y0, Y1, gg_corridor, to_local, utm_forward
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RAW = os.path.join(HERE, "raw")
 OUT = os.path.join(HERE, "sf_world.bin")
 
-TSP, TN = 20.0, 301
+TSP = 20.0
+TNX, TNY = round((X1 - X0) / TSP) + 1, round((Y1 - Y0) / TSP) + 1
 WATER_LEVEL = 1.0  # ~mean sea level, NAVD88 m; 3DEP flattens the bay to -1.08
 TAU = 3.0  # max hull overshoot (m) before a footprint is cut
 SIMPLIFY_TOL = 0.25  # max sliver added per simplification step (m)
@@ -54,7 +55,9 @@ OSM_LEVEL_H = 3.5  # m per storey when OSM gives only building:levels
 OSM_DEFAULT_H = 12.0  # OSM building with no height, no levels, not in DataSF
 VIADUCT_H = 24.0  # elevated freeway: curtain up to this far above the ground
 BRIDGE_SLICE = 40.0  # bridge curtains are cut into slices this long (m)
-MAP = box(-HALF, -HALF, HALF, HALF)
+MAP = box(X0, Y0, X1, Y1)
+# world.rs builds the Golden Gate Bridge itself; OSM and DataSF pieces of it are skipped.
+GOLDEN_GATE = Polygon(gg_corridor())
 
 KIND_DATASF, KIND_OSM, KIND_BRIDGE, KIND_VIADUCT = 0, 1, 2, 3
 
@@ -64,23 +67,23 @@ KIND_DATASF, KIND_OSM, KIND_BRIDGE, KIND_VIADUCT = 0, 1, 2, 3
 
 def load_terrain():
     raw = open(os.path.join(RAW, "dem_20m.f32"), "rb").read()
-    dem = struct.unpack(f"<{TN * TN}f", raw)
+    dem = struct.unpack(f"<{TNX * TNY}f", raw)
     # exportImage rows run north to south; the world grid runs south to north.
-    t = [0.0] * (TN * TN)
-    for j in range(TN):
-        for i in range(TN):
-            t[j * TN + i] = max(dem[(TN - 1 - j) * TN + i], WATER_LEVEL)
+    t = [0.0] * (TNX * TNY)
+    for j in range(TNY):
+        for i in range(TNX):
+            t[j * TNX + i] = max(dem[(TNY - 1 - j) * TNX + i], WATER_LEVEL)
     return t
 
 
 def terrain_at(t, x, y):
     """Barycentric height on the render triangulation (same as world.rs)."""
-    fx = min(max((x + HALF) / TSP, 0.0), TN - 1 - 1e-9)
-    fy = min(max((y + HALF) / TSP, 0.0), TN - 1 - 1e-9)
+    fx = min(max((x - X0) / TSP, 0.0), TNX - 1 - 1e-9)
+    fy = min(max((y - Y0) / TSP, 0.0), TNY - 1 - 1e-9)
     i, j = int(fx), int(fy)
     u, v = fx - i, fy - j
-    h00, h10 = t[j * TN + i], t[j * TN + i + 1]
-    h01, h11 = t[(j + 1) * TN + i], t[(j + 1) * TN + i + 1]
+    h00, h10 = t[j * TNX + i], t[j * TNX + i + 1]
+    h01, h11 = t[(j + 1) * TNX + i], t[(j + 1) * TNX + i + 1]
     if u >= v:
         return h00 + u * (h10 - h00) + v * (h11 - h10)
     return h00 + v * (h01 - h00) + u * (h11 - h01)
@@ -92,11 +95,11 @@ def terrain_range(t, poly):
     Rust loader lowers prism bases again against its own terrain)."""
     pts = list(poly.exterior.coords)
     x0, y0, x1, y1 = poly.bounds
-    i0, i1 = math.ceil((x0 + HALF) / TSP), math.floor((x1 + HALF) / TSP)
-    j0, j1 = math.ceil((y0 + HALF) / TSP), math.floor((y1 + HALF) / TSP)
-    for j in range(max(j0, 0), min(j1, TN - 1) + 1):
-        for i in range(max(i0, 0), min(i1, TN - 1) + 1):
-            x, y = -HALF + i * TSP, -HALF + j * TSP
+    i0, i1 = math.ceil((x0 - X0) / TSP), math.floor((x1 - X0) / TSP)
+    j0, j1 = math.ceil((y0 - Y0) / TSP), math.floor((y1 - Y0) / TSP)
+    for j in range(max(j0, 0), min(j1, TNY - 1) + 1):
+        for i in range(max(i0, 0), min(i1, TNX - 1) + 1):
+            x, y = X0 + i * TSP, Y0 + j * TSP
             if poly.contains(Point(x, y)):
                 pts.append((x, y))
     hs = [terrain_at(t, x, y) for x, y in pts]
@@ -268,7 +271,7 @@ def parse_height(s):
 
 
 def in_map(p):
-    return p.intersects(MAP)
+    return p.intersects(MAP) and not GOLDEN_GATE.contains(p.centroid)
 
 
 def datasf_buildings():
@@ -427,7 +430,7 @@ def viaducts(terr, bridge_outline_union):
             for k in range(n):
                 sub = LineString([seg.interpolate(k / n, normalized=True), seg.interpolate((k + 1) / n, normalized=True)])
                 p = sub.buffer(width / 2, cap_style="flat")
-                if not in_map(p) or p.area < 1.0 or bridge_outline_union.contains(p):
+                if not in_map(p) or p.area < 1.0 or bridge_outline_union.contains(p) or GOLDEN_GATE.intersects(p):
                     continue
                 zlo, zhi = terrain_range(terr, p)
                 out.append((p, zlo, zhi + VIADUCT_H))
@@ -544,10 +547,11 @@ def main():
     e0, n0 = utm_forward(ORIGIN_LON, ORIGIN_LAT)
     b = bytearray()
     b += b"SFW1"
-    b += struct.pack("<I", 1)
-    b += struct.pack("<5d", ORIGIN_LON, ORIGIN_LAT, e0, n0, HALF)
-    b += struct.pack("<If", TN, TSP)
-    b += struct.pack(f"<{TN * TN}f", *terr)
+    b += struct.pack("<I", 2)
+    b += struct.pack("<4d", ORIGIN_LON, ORIGIN_LAT, e0, n0)
+    b += struct.pack("<4d", X0, Y0, X1, Y1)
+    b += struct.pack("<IIf", TNX, TNY, TSP)
+    b += struct.pack(f"<{TNX * TNY}f", *terr)
     b += struct.pack("<I", len(pieces))
     for c, z0, z1, kind, grp in pieces:
         b += struct.pack("<ffBBHI", z0, z1, kind, len(c), 0, grp)

@@ -297,45 +297,47 @@ fn mk_dyn(ctx: &mut dyn mq::RenderingBackend, cap_v: usize, cap_i: usize) -> Dyn
 impl Photo {
     pub fn new(w: &World) -> Photo {
         let sf = w.map == MapId::SanFrancisco;
-        let (galb_px, galb_n, gmask_px, gmask_n) = if sf {
+        let ((galb_px, gaw, gah), (gmask_px, gmw, gmh)) = if sf {
             crate::sfscene::ground(w)
         } else {
             let (a, m) = crate::ground::bake(w);
-            (a, crate::ground::TEX, m, crate::ground::TEX)
+            let n = crate::ground::TEX;
+            ((a, n, n), (m, n, n))
         };
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
 
         // Terrain: same vertices and triangle split as the collision truth.
-        let mut tv = Vec::with_capacity(TN * TN);
-        for j in 0..TN {
-            for i in 0..TN {
-                let x = -MAP_HALF + i as f64 * TSP;
-                let y = -MAP_HALF + j as f64 * TSP;
-                let hh = |a: usize, b: usize| w.terr[b.min(TN - 1) * TN + a.min(TN - 1)];
+        let (tnx, tny) = (w.tnx, w.tny);
+        let mut tv = Vec::with_capacity(tnx * tny);
+        for j in 0..tny {
+            for i in 0..tnx {
+                let x = w.x0 + i as f64 * TSP;
+                let y = w.y0 + j as f64 * TSP;
+                let hh = |a: usize, b: usize| w.terr[b.min(tny - 1) * tnx + a.min(tnx - 1)];
                 let dx = hh(i + 1, j) - hh(i.saturating_sub(1), j);
                 let dy = hh(i, j + 1) - hh(i, j.saturating_sub(1));
                 let n = vec3(-dx, -dy, 2.0 * TSP as f32).normalize();
                 tv.push(PV {
-                    pos: [x as f32, y as f32, w.terr[j * TN + i]],
+                    pos: [x as f32, y as f32, w.terr[j * tnx + i]],
                     nrm: [n.x, n.y, n.z],
                     col: [1.0, 1.0, 1.0],
-                    uv: [((x + MAP_HALF) / (2.0 * MAP_HALF)) as f32, ((y + MAP_HALF) / (2.0 * MAP_HALF)) as f32],
+                    uv: [((x - w.x0) / (w.x1 - w.x0)) as f32, ((y - w.y0) / (w.y1 - w.y0)) as f32],
                     mat: [K_TERRAIN, 0.0, 0.0, 0.0],
                     fac: [0.0; 4],
                 });
             }
         }
-        let mut ti: Vec<u32> = Vec::with_capacity((TN - 1) * (TN - 1) * 6);
-        for j in 0..TN - 1 {
-            for i in 0..TN - 1 {
-                let a = (j * TN + i) as u32;
+        let mut ti: Vec<u32> = Vec::with_capacity((tnx - 1) * (tny - 1) * 6);
+        for j in 0..tny - 1 {
+            for i in 0..tnx - 1 {
+                let a = (j * tnx + i) as u32;
                 let b = a + 1;
-                let c = a + TN as u32 + 1;
-                let d = a + TN as u32;
+                let c = a + tnx as u32 + 1;
+                let d = a + tnx as u32;
                 ti.extend_from_slice(&[a, b, c, a, c, d]);
             }
         }
-        let gtex = |ctx: &mut dyn mq::RenderingBackend, px: &[u8], n: usize| {
+        let gtex = |ctx: &mut dyn mq::RenderingBackend, px: &[u8], tw: usize, th: usize| {
             let t = ctx.new_texture(
                 mq::TextureAccess::Static,
                 mq::TextureSource::Bytes(px),
@@ -345,8 +347,8 @@ impl Photo {
                     min_filter: mq::FilterMode::Linear,
                     mag_filter: mq::FilterMode::Linear,
                     mipmap_filter: mq::MipmapFilterMode::Linear,
-                    width: n as u32,
-                    height: n as u32,
+                    width: tw as u32,
+                    height: th as u32,
                     allocate_mipmaps: true,
                     ..Default::default()
                 },
@@ -354,8 +356,8 @@ impl Photo {
             ctx.texture_generate_mipmaps(t);
             t
         };
-        let galb = gtex(ctx, &galb_px, galb_n);
-        let gmask = gtex(ctx, &gmask_px, gmask_n);
+        let galb = gtex(ctx, &galb_px, gaw, gah);
+        let gmask = gtex(ctx, &gmask_px, gmw, gmh);
         drop((galb_px, gmask_px));
         let sets = |ctx: &mut dyn mq::RenderingBackend, names: &[&str]| -> Vec<mq::TextureId> {
             names
@@ -409,7 +411,7 @@ impl Photo {
         let terr = mk(ctx, &tv, &ti, timg);
         // San Francisco: the Bay Area beyond the square, drawn with the terrain shader and its own imagery.
         let back = if sf { crate::sfscene::backdrop(w) } else { None }.map(|b| {
-            let mut img = vec![sky_lut, gtex(ctx, &b.alb, b.n), gtex(ctx, &b.mask, b.mask_n)];
+            let mut img = vec![sky_lut, gtex(ctx, &b.alb, b.n, b.n), gtex(ctx, &b.mask, b.mask_n, b.mask_n)];
             img.extend(&ground_sets);
             img.extend(&shadow_tex);
             (mk(ctx, &b.v, &b.i, img), b.i.len() as i32)

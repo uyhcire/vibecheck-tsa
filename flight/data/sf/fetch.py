@@ -22,7 +22,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from geo import ORIGIN_LON, ORIGIN_LAT, HALF, FETCH_MARGIN, utm_forward, lonlat_bbox
+from geo import ORIGIN_LON, ORIGIN_LAT, X0, X1, Y0, Y1, FETCH_MARGIN, utm_forward, lonlat_bbox
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RAW = os.path.join(HERE, "raw")
@@ -53,7 +53,7 @@ def fetch_datasf(force):
     path, ok = cached("datasf_footprints.geojson", force)
     if ok:
         return
-    w, s, e, n = lonlat_bbox(HALF + FETCH_MARGIN)
+    w, s, e, n = lonlat_bbox(FETCH_MARGIN)
     poly = f"POLYGON(({w} {s}, {e} {s}, {e} {n}, {w} {n}, {w} {s}))"
     fields = "sf16_bldgid,maxcm_1st,gnd_mincm,hgt_maxcm,hgt_mediancm,shape"
     feats, offset, page = [], 0, 20000
@@ -83,7 +83,7 @@ def overpass(query):
 
 
 def fetch_osm(force):
-    w, s, e, n = lonlat_bbox(HALF + FETCH_MARGIN)
+    w, s, e, n = lonlat_bbox(FETCH_MARGIN)
     bb = f"{s},{w},{n},{e}"
     jobs = [
         (
@@ -120,22 +120,23 @@ def fetch_dem(force):
     """Bare-earth heights at the 20 m terrain nodes, in UTM 10N metres.
 
     exportImage takes the outer edges of the pixel grid, so a node grid
-    x_i = -HALF + 20 i (i = 0..300) is 301 pixels whose edges are half a
-    pixel outside the nodes.
+    x_i = X0 + 20 i (i = 0..tnx-1) is tnx pixels whose edges are half a
+    pixel outside the nodes. Rows come north first.
     """
     path, ok = cached("dem_20m.f32", force)
     if ok:
         return
-    tsp, tn = 20.0, 301
+    tsp = 20.0
+    tnx, tny = round((X1 - X0) / tsp) + 1, round((Y1 - Y0) / tsp) + 1
     e0, n0 = utm_forward(ORIGIN_LON, ORIGIN_LAT)
-    xmin, ymin = e0 - HALF - tsp / 2, n0 - HALF - tsp / 2
-    xmax, ymax = e0 + HALF + tsp / 2, n0 + HALF + tsp / 2
+    xmin, ymin = e0 + X0 - tsp / 2, n0 + Y0 - tsp / 2
+    xmax, ymax = e0 + X1 + tsp / 2, n0 + Y1 + tsp / 2
     q = urllib.parse.urlencode(
         {
             "bbox": f"{xmin},{ymin},{xmax},{ymax}",
             "bboxSR": 32610,
             "imageSR": 32610,
-            "size": f"{tn},{tn}",
+            "size": f"{tnx},{tny}",
             "format": "bsq",
             "pixelType": "F32",
             "interpolation": "RSP_BilinearInterpolation",
@@ -144,7 +145,7 @@ def fetch_dem(force):
     )
     print("USGS 3DEP DEM...", file=sys.stderr)
     data = get("https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage?" + q)
-    need = tn * tn * 4
+    need = tnx * tny * 4
     if len(data) < need:
         raise SystemExit(f"DEM: expected {need} bytes, got {len(data)}: {data[:200]!r}")
     with open(path, "wb") as f:

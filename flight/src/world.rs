@@ -26,11 +26,12 @@
 use crate::model::{wing_tips, State, WING_R, WING_TIP, X, Y, Z};
 use std::sync::OnceLock;
 
-pub const MAP_HALF: f64 = 3000.0;
+/// The grid city's half-size (m): its map runs from -GRID_HALF to GRID_HALF on both axes. Other maps carry
+/// their own bounds (`World::x0` ..).
+pub const GRID_HALF: f64 = 3000.0;
+/// Clearance-map cell (m) and terrain vertex spacing (m).
 pub const CELL: f64 = 2.5;
-pub const NC: usize = 2400;
 pub const TSP: f64 = 20.0;
-pub const TN: usize = 301;
 /// Lateral margin 7.5 m = aircraft radius 4.5 m + 3 m.
 pub const LAT_CELLS: usize = 3;
 /// Guaranteed lateral margin of the cell lookup.
@@ -43,7 +44,6 @@ pub const R_BODY: f64 = 4.5;
 pub const CITY_HALF: f64 = 1200.0;
 pub const STREET_PITCH: f64 = 120.0;
 const BUCKET: f64 = 40.0;
-const NB: usize = 150;
 /// Most vertices a building footprint may have.
 pub const MAX_POLY: usize = 32;
 /// San Francisco water surface (NAVD88 m); terrain is never below it.
@@ -51,7 +51,6 @@ pub const SF_WATER: f64 = 1.0;
 /// Street-axis field: cell size, blur radius (cells), and the street length
 /// and coherence needed before escapes snap to a street direction.
 const AXIS_CELL: f64 = 50.0;
-const NA: usize = 120;
 const AXIS_BLUR: usize = 3;
 const AXIS_MIN_LEN: f32 = 150.0;
 const AXIS_MIN_COHERENCE: f32 = 0.6;
@@ -179,6 +178,8 @@ pub enum Kind {
     Viaduct,
     /// A bridge tower or anchorage (a building inside the bridge envelope).
     BridgeTower,
+    /// Part of the Golden Gate Bridge (`golden_gate`), drawn by the renderer's own model of it.
+    GoldenGate,
 }
 
 /// A vertical prism: footprint x [z0, z1]. `x0..y1` is the footprint's
@@ -255,20 +256,31 @@ pub struct StreetLine {
 pub struct World {
     pub map: MapId,
     pub seed: u64,
-    /// Terrain vertex heights, `TN x TN`, index `j*TN + i`.
+    /// The flyable rectangle (map metres); outside it is a wall.
+    pub x0: f64,
+    pub y0: f64,
+    pub x1: f64,
+    pub y1: f64,
+    /// Terrain vertices across and up (`TSP` apart from (x0, y0)).
+    pub tnx: usize,
+    pub tny: usize,
+    /// Terrain vertex heights, `tnx x tny`, index `j*tnx + i`.
     pub terr: Vec<f32>,
     pub boxes: Vec<Building>,
     /// Raw max height of the truth geometry (terrain + buildings) per cell.
-    pub raw: Vec<f32>,
+    pub raw: CellMap,
     /// Raw max terrain height per cell (the safety maps are built from it).
-    pub raw_terr: Vec<f32>,
+    pub raw_terr: CellMap,
     /// Highest raw cell (terrain or roof) on the map (m).
     pub raw_top: f64,
     /// Base clearance map (dilated + vertical margin), used for re-checks.
-    pub hc: Vec<f32>,
+    pub hc: CellMap,
     /// One cell wider: used to accept new plans.
-    pub hc_acc: Vec<f32>,
-    robust: OnceLock<[Vec<Vec<f32>>; 2]>,
+    pub hc_acc: CellMap,
+    robust: OnceLock<[Vec<CellMap>; 2]>,
+    /// Building buckets (`BUCKET` squares from (x0, y0)), `nbx x nby`.
+    nbx: usize,
+    nby: usize,
     buckets: Vec<Vec<u32>>,
     /// Tallest box top in each bucket (to skip buckets a segment is above).
     bucket_top: Vec<f32>,
@@ -282,9 +294,46 @@ pub struct World {
     /// San Francisco only: street centrelines and their names.
     pub streets: Vec<Street>,
     pub street_names: Vec<String>,
-    /// San Francisco only: per `AXIS_CELL` cell, blurred street length
+    /// San Francisco only: per `AXIS_CELL` cell (`nax x nay` from (x0, y0)), blurred street length
     /// weighted by (cos 4θ, sin 4θ, 1) of the street direction θ.
+    nax: usize,
+    nay: usize,
     axis: Vec<[f32; 3]>,
+}
+
+/// Values on the `CELL` grid over a world's rectangle: cell (i, j) covers [x0 + i CELL, x0 + (i + 1) CELL) by
+/// [y0 + j CELL, y0 + (j + 1) CELL), index `j*nx + i`. Out of bounds reads as a wall.
+#[derive(Clone, Default)]
+pub struct CellMap {
+    pub x0: f64,
+    pub y0: f64,
+    pub nx: usize,
+    pub ny: usize,
+    pub v: Vec<f32>,
+}
+
+impl CellMap {
+    fn new(x0: f64, y0: f64, nx: usize, ny: usize, fill: f32) -> CellMap {
+        CellMap { x0, y0, nx, ny, v: vec![fill; nx * ny] }
+    }
+
+    /// Cell (i, j); `WALL` outside the map.
+    #[inline]
+    pub fn get(&self, i: i64, j: i64) -> f64 {
+        if i < 0 || j < 0 || i >= self.nx as i64 || j >= self.ny as i64 {
+            WALL as f64
+        } else {
+            self.v[j as usize * self.nx + i as usize] as f64
+        }
+    }
+
+    /// The cell holding (x, y), clamped to the map.
+    #[inline]
+    pub fn cell(&self, x: f64, y: f64) -> (usize, usize) {
+        let i = (((x - self.x0) / CELL).floor().max(0.0) as usize).min(self.nx - 1);
+        let j = (((y - self.y0) / CELL).floor().max(0.0) as usize).min(self.ny - 1);
+        (i, j)
+    }
 }
 
 pub fn street_x(k: usize) -> f64 {
@@ -355,20 +404,37 @@ impl World {
         }
     }
 
-    fn empty(map: MapId, seed: u64) -> World {
+    /// An empty world over the rectangle [x0, x1] x [y0, y1]; its sides must be whole multiples of `TSP`.
+    fn empty(map: MapId, seed: u64, [x0, y0, x1, y1]: [f64; 4]) -> World {
+        let steps = |a: f64, b: f64, d: f64| {
+            let n = (b - a) / d;
+            assert!((n - n.round()).abs() < 1e-9 && n >= 1.0, "map side {} m is not a multiple of {d} m", b - a);
+            n.round() as usize
+        };
+        let (tnx, tny) = (steps(x0, x1, TSP) + 1, steps(y0, y1, TSP) + 1);
+        let (ncx, ncy) = (steps(x0, x1, CELL), steps(y0, y1, CELL));
+        let (nbx, nby) = (((x1 - x0) / BUCKET).ceil() as usize, ((y1 - y0) / BUCKET).ceil() as usize);
         World {
             map,
             seed,
-            terr: vec![0.0; TN * TN],
+            x0,
+            y0,
+            x1,
+            y1,
+            tnx,
+            tny,
+            terr: vec![0.0; tnx * tny],
             boxes: Vec::new(),
-            raw: vec![0.0; NC * NC],
-            raw_terr: Vec::new(),
+            raw: CellMap::new(x0, y0, ncx, ncy, 0.0),
+            raw_terr: CellMap::default(),
             raw_top: 0.0,
-            hc: vec![0.0; NC * NC],
-            hc_acc: Vec::new(),
+            hc: CellMap::new(x0, y0, ncx, ncy, 0.0),
+            hc_acc: CellMap::default(),
             robust: OnceLock::new(),
-            buckets: vec![Vec::new(); NB * NB],
-            bucket_top: vec![f32::MIN; NB * NB],
+            nbx,
+            nby,
+            buckets: vec![Vec::new(); nbx * nby],
+            bucket_top: vec![f32::MIN; nbx * nby],
             tallest: 0,
             parks: Vec::new(),
             street_w: Vec::new(),
@@ -376,13 +442,26 @@ impl World {
             pts: Vec::new(),
             streets: Vec::new(),
             street_names: Vec::new(),
+            nax: ((x1 - x0) / AXIS_CELL).ceil() as usize,
+            nay: ((y1 - y0) / AXIS_CELL).ceil() as usize,
             axis: Vec::new(),
         }
     }
 
+    /// Is (x, y) on the map (inside its rectangle)?
+    #[inline]
+    pub fn inside(&self, x: f64, y: f64) -> bool {
+        x >= self.x0 && x <= self.x1 && y >= self.y0 && y <= self.y1
+    }
+
+    /// The rectangle's centre.
+    pub fn center(&self) -> [f64; 2] {
+        [0.5 * (self.x0 + self.x1), 0.5 * (self.y0 + self.y1)]
+    }
+
     fn finish(&mut self) {
         self.rasterize();
-        self.raw_top = self.raw.iter().fold(f64::MIN, |m, &h| m.max(h as f64));
+        self.raw_top = self.raw.v.iter().fold(f64::MIN, |m, &h| m.max(h as f64));
         self.hc = dilate(&self.raw_terr, LAT_CELLS, VERT_MARGIN as f32);
         self.hc_acc = dilate(&self.raw_terr, LAT_CELLS + 1, VERT_MARGIN as f32);
         self.build_buckets();
@@ -390,7 +469,7 @@ impl World {
 
     /// The procedural grid city.
     pub fn new(seed: u64) -> World {
-        let mut w = World::empty(MapId::Grid, seed);
+        let mut w = World::empty(MapId::Grid, seed, [-GRID_HALF, -GRID_HALF, GRID_HALF, GRID_HALF]);
         w.gen_terrain();
         w.gen_city();
         w.finish();
@@ -399,13 +478,13 @@ impl World {
 
     /// San Francisco from `data/sf/sf_world.bin` (see `data/sf/build.py`).
     pub fn san_francisco() -> World {
-        let mut w = World::empty(MapId::SanFrancisco, 0);
         let mut r = Rd { b: SF_BIN, o: 0 };
         assert_eq!(r.take(4), b"SFW1", "sf_world.bin: bad magic");
-        assert_eq!(r.u32(), 1, "sf_world.bin: unknown version");
-        let (_lon, _lat, _e0, _n0, half) = (r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
-        assert_eq!(half, MAP_HALF, "sf_world.bin: map size");
-        assert_eq!((r.u32() as usize, r.f32() as f64), (TN, TSP), "sf_world.bin: terrain grid");
+        assert_eq!(r.u32(), 2, "sf_world.bin: unknown version");
+        let (_lon, _lat, _e0, _n0) = (r.f64(), r.f64(), r.f64(), r.f64());
+        let bounds = [r.f64(), r.f64(), r.f64(), r.f64()];
+        let mut w = World::empty(MapId::SanFrancisco, 0, bounds);
+        assert_eq!((r.u32() as usize, r.u32() as usize, r.f32() as f64), (w.tnx, w.tny, TSP), "sf_world.bin: terrain grid");
         for h in w.terr.iter_mut() {
             *h = r.f32().max(SF_WATER as f32);
         }
@@ -471,6 +550,7 @@ impl World {
             w.streets.push(Street { class, bridge: flags & 1 != 0, name, pts });
         }
         assert_eq!(r.o, SF_BIN.len(), "sf_world.bin: trailing bytes");
+        w.add_golden_gate();
         // OSM maps the Bay Bridge towers and anchorage as buildings: mark the
         // ones standing inside the bridge curtain (rendering only).
         let bridge: Vec<usize> = (0..w.boxes.len()).filter(|&k| w.boxes[k].kind == Kind::Bridge).collect();
@@ -484,13 +564,84 @@ impl World {
                 w.boxes[k].kind = Kind::BridgeTower;
             }
         }
+        // Tallest from its base (Salesforce Tower), not highest on the map (Sutro Tower, on a 254 m hill).
+        let height = |k: usize| w.boxes[k].z1 - w.boxes[k].z0;
         w.tallest = (0..w.boxes.len())
             .filter(|&k| w.boxes[k].kind == Kind::Building)
-            .max_by(|&a, &b| w.boxes[a].z1.partial_cmp(&w.boxes[b].z1).unwrap())
+            .max_by(|&a, &b| height(a).partial_cmp(&height(b)).unwrap())
             .unwrap_or(0);
         w.build_axis();
         w.finish();
         w
+    }
+
+    /// A convex prism over `poly` (any order), `z0..z1`.
+    fn push_prism(&mut self, poly: &[[f64; 2]], z0: f64, z1: f64, kind: Kind, lot: u32) {
+        let poly = convex_hull(poly);
+        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for q in &poly {
+            (x0, x1, y0, y1) = (x0.min(q[0]), x1.max(q[0]), y0.min(q[1]), y1.max(q[1]));
+        }
+        let (p0, pn) = (self.pts.len() as u32, poly.len() as u32);
+        self.boxes.push(Building { x0, x1, y0, y1, z0, z1, tint: 0.5, lot, p0, pn, kind });
+        self.pts.extend_from_slice(&poly);
+    }
+
+    /// The Golden Gate Bridge's obstacles (`golden_gate`): the towers and their piers; the deck in 10 m
+    /// slices up to its railings; in each cable plane a thin wall from the roadway up past the main cable,
+    /// which holds the cable and its suspenders; the anchorage pylons; the Fort Point arch filled down to the
+    /// ground; the approach piers. Everything the renderer draws of the bridge lies inside these, and the
+    /// space under the deck between the towers stays open.
+    fn add_golden_gate(&mut self) {
+        use crate::golden_gate as gg;
+        let lot = self.boxes.iter().map(|b| b.lot).max().map_or(0, |l| l + 1);
+        let rect = |s0: f64, s1: f64, a0: f64, a1: f64| [gg::at(s0, a0), gg::at(s1, a0), gg::at(s1, a1), gg::at(s0, a1)];
+        let water = SF_WATER;
+        let mut parts: Vec<([[f64; 2]; 4], f64, f64)> = Vec::new();
+        for c in [0.0, gg::MAIN] {
+            let (pa, pc, top) = gg::PIER;
+            parts.push((rect(c - pa, c + pa, -pc, pc), water - 2.0, water + top));
+            for p in gg::TOWER {
+                parts.push((rect(c + p[2] - p[3], c + p[2] + p[3], p[0] - p[1], p[0] + p[1]), water + p[4], water + p[5]));
+            }
+        }
+        let mut s = gg::DECK.0;
+        while s < gg::DECK.1 - 1e-6 {
+            let s1 = (s + 10.0).min(gg::DECK.1);
+            let ((hw0, d0), (hw1, d1)) = (gg::deck_section(s), gg::deck_section(s1));
+            let (hw, depth) = (hw0.max(hw1), d0.max(d1));
+            let (t0, t1) = (gg::deck(s), gg::deck(s1));
+            parts.push((rect(s, s1, -hw, hw), t0.min(t1) - depth, t0.max(t1) + gg::RAIL));
+            s = s1;
+        }
+        let st = gg::cable_stations();
+        for side in [-1.0, 1.0] {
+            let a = side * gg::CABLE;
+            for w in st.windows(2) {
+                let top = gg::cable(w[0]).max(gg::cable(w[1])) + gg::CABLE_R;
+                parts.push((rect(w[0], w[1], a - gg::CABLE_R, a + gg::CABLE_R), gg::deck(w[0]).min(gg::deck(w[1])), top));
+            }
+        }
+        let mut ground = Vec::new();
+        for (sc, ha, hc) in gg::PYLONS {
+            ground.push((rect(sc - ha, sc + ha, -hc, hc), gg::deck(sc) - 10.0, gg::deck(sc) + 10.0));
+        }
+        let (sa, sb, ar) = gg::ARCH;
+        let hw = ar + gg::ARCH_R;
+        ground.push((rect(sa, sb, -hw, hw), f64::INFINITY, gg::deck(sa).max(gg::deck(sb)) - 4.0 + gg::ARCH_R));
+        let ((first, step, last), (pa, pc)) = (gg::APPROACH_PIERS, gg::APPROACH_PIER);
+        let mut s = first;
+        while s < last {
+            ground.push((rect(s - pa, s + pa, -pc, pc), gg::deck(s) - 4.0, gg::deck(s) - 4.0));
+            s += step;
+        }
+        // Standing on the ground: from 2 m below the lowest terrain under them (or `cap`, if lower).
+        for (poly, cap, top) in ground {
+            parts.push((poly, self.terrain_min_under(&poly).min(cap) - 2.0, top));
+        }
+        for (poly, z0, z1) in parts {
+            self.push_prism(&poly, z0, z1, Kind::GoldenGate, lot);
+        }
     }
 
     /// Lowest terrain under a footprint: at its vertices, edge midpoints and
@@ -506,12 +657,13 @@ impl World {
         for q in poly {
             (x0, x1, y0, y1) = (x0.min(q[0]), x1.max(q[0]), y0.min(q[1]), y1.max(q[1]));
         }
-        let gi = |v: f64| ((v + MAP_HALF) / TSP).clamp(0.0, (TN - 1) as f64);
-        for j in gi(y0).ceil() as usize..=gi(y1).floor() as usize {
-            for i in gi(x0).ceil() as usize..=gi(x1).floor() as usize {
-                let (x, y) = (-MAP_HALF + i as f64 * TSP, -MAP_HALF + j as f64 * TSP);
+        let gx = |v: f64| ((v - self.x0) / TSP).clamp(0.0, (self.tnx - 1) as f64);
+        let gy = |v: f64| ((v - self.y0) / TSP).clamp(0.0, (self.tny - 1) as f64);
+        for j in gy(y0).ceil() as usize..=gy(y1).floor() as usize {
+            for i in gx(x0).ceil() as usize..=gx(x1).floor() as usize {
+                let (x, y) = (self.x0 + i as f64 * TSP, self.y0 + j as f64 * TSP);
                 if pt_poly_dist2([x, y], poly) == 0.0 {
-                    m = m.min(self.terr[j * TN + i] as f64);
+                    m = m.min(self.terr[j * self.tnx + i] as f64);
                 }
             }
         }
@@ -560,7 +712,8 @@ impl World {
 
     /// Street-axis field from the street centrelines (San Francisco).
     fn build_axis(&mut self) {
-        let mut acc = vec![[0f32; 3]; NA * NA];
+        let (nax, nay) = (self.nax, self.nay);
+        let mut acc = vec![[0f32; 3]; nax * nay];
         for st in self.streets.iter().filter(|s| s.is_surface()) {
             for w in st.pts.windows(2) {
                 let (dx, dy) = (w[1][0] - w[0][0], w[1][1] - w[0][1]);
@@ -573,11 +726,11 @@ impl World {
                 for s in 0..k {
                     let f = (s as f64 + 0.5) / k as f64;
                     let (x, y) = (w[0][0] + f * dx, w[0][1] + f * dy);
-                    let (i, j) = (((x + MAP_HALF) / AXIS_CELL).floor(), ((y + MAP_HALF) / AXIS_CELL).floor());
-                    if i < 0.0 || j < 0.0 || i >= NA as f64 || j >= NA as f64 {
+                    let (i, j) = (((x - self.x0) / AXIS_CELL).floor(), ((y - self.y0) / AXIS_CELL).floor());
+                    if i < 0.0 || j < 0.0 || i >= nax as f64 || j >= nay as f64 {
                         continue;
                     }
-                    let c = &mut acc[j as usize * NA + i as usize];
+                    let c = &mut acc[j as usize * nax + i as usize];
                     let l = (len / k as f64) as f32;
                     c[0] += l * th.cos() as f32;
                     c[1] += l * th.sin() as f32;
@@ -587,33 +740,33 @@ impl World {
         }
         // Separable box blur.
         let r = AXIS_BLUR as i64;
-        let n = NA as i64;
-        let mut tmp = vec![[0f32; 3]; NA * NA];
-        for j in 0..n {
-            for i in 0..n {
+        let (nx, ny) = (nax as i64, nay as i64);
+        let mut tmp = vec![[0f32; 3]; nax * nay];
+        for j in 0..ny {
+            for i in 0..nx {
                 let mut s = [0f32; 3];
                 for d in -r..=r {
                     let ii = i + d;
-                    if (0..n).contains(&ii) {
-                        let c = acc[(j * n + ii) as usize];
+                    if (0..nx).contains(&ii) {
+                        let c = acc[(j * nx + ii) as usize];
                         (s[0], s[1], s[2]) = (s[0] + c[0], s[1] + c[1], s[2] + c[2]);
                     }
                 }
-                tmp[(j * n + i) as usize] = s;
+                tmp[(j * nx + i) as usize] = s;
             }
         }
-        self.axis = vec![[0f32; 3]; NA * NA];
-        for j in 0..n {
-            for i in 0..n {
+        self.axis = vec![[0f32; 3]; nax * nay];
+        for j in 0..ny {
+            for i in 0..nx {
                 let mut s = [0f32; 3];
                 for d in -r..=r {
                     let jj = j + d;
-                    if (0..n).contains(&jj) {
-                        let c = tmp[(jj * n + i) as usize];
+                    if (0..ny).contains(&jj) {
+                        let c = tmp[(jj * nx + i) as usize];
                         (s[0], s[1], s[2]) = (s[0] + c[0], s[1] + c[1], s[2] + c[2]);
                     }
                 }
-                self.axis[(j * n + i) as usize] = s;
+                self.axis[(j * nx + i) as usize] = s;
             }
         }
     }
@@ -626,15 +779,15 @@ impl World {
         if self.map == MapId::Grid {
             return Some(0.0);
         }
-        let fx = (x + MAP_HALF) / AXIS_CELL - 0.5;
-        let fy = (y + MAP_HALF) / AXIS_CELL - 0.5;
+        let fx = (x - self.x0) / AXIS_CELL - 0.5;
+        let fy = (y - self.y0) / AXIS_CELL - 0.5;
         let (ix, iy) = (fx.floor(), fy.floor());
         let (tx, ty) = ((fx - ix) as f32, (fy - iy) as f32);
         let get = |i: f64, j: f64| -> [f32; 3] {
-            if i < 0.0 || j < 0.0 || i >= NA as f64 || j >= NA as f64 {
+            if i < 0.0 || j < 0.0 || i >= self.nax as f64 || j >= self.nay as f64 {
                 [0.0; 3]
             } else {
-                self.axis[j as usize * NA + i as usize]
+                self.axis[j as usize * self.nax + i as usize]
             }
         };
         let (a, b, c, d) = (get(ix, iy), get(ix + 1.0, iy), get(ix, iy + 1.0), get(ix + 1.0, iy + 1.0));
@@ -663,7 +816,7 @@ impl World {
             .filter(|s| s.name == k && s.is_surface())
             .flat_map(|s| s.pts.windows(2).map(|w| (w[0], w[1])))
             .filter(|(a, b)| {
-                let inside = |p: &[f64; 2]| p[0].abs() < MAP_HALF - 50.0 && p[1].abs() < MAP_HALF - 50.0;
+                let inside = |p: &[f64; 2]| p[0] > self.x0 + 50.0 && p[0] < self.x1 - 50.0 && p[1] > self.y0 + 50.0 && p[1] < self.y1 - 50.0;
                 inside(a) && inside(b) && ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt() > 1.0
             })
             .collect();
@@ -709,10 +862,10 @@ impl World {
     /// Highest terrain node within `r` metres of `c`.
     pub fn hilltop_near(&self, c: [f64; 2], r: f64) -> [f64; 3] {
         let mut best = [c[0], c[1], f64::NEG_INFINITY];
-        for j in 0..TN {
-            for i in 0..TN {
-                let (x, y) = (-MAP_HALF + i as f64 * TSP, -MAP_HALF + j as f64 * TSP);
-                let h = self.terr[j * TN + i] as f64;
+        for j in 0..self.tny {
+            for i in 0..self.tnx {
+                let (x, y) = (self.x0 + i as f64 * TSP, self.y0 + j as f64 * TSP);
+                let h = self.terr[j * self.tnx + i] as f64;
                 if (x - c[0]).powi(2) + (y - c[1]).powi(2) <= r * r && h > best[2] {
                     best = [x, y, h];
                 }
@@ -724,11 +877,12 @@ impl World {
     /// Highest terrain point at least `border` metres inside the map.
     pub fn highest_point(&self, border: f64) -> [f64; 3] {
         let mut best = [0.0, 0.0, f64::NEG_INFINITY];
-        for j in 0..TN {
-            for i in 0..TN {
-                let (x, y) = (-MAP_HALF + i as f64 * TSP, -MAP_HALF + j as f64 * TSP);
-                let h = self.terr[j * TN + i] as f64;
-                if x.abs() <= MAP_HALF - border && y.abs() <= MAP_HALF - border && h > best[2] {
+        for j in 0..self.tny {
+            for i in 0..self.tnx {
+                let (x, y) = (self.x0 + i as f64 * TSP, self.y0 + j as f64 * TSP);
+                let h = self.terr[j * self.tnx + i] as f64;
+                let inner = x >= self.x0 + border && x <= self.x1 - border && y >= self.y0 + border && y <= self.y1 - border;
+                if inner && h > best[2] {
                     best = [x, y, h];
                 }
             }
@@ -756,11 +910,11 @@ impl World {
     }
 
     fn gen_terrain(&mut self) {
-        for j in 0..TN {
-            for i in 0..TN {
-                let x = -MAP_HALF + i as f64 * TSP;
-                let y = -MAP_HALF + j as f64 * TSP;
-                self.terr[j * TN + i] = self.terrain_fn(x, y) as f32;
+        for j in 0..self.tny {
+            for i in 0..self.tnx {
+                let x = self.x0 + i as f64 * TSP;
+                let y = self.y0 + j as f64 * TSP;
+                self.terr[j * self.tnx + i] = self.terrain_fn(x, y) as f32;
             }
         }
     }
@@ -768,16 +922,17 @@ impl World {
     /// True terrain height: barycentric on the render triangulation.
     #[inline]
     pub fn terrain(&self, x: f64, y: f64) -> f64 {
-        let fx = ((x + MAP_HALF) / TSP).clamp(0.0, (TN - 1) as f64 - 1e-9);
-        let fy = ((y + MAP_HALF) / TSP).clamp(0.0, (TN - 1) as f64 - 1e-9);
+        let fx = ((x - self.x0) / TSP).clamp(0.0, (self.tnx - 1) as f64 - 1e-9);
+        let fy = ((y - self.y0) / TSP).clamp(0.0, (self.tny - 1) as f64 - 1e-9);
         let i = fx as usize;
         let j = fy as usize;
         let u = fx - i as f64;
         let v = fy - j as f64;
-        let h00 = self.terr[j * TN + i] as f64;
-        let h10 = self.terr[j * TN + i + 1] as f64;
-        let h01 = self.terr[(j + 1) * TN + i] as f64;
-        let h11 = self.terr[(j + 1) * TN + i + 1] as f64;
+        let n = self.tnx;
+        let h00 = self.terr[j * n + i] as f64;
+        let h10 = self.terr[j * n + i + 1] as f64;
+        let h01 = self.terr[(j + 1) * n + i] as f64;
+        let h11 = self.terr[(j + 1) * n + i + 1] as f64;
         if u >= v {
             h00 + u * (h10 - h00) + v * (h11 - h10)
         } else {
@@ -880,40 +1035,43 @@ impl World {
         // Terrain: cells evenly subdivide the 20 m quads, so the triangulation
         // diagonal only meets cell corners; the max over a cell is the max of
         // its four corners.
-        let np = NC + 1;
-        let mut corner = vec![0f32; np * np];
-        for j in 0..np {
+        let (nx, ny) = (self.raw.nx, self.raw.ny);
+        let np = nx + 1;
+        let mut corner = vec![0f32; np * (ny + 1)];
+        for j in 0..=ny {
             for i in 0..np {
-                corner[j * np + i] =
-                    self.terrain(-MAP_HALF + i as f64 * CELL, -MAP_HALF + j as f64 * CELL) as f32;
+                corner[j * np + i] = self.terrain(self.x0 + i as f64 * CELL, self.y0 + j as f64 * CELL) as f32;
             }
         }
-        for j in 0..NC {
-            for i in 0..NC {
+        for j in 0..ny {
+            for i in 0..nx {
                 let a = corner[j * np + i]
                     .max(corner[j * np + i + 1])
                     .max(corner[(j + 1) * np + i])
                     .max(corner[(j + 1) * np + i + 1]);
-                self.raw[j * NC + i] = a;
+                self.raw.v[j * nx + i] = a;
             }
         }
         self.raw_terr = self.raw.clone();
-        let ci = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
         for b in &self.boxes {
-            for j in ci(b.y0)..=ci(b.y1) {
+            let (_, ja) = self.raw.cell(b.x0, b.y0);
+            let (_, jb) = self.raw.cell(b.x1, b.y1);
+            for j in ja..=jb {
                 // Polygon: only the cells its slice of this row touches.
                 let (xa, xb) = if b.pn == 0 {
                     (b.x0, b.x1)
                 } else {
                     let poly = &self.pts[b.p0 as usize..(b.p0 + b.pn) as usize];
-                    let ya = -MAP_HALF + j as f64 * CELL;
+                    let ya = self.y0 + j as f64 * CELL;
                     match strip_x_range(poly, ya, ya + CELL) {
                         Some(r) => r,
                         None => continue,
                     }
                 };
-                for i in ci(xa)..=ci(xb) {
-                    let c = &mut self.raw[j * NC + i];
+                let (ia, _) = self.raw.cell(xa, b.y0);
+                let (ib, _) = self.raw.cell(xb, b.y0);
+                for i in ia..=ib {
+                    let c = &mut self.raw.v[j * nx + i];
                     *c = c.max(b.z1 as f32);
                 }
             }
@@ -921,20 +1079,30 @@ impl World {
     }
 
     fn build_buckets(&mut self) {
+        let nb = self.nbx;
         for (n, b) in self.boxes.iter().enumerate() {
-            let bi = |v: f64| (((v + MAP_HALF) / BUCKET).floor().max(0.0) as usize).min(NB - 1);
-            for j in bi(b.y0)..=bi(b.y1) {
-                for i in bi(b.x0)..=bi(b.x1) {
-                    self.buckets[j * NB + i].push(n as u32);
-                    self.bucket_top[j * NB + i] = self.bucket_top[j * NB + i].max(b.z1 as f32);
+            let (i0, j0) = self.bucket(b.x0, b.y0);
+            let (i1, j1) = self.bucket(b.x1, b.y1);
+            for j in j0..=j1 {
+                for i in i0..=i1 {
+                    self.buckets[j * nb + i].push(n as u32);
+                    self.bucket_top[j * nb + i] = self.bucket_top[j * nb + i].max(b.z1 as f32);
                 }
             }
         }
     }
 
+    /// The building bucket holding (x, y), clamped to the map.
+    #[inline]
+    fn bucket(&self, x: f64, y: f64) -> (usize, usize) {
+        let i = (((x - self.x0) / BUCKET).floor().max(0.0) as usize).min(self.nbx - 1);
+        let j = (((y - self.y0) / BUCKET).floor().max(0.0) as usize).min(self.nby - 1);
+        (i, j)
+    }
+
     /// Robust maps (lazily built): one per entry of `ROBUST_CELLS`;
     /// `[0]` for re-checks, `[1]` (one cell wider) for acceptance.
-    pub fn robust_maps(&self, accept: bool) -> &Vec<Vec<f32>> {
+    pub fn robust_maps(&self, accept: bool) -> &Vec<CellMap> {
         let m = self.robust.get_or_init(|| {
             let mk = |extra: usize| ROBUST_CELLS.iter().map(|&r| dilate(&self.raw_terr, r + extra, VERT_MARGIN as f32)).collect();
             [mk(0), mk(1)]
@@ -949,15 +1117,17 @@ impl World {
         let (x0, x1) = (a[0].min(b[0]) - q, a[0].max(b[0]) + q);
         let (y0, y1) = (a[1].min(b[1]) - q, a[1].max(b[1]) + q);
         let (z0, z1) = (a[2].min(b[2]) - q, a[2].max(b[2]) + q);
-        let bi = |v: f64| (((v + MAP_HALF) / BUCKET).floor().max(0.0) as usize).min(NB - 1);
+        let (ia, ja) = self.bucket(x0, y0);
+        let (ib, jb) = self.bucket(x1, y1);
+        let nb = self.nbx;
         let mut d2 = q * q;
         let mut hit = false;
-        for j in bi(y0)..=bi(y1) {
-            for i in bi(x0)..=bi(x1) {
-                if (self.bucket_top[j * NB + i] as f64) < z0 {
+        for j in ja..=jb {
+            for i in ia..=ib {
+                if (self.bucket_top[j * nb + i] as f64) < z0 {
                     continue;
                 }
-                for &n in &self.buckets[j * NB + i] {
+                for &n in &self.buckets[j * nb + i] {
                     let bx = &self.boxes[n as usize];
                     if bx.x1 < x0 || bx.x0 > x1 || bx.y1 < y0 || bx.y0 > y1 || bx.z1 < z0 || bx.z0 > z1 {
                         continue;
@@ -982,9 +1152,9 @@ impl World {
     /// farther than the best distance so far (a building's nearest point lies
     /// in a bucket it is registered in, so nothing skipped can be closer).
     pub fn building_dist(&self, p: [f64; 3], cap: f64) -> f64 {
-        let bi = |v: f64| (((v + MAP_HALF) / BUCKET).floor().max(0.0) as usize).min(NB - 1);
-        let (ilo, ihi, jlo, jhi) = (bi(p[0] - cap), bi(p[0] + cap), bi(p[1] - cap), bi(p[1] + cap));
-        let (ci, cj) = (bi(p[0]), bi(p[1]));
+        let ((ilo, jlo), (ihi, jhi)) = (self.bucket(p[0] - cap, p[1] - cap), self.bucket(p[0] + cap, p[1] + cap));
+        let (ci, cj) = self.bucket(p[0], p[1]);
+        let nb = self.nbx;
         let rmax = (ci - ilo).max(ihi - ci).max(cj - jlo).max(jhi - cj);
         let mut d = cap;
         for r in 0..=rmax {
@@ -997,10 +1167,10 @@ impl World {
                     if !edge_row && i + r != ci && i != ci + r {
                         continue;
                     }
-                    if p[2] - self.bucket_top[j * NB + i] as f64 >= d {
+                    if p[2] - self.bucket_top[j * nb + i] as f64 >= d {
                         continue;
                     }
-                    for &n in &self.buckets[j * NB + i] {
+                    for &n in &self.buckets[j * nb + i] {
                         d = d.min(self.bld_dist2(&self.boxes[n as usize], p).sqrt());
                     }
                 }
@@ -1011,7 +1181,7 @@ impl World {
 
     /// True clearance of the aircraft body (negative = collision).
     pub fn true_clearance(&self, p: [f64; 3]) -> f64 {
-        if p[0].abs() > MAP_HALF || p[1].abs() > MAP_HALF {
+        if !self.inside(p[0], p[1]) {
             return -1.0;
         }
         let mut c = p[2] - R_BODY - self.terrain(p[0], p[1]);
@@ -1026,7 +1196,7 @@ impl World {
     /// Clearance of the `R_BODY` sphere and the wing capsule (`wing_tips`, `WING_R`); values above `cap` may read as `cap`.
     pub fn airframe_clearance(&self, s: &State, cap: f64) -> f64 {
         let p = [s[X], s[Y], s[Z]];
-        if p[0].abs() > MAP_HALF || p[1].abs() > MAP_HALF {
+        if !self.inside(p[0], p[1]) {
             return -1.0;
         }
         let mut c = p[2] - R_BODY - self.terrain(p[0], p[1]);
@@ -1052,9 +1222,8 @@ impl World {
 
     /// Ground or roof height directly below `(x, y)` (raw cell max).
     pub fn surface(&self, x: f64, y: f64) -> f64 {
-        let i = (((x + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
-        let j = (((y + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
-        self.raw[j * NC + i] as f64
+        let (i, j) = self.raw.cell(x, y);
+        self.raw.v[j * self.raw.nx + i] as f64
     }
 
     pub fn tallest_center(&self) -> [f64; 3] {
@@ -1065,26 +1234,18 @@ impl World {
 
 /// Bilinear lookup in a clearance map; out of bounds is a wall.
 #[inline]
-pub fn hc_at(map: &[f32], x: f64, y: f64) -> f64 {
-    let fx = (x + MAP_HALF) / CELL - 0.5;
-    let fy = (y + MAP_HALF) / CELL - 0.5;
+pub fn hc_at(map: &CellMap, x: f64, y: f64) -> f64 {
+    let fx = (x - map.x0) / CELL - 0.5;
+    let fy = (y - map.y0) / CELL - 0.5;
     let ix = fx.floor();
     let iy = fy.floor();
     let tx = fx - ix;
     let ty = fy - iy;
     let (ix, iy) = (ix as i64, iy as i64);
-    let n = NC as i64;
-    let get = |i: i64, j: i64| -> f64 {
-        if i < 0 || j < 0 || i >= n || j >= n {
-            WALL as f64
-        } else {
-            map[(j * n + i) as usize] as f64
-        }
-    };
-    let a = get(ix, iy);
-    let b = get(ix + 1, iy);
-    let c = get(ix, iy + 1);
-    let d = get(ix + 1, iy + 1);
+    let a = map.get(ix, iy);
+    let b = map.get(ix + 1, iy);
+    let c = map.get(ix, iy + 1);
+    let d = map.get(ix + 1, iy + 1);
     (a * (1.0 - tx) + b * tx) * (1.0 - ty) + (c * (1.0 - tx) + d * tx) * ty
 }
 
@@ -1306,23 +1467,13 @@ fn strip_x_range(poly: &[[f64; 2]], ya: f64, yb: f64) -> Option<(f64, f64)> {
     (lo <= hi).then_some((lo, hi))
 }
 
-#[inline]
-fn cell_at(map: &[f32], i: i64, j: i64) -> f64 {
-    let n = NC as i64;
-    if i < 0 || j < 0 || i >= n || j >= n {
-        WALL as f64
-    } else {
-        map[(j * n + i) as usize] as f64
-    }
-}
-
 /// Minimum clearance `z - Hc` over every cell the 3D segment
 /// (x0,y0,z0)-(x1,y1,z1) crosses, using the segment's lowest height inside
 /// each cell.
 #[inline]
-pub fn swept_clear(map: &[f32], x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1: f64) -> f64 {
-    let (fx0, fy0) = ((x0 + MAP_HALF) / CELL, (y0 + MAP_HALF) / CELL);
-    let (fx1, fy1) = ((x1 + MAP_HALF) / CELL, (y1 + MAP_HALF) / CELL);
+pub fn swept_clear(map: &CellMap, x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1: f64) -> f64 {
+    let (fx0, fy0) = ((x0 - map.x0) / CELL, (y0 - map.y0) / CELL);
+    let (fx1, fy1) = ((x1 - map.x0) / CELL, (y1 - map.y0) / CELL);
     let (mut i, mut j) = (fx0.floor() as i64, fy0.floor() as i64);
     let (i1, j1) = (fx1.floor() as i64, fy1.floor() as i64);
     let (dx, dy) = (fx1 - fx0, fy1 - fy0);
@@ -1338,7 +1489,7 @@ pub fn swept_clear(map: &[f32], x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1:
     for _ in 0..n {
         let step_x = tmx < tmy;
         let tn = if step_x { tmx } else { tmy }.min(1.0);
-        c = c.min(zt(t0).min(zt(tn)) - cell_at(map, i, j));
+        c = c.min(zt(t0).min(zt(tn)) - map.get(i, j));
         t0 = tn;
         if step_x {
             i += si;
@@ -1348,36 +1499,36 @@ pub fn swept_clear(map: &[f32], x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1:
             tmy += tdy;
         }
     }
-    c.min(zt(t0).min(z1) - cell_at(map, i, j))
+    c.min(zt(t0).min(z1) - map.get(i, j))
 }
 
 /// Square (Chebyshev) max filter of radius `r` cells, out-of-map = wall,
 /// then add the vertical margin.
-pub fn dilate(raw: &[f32], r: usize, vm: f32) -> Vec<f32> {
-    let n = NC as i64;
+pub fn dilate(raw: &CellMap, r: usize, vm: f32) -> CellMap {
+    let (nx, ny) = (raw.nx as i64, raw.ny as i64);
     let r = r as i64;
-    let mut tmp = vec![0f32; NC * NC];
-    for j in 0..n {
-        for i in 0..n {
+    let mut tmp = vec![0f32; raw.nx * raw.ny];
+    for j in 0..ny {
+        for i in 0..nx {
             let mut m = f32::MIN;
             for d in -r..=r {
                 let ii = i + d;
-                let v = if ii < 0 || ii >= n { WALL } else { raw[(j * n + ii) as usize] };
+                let v = if ii < 0 || ii >= nx { WALL } else { raw.v[(j * nx + ii) as usize] };
                 m = m.max(v);
             }
-            tmp[(j * n + i) as usize] = m;
+            tmp[(j * nx + i) as usize] = m;
         }
     }
-    let mut out = vec![0f32; NC * NC];
-    for j in 0..n {
-        for i in 0..n {
+    let mut out = CellMap::new(raw.x0, raw.y0, raw.nx, raw.ny, 0.0);
+    for j in 0..ny {
+        for i in 0..nx {
             let mut m = f32::MIN;
             for d in -r..=r {
                 let jj = j + d;
-                let v = if jj < 0 || jj >= n { WALL } else { tmp[(jj * n + i) as usize] };
+                let v = if jj < 0 || jj >= ny { WALL } else { tmp[(jj * nx + i) as usize] };
                 m = m.max(v);
             }
-            out[(j * n + i) as usize] = m + vm;
+            out.v[(j * nx + i) as usize] = m + vm;
         }
     }
     out
@@ -1557,6 +1708,28 @@ mod tests {
             let brute = w.boxes.iter().fold(200.0f64, |d, b| d.min(w.bld_dist2(b, p).sqrt()));
             assert_eq!(w.building_dist(p, 200.0), brute);
         }
+    }
+
+    #[test]
+    fn golden_gate_open_under_the_deck() {
+        use crate::golden_gate as gg;
+        let w = World::san_francisco();
+        let p = |s: f64, a: f64, z: f64| {
+            let q = gg::at(s, a);
+            [q[0], q[1], z]
+        };
+        let mid = 0.5 * gg::MAIN;
+        // Under the deck mid-span: open water up to the truss (67 m clearance).
+        let under = p(mid, 0.0, 30.0);
+        assert!(w.true_clearance(under) > 20.0, "{}", w.true_clearance(under));
+        // In the deck, in the suspender wall and on the main cable: solid.
+        assert!(w.true_clearance(p(mid, 0.0, gg::deck(mid) - 3.0)) < 0.0);
+        assert!(w.true_clearance(p(mid - 200.0, gg::CABLE, gg::deck(mid - 200.0) + 20.0)) < 0.0);
+        for s in [-200.0, 100.0, mid, 1100.0, gg::MAIN + 200.0] {
+            assert_eq!(w.building_dist(p(s, -gg::CABLE, gg::cable(s)), 50.0), 0.0, "cable at s = {s}");
+        }
+        // Beside the bridge, well clear of the cable plane.
+        assert!(w.true_clearance(p(mid, 60.0, 100.0)) > 40.0);
     }
 
     #[test]

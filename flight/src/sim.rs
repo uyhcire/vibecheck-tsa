@@ -335,7 +335,7 @@ impl<'w> Sim<'w> {
         self.s = self.jsb.as_ref().unwrap().state();
         self.k += STEPS_PER_TICK;
         // Leaving the map climbing is not a crash for these filters: their escapes climb out straight.
-        let off = self.s[X].abs() > crate::world::MAP_HALF || self.s[Y].abs() > crate::world::MAP_HALF;
+        let off = !self.world.inside(self.s[X], self.s[Y]);
         let c = if off { f64::INFINITY } else { self.world.airframe_clearance(&self.s, 200.0) };
         self.true_clear = c;
         self.min_true_clear = self.min_true_clear.min(c);
@@ -696,10 +696,11 @@ fn sf_scenario_start(world: &World, id: usize) -> State {
 /// Random start inside the safe set (rejection sampled, deterministic).
 pub fn random_start(world: &World, rng: &mut Rng) -> State {
     loop {
+        // Mostly the downtown core; otherwise anywhere at least 700 m inside the map.
         let (x, y) = if rng.chance(0.65) {
             (rng.range(-1250.0, 1250.0), rng.range(-1250.0, 1250.0))
         } else {
-            (rng.range(-2300.0, 2300.0), rng.range(-2300.0, 2300.0))
+            (rng.range(world.x0 + 700.0, world.x1 - 700.0), rng.range(world.y0 + 700.0, world.y1 - 700.0))
         };
         let agl = rng.range(40f64.ln(), 400f64.ln()).exp();
         let mut top = 0f64;

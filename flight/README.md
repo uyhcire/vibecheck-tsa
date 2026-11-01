@@ -1,7 +1,8 @@
 # Backup-CBF City Flight
 
 Fly a light aircraft through a city with the keyboard: a procedural grid city
-or downtown San Francisco, built from real data. A backup control barrier
+or San Francisco from downtown to Ocean Beach and the Golden Gate, built from
+real data. A backup control barrier
 function (bCBF) safety filter stays silent far from obstacles, takes over near
 buildings and terrain, then hands control back. Space toggles the filter, so
 you can fly the same crash attempt with and without it.
@@ -34,34 +35,43 @@ Demo flags (handy for screenshots): `--map grid|sf`, `--scenario 1..5` (1..4 in 
 
 - **Grid city** (default): procedural, 2,145 boxes on a street grid, with a
   ridge and a mountain rim.
-- **San Francisco** (`--map sf`, or Tab in flight): the 6 km square from
-  Alamo Square to Yerba Buena Island and from Mission Dolores to Pier 39.
-  About 41,000 buildings come from DataSF footprints and their LiDAR peak
-  heights, plus OpenStreetMap for everything built after the 2010 LiDAR
-  (Salesforce Tower is 326 m). Terrain is USGS 3DEP, and the Bay Bridge West
-  Span and the elevated freeways are included. Buildings are convex prisms
+- **San Francisco** (`--map sf`, or Tab in flight): a 12.6 × 9.4 km
+  rectangle from Ocean Beach and Lands End to Yerba Buena Island, and from
+  Noe Valley and Twin Peaks to the Golden Gate: downtown, the Richmond, the
+  Sunset north of Taraval, Golden Gate Park, the Presidio and the Golden Gate
+  Bridge. About 132,000 building pieces come from DataSF footprints and their
+  LiDAR peak heights, plus OpenStreetMap for everything built after the 2010
+  LiDAR (Salesforce Tower is 326 m; Sutro Tower stands 298 m on its 254 m
+  hill). Terrain is USGS 3DEP, and the Bay Bridge West Span and the elevated
+  freeways are included. Buildings are convex prisms
   checked exactly, like the grid city's boxes. All of it is in
   `data/sf/sf_world.bin`, compiled into the binary, so nothing downloads at
   run time. `data/sf/README.md` covers the sources, the frame, and how every
   step only ever enlarges obstacles.
   - **Aerial photo:** with `data/sf/sf_naip.jpg` (USDA NAIP, public
-    domain), the ground shows the real city, scaled from photo brightness to
-    albedo because the renderer lights it again. Without it, streets are
+    domain, 1 m per pixel), the ground shows the real city, scaled from photo
+    brightness to albedo because the renderer lights it again. Without it, streets are
     painted from OpenStreetMap.
   - **Bay Area backdrop:** with `data/sf/backdrop.jpg`, the 80 km around the
     map is drawn with real terrain and imagery (Mt Tam, the Marin Headlands,
-    the East Bay hills). It's visual only; you fly inside the 6 km square.
+    the East Bay hills). It's visual only; you fly inside the rectangle.
   - **Offline:** both load from disk at start, so the demo needs no network.
     `data/sf/README.md` explains how to re-download them.
   - **Bay Bridge and freeways:** drawn as the bridge (towers, deck, cables)
     and as decks on pillars. Their collision curtains are conservative (no
     flying under them) and not drawn.
-  - **Golden Gate Bridge:** drawn in the backdrop, 3.4 km beyond the square's
-    north-west corner (visual only). Its towers are OpenStreetMap's tower
-    parts (both towers agree to 5 cm); the deck, stiffening truss, main
-    cables, suspenders, anchorage pylons, the Fort Point arch and the San
-    Francisco approach follow the published dimensions (1,280 m main span,
-    343 m side spans, 227 m towers, 67 m clearance).
+  - **Golden Gate Bridge:** inside the map, and you can fly under it.
+    `src/golden_gate.rs` describes it once; the renderer draws it from that
+    and `world.rs` builds its obstacles from the same numbers, so everything
+    drawn lies inside an obstacle. The towers are OpenStreetMap's tower parts
+    (both towers agree to 5 cm); the deck, stiffening truss, main cables,
+    suspenders, anchorage pylons, the Fort Point arch and the San Francisco
+    approach follow the published dimensions (1,280 m main span, 343 m side
+    spans, 227 m towers, 67 m clearance). Obstacles: the towers and piers,
+    the deck in 10 m slices up to its railings, a thin wall in each cable
+    plane from the roadway up past the main cable (cable plus suspenders),
+    and the pylons, the arch (filled to the ground) and the approach piers.
+    The space under the deck between the towers is open.
   - **Renderers:** the photoreal renderer draws San Francisco with the grid
     city's materials (`src/sfscene.rs`): a facade per footprint edge, light
     stone and stucco below the towers, pastel rowhouses. The classic renderer

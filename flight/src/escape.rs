@@ -259,7 +259,7 @@ impl<'a> Pred<'a> {
     }
 
     #[inline]
-    fn map_for(&self, tau: f64) -> (&[f32], f64) {
+    fn map_for(&self, tau: f64) -> (&crate::world::CellMap, f64) {
         let base = if self.accept { &self.world.hc_acc } else { &self.world.hc };
         if !self.robust {
             return (base, 0.0);

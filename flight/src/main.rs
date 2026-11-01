@@ -77,8 +77,8 @@ struct MapScenes {
 impl MapScenes {
     fn new(world: World) -> MapScenes {
         let world: &'static World = Box::leak(Box::new(world));
-        let terrain_px = terrain_texture(world);
-        let scene = StaticScene::new(world, &terrain_px);
+        let (terrain_px, tw, th) = terrain_texture(world);
+        let scene = StaticScene::new(world, &terrain_px, tw, th);
         let photo = if use_gl() { None } else { Some(photo::Photo::new(world)) };
         MapScenes { world, scene, photo }
     }
@@ -286,7 +286,8 @@ fn ground_color(w: &World, x: f64, y: f64) -> [f64; 3] {
     c
 }
 
-fn terrain_texture(w: &World) -> Vec<u8> {
+/// The classic renderer's ground texture over the map, with its width and height.
+fn terrain_texture(w: &World) -> (Vec<u8>, usize, usize) {
     if w.map == MapId::SanFrancisco {
         return sfscene::painted_ground(w);
     }
@@ -298,9 +299,9 @@ fn terrain_texture(w: &World) -> Vec<u8> {
             sc.spawn(move || {
                 for (ri, row) in chunk.chunks_mut(TEX * 4).enumerate() {
                     let py = ci * rows_per + ri;
-                    let y = -MAP_HALF + (py as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
+                    let y = -GRID_HALF + (py as f64 + 0.5) * 2.0 * GRID_HALF / TEX as f64;
                     for i in 0..TEX {
-                        let x = -MAP_HALF + (i as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
+                        let x = -GRID_HALF + (i as f64 + 0.5) * 2.0 * GRID_HALF / TEX as f64;
                         let c = ground_color(w, x, y);
                         row[i * 4] = (c[0].clamp(0.0, 1.0) * 255.0) as u8;
                         row[i * 4 + 1] = (c[1].clamp(0.0, 1.0) * 255.0) as u8;
@@ -311,7 +312,7 @@ fn terrain_texture(w: &World) -> Vec<u8> {
             });
         }
     });
-    px
+    (px, TEX, TEX)
 }
 
 fn building_color(b: &Building) -> [f32; 3] {
@@ -327,34 +328,35 @@ fn building_color(b: &Building) -> [f32; 3] {
 }
 
 impl StaticScene {
-    fn new(w: &World, px: &[u8]) -> StaticScene {
+    fn new(w: &World, px: &[u8], tw: usize, th: usize) -> StaticScene {
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
         // Terrain: same vertices and triangle split as the collision truth.
-        let mut tv = Vec::with_capacity(TN * TN);
-        for j in 0..TN {
-            for i in 0..TN {
-                let x = -MAP_HALF + i as f64 * TSP;
-                let y = -MAP_HALF + j as f64 * TSP;
-                let hh = |a: usize, b: usize| w.terr[b.min(TN - 1) * TN + a.min(TN - 1)];
+        let (tnx, tny) = (w.tnx, w.tny);
+        let mut tv = Vec::with_capacity(tnx * tny);
+        for j in 0..tny {
+            for i in 0..tnx {
+                let x = w.x0 + i as f64 * TSP;
+                let y = w.y0 + j as f64 * TSP;
+                let hh = |a: usize, b: usize| w.terr[b.min(tny - 1) * tnx + a.min(tnx - 1)];
                 let dx = hh(i + 1, j) - hh(i.saturating_sub(1), j);
                 let dy = hh(i, j + 1) - hh(i, j.saturating_sub(1));
                 let n = vec3(-dx, -dy, 2.0 * TSP as f32).normalize();
                 tv.push(SV {
-                    pos: [x as f32, y as f32, w.terr[j * TN + i]],
+                    pos: [x as f32, y as f32, w.terr[j * tnx + i]],
                     nrm: [n.x, n.y, n.z],
                     col: [1.0, 1.0, 1.0],
-                    uv: [((x + MAP_HALF) / (2.0 * MAP_HALF)) as f32, ((y + MAP_HALF) / (2.0 * MAP_HALF)) as f32],
+                    uv: [((x - w.x0) / (w.x1 - w.x0)) as f32, ((y - w.y0) / (w.y1 - w.y0)) as f32],
                     win: 0.0,
                 });
             }
         }
-        let mut ti: Vec<u32> = Vec::with_capacity((TN - 1) * (TN - 1) * 6);
-        for j in 0..TN - 1 {
-            for i in 0..TN - 1 {
-                let a = (j * TN + i) as u32;
+        let mut ti: Vec<u32> = Vec::with_capacity((tnx - 1) * (tny - 1) * 6);
+        for j in 0..tny - 1 {
+            for i in 0..tnx - 1 {
+                let a = (j * tnx + i) as u32;
                 let b = a + 1;
-                let c = a + TN as u32 + 1;
-                let d = a + TN as u32;
+                let c = a + tnx as u32 + 1;
+                let d = a + tnx as u32;
                 ti.extend_from_slice(&[a, b, c, a, c, d]);
             }
         }
@@ -367,8 +369,8 @@ impl StaticScene {
                 min_filter: mq::FilterMode::Linear,
                 mag_filter: mq::FilterMode::Linear,
                 mipmap_filter: mq::MipmapFilterMode::Linear,
-                width: TEX as u32,
-                height: TEX as u32,
+                width: tw as u32,
+                height: th as u32,
                 allocate_mipmaps: true,
                 ..Default::default()
             },
@@ -381,7 +383,7 @@ impl StaticScene {
         let mut bi: Vec<u32> = Vec::with_capacity(w.boxes.len() * 30);
         // A wall per footprint edge plus the roof (a box is four walls). Bridge and freeway collision
         // curtains are not drawn.
-        for b in w.boxes.iter().filter(|b| b.kind == Kind::Building || b.kind == Kind::BridgeTower) {
+        for b in w.boxes.iter().filter(|b| matches!(b.kind, Kind::Building | Kind::BridgeTower | Kind::GoldenGate)) {
             let col = building_color(b);
             let roof = [col[0] * 0.62 + 0.08, col[1] * 0.62 + 0.08, col[2] * 0.62 + 0.09];
             let (z0, z1) = (b.z0 as f32, b.z1 as f32);

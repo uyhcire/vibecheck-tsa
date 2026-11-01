@@ -1,25 +1,31 @@
 # San Francisco map data
 
-`sf_world.bin` (committed) is the San Francisco collision world:
-- terrain on the same 20 m grid as the procedural map;
-- about 41,000 convex building prisms;
+`sf_world.bin` (committed, format version 2) is the San Francisco collision world:
+- its bounds (the flyable rectangle, below);
+- terrain on the same 20 m grid spacing as the procedural map (631 × 471 nodes);
+- about 132,000 convex building prisms;
 - OSM street centrelines.
+
+The Golden Gate Bridge is not in it: `src/golden_gate.rs` describes the bridge once, and `world.rs` adds its
+obstacles at load time from the same numbers the renderer draws it with. `build.py` skips OSM and DataSF
+pieces inside the bridge's corridor (`geo.py`, `GG_CORRIDOR`), including OSM's tower parts and the deck's
+motorway, which would otherwise become buildings and a freeway curtain across the strait.
 
 `src/world.rs` embeds it with `include_bytes!`, so the demo and the harness need no network.
 
 ## Imagery (rendering only)
 
-- **`sf_naip.jpg`**: the flyable square at 0.73 m per pixel (8192²), from
+- **`sf_naip.jpg`**: the flyable rectangle at 1 m per pixel (12,600 × 9,400), from
   USDA NAIP via the USGS NAIP ImageServer. Fetch it with `fetch_naip.py`.
-  The ground and the roofs of buildings under 25 m show it.
+  The ground shows it, scaled from photo brightness to albedo.
 - **`backdrop.jpg` + `backdrop_dem.f32`**: the Bay Area around the map, drawn
-  beyond the flyable square: an 80 km square of NAIP imagery at 19.5 m per
+  beyond the flyable rectangle: an 80 km square of NAIP imagery at 19.5 m per
   pixel and USGS 3DEP terrain at 100 m (Mt Tam, the Marin Headlands, the
   East Bay hills, SFO). Fetch it with `fetch_backdrop.py`.
   - NAIP has no data over open ocean; the renderer paints those pixels as
     water.
-  - The backdrop is visual only: the flyable square's edge is a wall to the
-    filter.
+  - The backdrop is visual only: the flyable rectangle's edge is a wall to
+    the filter.
 
 Both scripts need Pillow and resume where they stopped. The USGS servers time
 out often; they retry. Both images are in the map frame, row 0 north.
@@ -27,7 +33,7 @@ out often; they retry. Both images are in the map frame, row 0 north.
 ## Regenerate
 
 ```sh
-python3 fetch.py                     # stdlib only: downloads into raw/ (~60 MB, not committed)
+python3 fetch.py                     # stdlib only: downloads into raw/ (~170 MB, not committed)
 pip install shapely && python3 build.py   # writes sf_world.bin
 ```
 
@@ -36,7 +42,7 @@ pip install shapely && python3 build.py   # writes sf_world.bin
 The map frame is UTM zone 10N (WGS84) easting and northing minus the origin's, in metres. The origin is near Kearny & Market (−122.4050, 37.7910).
 
 - x points east and y points grid north, which is 0.37° from true north.
-- The map spans ±3000 m: Alamo Square to Yerba Buena Island, Mission Dolores to Pier 39.
+- The map is the rectangle x −9600…3000 m, y −5000…4400 m (12.6 × 9.4 km): Ocean Beach and Lands End to Yerba Buena Island, Noe Valley and Twin Peaks to the Golden Gate's north anchorage. It leaves out the southern Sunset, Bayview, the Excelsior and Hunters Point. `geo.py` (`X0` … `Y1`) sets it; the edges are multiples of 200 m so every grid divides it evenly.
 - Heights are NAVD88 metres. Water is held at 1.0 m (about mean sea level); the USGS model flattens the bay to −1.08 m.
 - UTM's scale factor here is 0.99963, so distances on the map are 0.04% shorter than on the ground.
 

@@ -7,8 +7,13 @@ use cityflight::world::*;
 
 const DATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data/sf/");
 
-/// Ground detail-mask resolution (texels per side).
-const MASK: usize = 4096;
+/// Street and detail-mask texel (m): the clearance-map cell, over the world's rectangle.
+const MPX: f64 = 2.5;
+
+/// Mask texels across and up the world's rectangle.
+fn mask_dims(w: &World) -> (usize, usize) {
+    (((w.x1 - w.x0) / MPX).round() as usize, ((w.y1 - w.y0) / MPX).round() as usize)
+}
 
 /// Backdrop extent (half-size, m), terrain grid (nodes, spacing), as `data/sf/fetch_backdrop.py` writes it.
 const BACK_HALF: f64 = 40000.0;
@@ -35,20 +40,17 @@ fn smoothstep(e0: f64, e1: f64, x: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// A square JPEG as RGBA with row 0 at the south edge, and its side; `None` if missing or not square.
-fn load_square(path: &str) -> Option<(Vec<u8>, usize)> {
+/// A JPEG as RGBA with row 0 at the south edge, and its width and height; `None` if missing.
+fn load_image(path: &str) -> Option<(Vec<u8>, usize, usize)> {
     let bytes = std::fs::read(path).ok()?;
     let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).ok()?.to_rgba8();
-    let n = img.width() as usize;
-    if img.height() as usize != n {
-        return None;
-    }
+    let (n, m) = (img.width() as usize, img.height() as usize);
     let raw = img.into_raw();
     let mut px = vec![0u8; raw.len()];
-    for r in 0..n {
-        px[r * n * 4..(r + 1) * n * 4].copy_from_slice(&raw[(n - 1 - r) * n * 4..(n - r) * n * 4]);
+    for r in 0..m {
+        px[r * n * 4..(r + 1) * n * 4].copy_from_slice(&raw[(m - 1 - r) * n * 4..(m - r) * n * 4]);
     }
-    Some((px, n))
+    Some((px, n, m))
 }
 
 /// An aerial photo is lit already (sun and sky, plus haze); the renderer lights the ground again. Scale it
@@ -78,8 +80,9 @@ fn green(p: &[u8]) -> f64 {
 
 /// OSM streets rasterised over the square: 0 none, 1 sidewalk, 2 asphalt, 3 centre line.
 fn street_mask(w: &World) -> Vec<u8> {
-    let mut m = vec![0u8; MASK * MASK];
-    let px = 2.0 * MAP_HALF / MASK as f64;
+    let (mx, my) = mask_dims(w);
+    let mut m = vec![0u8; mx * my];
+    let px = MPX;
     for st in w.streets.iter().filter(|s| !s.bridge) {
         let hw = [11.0, 10.0, 9.0, 8.0, 7.0, 5.5, 5.5, 4.0, 4.0, 4.0, 4.0][st.class as usize];
         let walk = st.class >= 2 && st.class <= 6;
@@ -88,11 +91,12 @@ fn street_mask(w: &World) -> Vec<u8> {
             let (a, b) = (seg[0], seg[1]);
             let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
             let l2 = (dx * dx + dy * dy).max(1e-9);
-            let ti = |v: f64| (((v + MAP_HALF) / px).floor().max(0.0) as usize).min(MASK - 1);
-            for j in ti(a[1].min(b[1]) - hw)..=ti(a[1].max(b[1]) + hw) {
-                let y = -MAP_HALF + (j as f64 + 0.5) * px;
-                for i in ti(a[0].min(b[0]) - hw)..=ti(a[0].max(b[0]) + hw) {
-                    let x = -MAP_HALF + (i as f64 + 0.5) * px;
+            let tx = |v: f64| (((v - w.x0) / px).floor().max(0.0) as usize).min(mx - 1);
+            let ty = |v: f64| (((v - w.y0) / px).floor().max(0.0) as usize).min(my - 1);
+            for j in ty(a[1].min(b[1]) - hw)..=ty(a[1].max(b[1]) + hw) {
+                let y = w.y0 + (j as f64 + 0.5) * px;
+                for i in tx(a[0].min(b[0]) - hw)..=tx(a[0].max(b[0]) + hw) {
+                    let x = w.x0 + (i as f64 + 0.5) * px;
                     let t = (((x - a[0]) * dx + (y - a[1]) * dy) / l2).clamp(0.0, 1.0);
                     let d = ((x - a[0] - t * dx).powi(2) + (y - a[1] - t * dy).powi(2)).sqrt();
                     let along = t * l2.sqrt();
@@ -107,7 +111,7 @@ fn street_mask(w: &World) -> Vec<u8> {
                     };
                     // Where streets overlap, asphalt beats a centre line beats a sidewalk.
                     let rank = |c: u8| [0, 1, 3, 2][c as usize];
-                    let c = &mut m[j * MASK + i];
+                    let c = &mut m[j * mx + i];
                     if rank(code) > rank(*c) {
                         *c = code;
                     }
@@ -133,17 +137,18 @@ fn painted(w: &World, street: u8, x: f64, y: f64) -> [f64; 3] {
     }
 }
 
-/// Ground colour painted from OpenStreetMap and the terrain (RGBA, `MASK` per side, row 0 south): what the
-/// ground shows without the aerial photo, and the classic renderer's San Francisco ground.
-pub fn painted_ground(w: &World) -> Vec<u8> {
+/// Ground colour painted from OpenStreetMap and the terrain (RGBA over the world's rectangle, row 0 south),
+/// with its width and height: what the ground shows without the aerial photo, and the classic renderer's
+/// San Francisco ground.
+pub fn painted_ground(w: &World) -> (Vec<u8>, usize, usize) {
     let streets = street_mask(w);
-    let px = 2.0 * MAP_HALF / MASK as f64;
-    let mut alb = vec![0u8; MASK * MASK * 4];
-    for j in 0..MASK {
-        let y = -MAP_HALF + (j as f64 + 0.5) * px;
-        for i in 0..MASK {
-            let x = -MAP_HALF + (i as f64 + 0.5) * px;
-            let k = j * MASK + i;
+    let (mx, my) = mask_dims(w);
+    let mut alb = vec![0u8; mx * my * 4];
+    for j in 0..my {
+        let y = w.y0 + (j as f64 + 0.5) * MPX;
+        for i in 0..mx {
+            let x = w.x0 + (i as f64 + 0.5) * MPX;
+            let k = j * mx + i;
             let c = painted(w, streets[k], x, y);
             for (o, v) in c.iter().enumerate() {
                 alb[k * 4 + o] = (v.clamp(0.0, 1.0) * 255.0) as u8;
@@ -151,28 +156,29 @@ pub fn painted_ground(w: &World) -> Vec<u8> {
             alb[k * 4 + 3] = 255;
         }
     }
-    alb
+    (alb, mx, my)
 }
 
 /// Ground albedo (sRGB, occlusion in A) and detail mask (asphalt, grass, rock; concrete is the rest), each
-/// with its side in texels. With `sf_naip.jpg` (USDA NAIP, public domain) the albedo is the aerial photo;
-/// without it, streets are painted from OpenStreetMap. Water gets no detail weights.
-pub fn ground(w: &World) -> (Vec<u8>, usize, Vec<u8>, usize) {
+/// as (texels, width, height) over the world's rectangle. With `sf_naip.jpg` (USDA NAIP, public domain) the
+/// albedo is the aerial photo; without it, streets are painted from OpenStreetMap. Water gets no detail
+/// weights.
+pub fn ground(w: &World) -> ((Vec<u8>, usize, usize), (Vec<u8>, usize, usize)) {
     let streets = street_mask(w);
-    let photo = load_square(&format!("{DATA}sf_naip.jpg"));
-    let px = 2.0 * MAP_HALF / MASK as f64;
-    let mut mask = vec![0u8; MASK * MASK * 4];
-    for j in 0..MASK {
-        let y = -MAP_HALF + (j as f64 + 0.5) * px;
-        for i in 0..MASK {
-            let x = -MAP_HALF + (i as f64 + 0.5) * px;
-            let k = j * MASK + i;
+    let photo = load_image(&format!("{DATA}sf_naip.jpg"));
+    let (mx, my) = mask_dims(w);
+    let mut mask = vec![0u8; mx * my * 4];
+    for j in 0..my {
+        let y = w.y0 + (j as f64 + 0.5) * MPX;
+        for i in 0..mx {
+            let x = w.x0 + (i as f64 + 0.5) * MPX;
+            let k = j * mx + i;
             mask[k * 4 + 3] = 255;
             if w.terrain(x, y) <= SF_WATER + 0.05 {
                 continue;
             }
             let grass = match &photo {
-                Some((p, n)) => green(&p[((j * n / MASK) * n + i * n / MASK) * 4..]),
+                Some((p, pw, ph)) => green(&p[((j * ph / my) * pw + i * pw / mx) * 4..]),
                 None => 0.0,
             };
             let asphalt = if streets[k] >= 2 { 1.0 } else { 0.0 };
@@ -180,13 +186,14 @@ pub fn ground(w: &World) -> (Vec<u8>, usize, Vec<u8>, usize) {
             mask[k * 4 + 1] = ((1.0 - asphalt) * grass * 255.0) as u8;
         }
     }
-    match photo {
-        Some((mut p, n)) => {
+    let alb = match photo {
+        Some((mut p, pw, ph)) => {
             photo_to_albedo(&mut p);
-            (p, n, mask, MASK)
+            (p, pw, ph)
         }
-        None => (painted_ground(w), MASK, mask, MASK),
-    }
+        None => painted_ground(w),
+    };
+    (alb, (mask, mx, my))
 }
 
 // ---------------------------------------------------------------- backdrop
@@ -211,24 +218,11 @@ fn backdrop_dem() -> Option<Vec<f32>> {
     Some(raw.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap()).max(SF_WATER as f32)).collect())
 }
 
-/// Backdrop height at (x, y), bilinear; the water level off the grid or without the file.
-fn dem_at(dem: &Option<Vec<f32>>, x: f64, y: f64) -> f64 {
-    let Some(d) = dem else { return SF_WATER };
-    let fx = ((x + BACK_HALF) / BACK_SP).clamp(0.0, (BACK_N - 1) as f64 - 1e-9);
-    let fy = ((y + BACK_HALF) / BACK_SP).clamp(0.0, (BACK_N - 1) as f64 - 1e-9);
-    let (i, j) = (fx as usize, fy as usize);
-    let (tx, ty) = (fx - i as f64, fy - j as f64);
-    let h = |a: usize, b: usize| d[b * BACK_N + a] as f64;
-    let a = h(i, j) + (h(i + 1, j) - h(i, j)) * tx;
-    let b = h(i, j + 1) + (h(i + 1, j + 1) - h(i, j + 1)) * tx;
-    a + (b - a) * ty
-}
-
 /// The backdrop from `data/sf/fetch_backdrop.py`'s files, or `None` if either is missing. NAIP has no data
 /// over open ocean; those (black) pixels become water.
 pub fn backdrop(w: &World) -> Option<Backdrop> {
     let dem = backdrop_dem()?;
-    let (mut alb, n) = load_square(&format!("{DATA}backdrop.jpg"))?;
+    let (mut alb, n, _) = load_image(&format!("{DATA}backdrop.jpg"))?;
     for c in alb.chunks_exact_mut(4) {
         if c[0] < 10 && c[1] < 10 && c[2] < 10 {
             c[..3].copy_from_slice(&[52, 92, 108]);
@@ -246,7 +240,7 @@ pub fn backdrop(w: &World) -> Option<Backdrop> {
     }
     photo_to_albedo(&mut alb);
     let h = |i: usize, j: usize| dem[j.min(BACK_N - 1) * BACK_N + i.min(BACK_N - 1)];
-    let inner = MAP_HALF - BACK_SP;
+    let inner = |x0: f64, y0: f64| x0 >= w.x0 + BACK_SP - 1.0 && x0 + BACK_SP <= w.x1 - BACK_SP + 1.0 && y0 >= w.y0 + BACK_SP - 1.0 && y0 + BACK_SP <= w.y1 - BACK_SP + 1.0;
     let mut v = Vec::with_capacity(BACK_N * BACK_N);
     for j in 0..BACK_N {
         for i in 0..BACK_N {
@@ -255,7 +249,8 @@ pub fn backdrop(w: &World) -> Option<Backdrop> {
             let dy = h(i, j + 1) - h(i, j.saturating_sub(1));
             let len = (dx * dx + dy * dy + (2.0 * BACK_SP as f32).powi(2)).sqrt();
             // On and inside the square's edge, follow the map's own terrain (2 m below it).
-            let z = if x.abs() <= MAP_HALF + 1.0 && y.abs() <= MAP_HALF + 1.0 { w.terrain(x, y) as f32 - 2.0 } else { h(i, j) };
+            let near = x >= w.x0 - 1.0 && x <= w.x1 + 1.0 && y >= w.y0 - 1.0 && y <= w.y1 + 1.0;
+            let z = if near { w.terrain(x, y) as f32 - 2.0 } else { h(i, j) };
             v.push(PV {
                 pos: [x as f32, y as f32, z],
                 nrm: [-dx / len, -dy / len, 2.0 * BACK_SP as f32 / len],
@@ -270,7 +265,7 @@ pub fn backdrop(w: &World) -> Option<Backdrop> {
     for j in 0..BACK_N - 1 {
         for i in 0..BACK_N - 1 {
             let (x0, y0) = (-BACK_HALF + i as f64 * BACK_SP, -BACK_HALF + j as f64 * BACK_SP);
-            if x0 >= -inner - 1.0 && x0 + BACK_SP <= inner + 1.0 && y0 >= -inner - 1.0 && y0 + BACK_SP <= inner + 1.0 {
+            if inner(x0, y0) {
                 continue;
             }
             let a = (j * BACK_N + i) as u32;
@@ -675,111 +670,30 @@ fn viaducts(w: &World, m: &mut Mesh) {
 
 // ---------------------------------------------------------------- Golden Gate Bridge
 
-/// South tower centre (map metres), the unit vector to the north tower, main and side spans (m).
-const GG_S: [f64; 2] = [-6432.1, 2515.1];
-const GG_U: [f64; 2] = [-0.09788, 0.99520];
-const GG_MAIN: f64 = 1280.1;
-const GG_SIDE: f64 = 343.0;
-/// Deck extent along the axis from the south tower: the San Francisco approach to the north abutment.
-const GG_DECK: (f64, f64) = (-676.0, 1660.0);
-/// One tower's parts from OpenStreetMap (both towers' parts agree to 5 cm): centre and half-size across the
-/// bridge, centre and half-size along it, bottom and top above the water (m).
-const GG_TOWER: [[f64; 6]; 18] = [
-    [-13.75, 4.81, -0.01, 7.82, 13.0, 21.0],
-    [13.72, 4.81, -0.03, 7.82, 13.0, 21.0],
-    [-13.74, 3.77, 0.01, 6.91, 21.0, 74.0],
-    [13.73, 3.77, -0.01, 6.91, 21.0, 74.0],
-    [-0.01, 9.98, -0.01, 1.88, 24.0, 26.0],
-    [-0.01, 9.98, -0.01, 1.88, 50.0, 52.0],
-    [-13.74, 3.77, 0.01, 5.84, 74.0, 123.0],
-    [13.73, 3.77, -0.01, 5.84, 74.0, 123.0],
-    [-0.01, 9.98, -0.01, 1.88, 111.0, 121.0],
-    [-13.74, 3.77, 0.02, 4.89, 123.0, 162.0],
-    [13.73, 3.77, 0.01, 4.89, 123.0, 162.0],
-    [-0.01, 9.98, -0.01, 1.88, 151.0, 161.0],
-    [-13.72, 2.69, 0.02, 4.89, 162.0, 195.0],
-    [13.74, 2.69, 0.01, 4.89, 162.0, 195.0],
-    [0.01, 11.04, -0.01, 1.87, 185.0, 193.0],
-    [-13.73, 1.62, 0.02, 3.74, 195.0, 225.0],
-    [13.74, 1.62, 0.00, 3.74, 195.0, 225.0],
-    [-0.01, 12.13, -0.01, 1.86, 215.0, 223.0],
-];
-/// Cable planes across the axis (m), cable top at the towers and suspender spacing (50 ft).
-const GG_CABLE: f64 = 13.73;
-const GG_SUSP: f64 = 15.24;
-
-/// Point `s` along the axis from the south tower and `a` across it (left positive).
-fn gg_at(s: f64, a: f64) -> [f64; 2] {
-    [GG_S[0] + GG_U[0] * s - GG_U[1] * a, GG_S[1] + GG_U[1] * s + GG_U[0] * a]
-}
-
-/// Roadway height at `s`: cambered from 70 m at the towers to 75 m mid-span (67 m clearance below the
-/// stiffening truss), 66 m at the anchorages, easing down the approaches.
-fn gg_deck(s: f64) -> f64 {
-    let w = SF_WATER;
-    if (0.0..=GG_MAIN).contains(&s) {
-        let t = (s - 0.5 * GG_MAIN) / (0.5 * GG_MAIN);
-        w + 70.0 + 5.0 * (1.0 - t * t)
-    } else if s < 0.0 {
-        if s >= -GG_SIDE {
-            w + 70.0 + 4.0 * s / GG_SIDE
-        } else {
-            w + 66.0 - 4.0 * (-GG_SIDE - s) / (-GG_SIDE - GG_DECK.0)
-        }
-    } else {
-        let t = s - GG_MAIN;
-        if t <= GG_SIDE {
-            w + 70.0 - 4.0 * t / GG_SIDE
-        } else {
-            w + 66.0 - 4.0 * (t - GG_SIDE) / (GG_DECK.1 - GG_MAIN - GG_SIDE)
+/// The Golden Gate Bridge as drawn, from `cityflight::golden_gate` (the collision world's obstacles come from
+/// the same description and contain all of this): towers and piers, the deck and stiffening truss, main
+/// cables and suspenders, the anchorage pylons, the Fort Point arch and the San Francisco approach, in
+/// International Orange.
+fn golden_gate(m: &mut Mesh, w: &World) {
+    use cityflight::golden_gate as gg;
+    let water = SF_WATER;
+    let u = gg::U;
+    for s0 in [0.0, gg::MAIN] {
+        let (pa, pc, top) = gg::PIER;
+        m.obox(gg::at(s0, 0.0), u, pa, pc, water - 2.0, water + top, CONCRETE, 0.0);
+        for p in gg::TOWER {
+            m.obox(gg::at(s0 + p[2], p[0]), u, p[3], p[1], water + p[4], water + p[5], ORANGE, 0.0);
         }
     }
-}
-
-/// Main-cable height at `s`: a parabola from the tower tops to just above the deck mid-span, and the side
-/// spans sagging down to the anchorages at deck level.
-fn gg_cable(s: f64) -> f64 {
-    let top = SF_WATER + 225.0;
-    if (0.0..=GG_MAIN).contains(&s) {
-        let t = (s - 0.5 * GG_MAIN) / (0.5 * GG_MAIN);
-        let low = gg_deck(0.5 * GG_MAIN) + 1.5;
-        low + (top - low) * t * t
-    } else {
-        let t = if s < 0.0 { (s + GG_SIDE) / GG_SIDE } else { (GG_MAIN + GG_SIDE - s) / GG_SIDE };
-        let anchor = gg_deck(if s < 0.0 { -GG_SIDE } else { GG_MAIN + GG_SIDE }) + 2.0;
-        anchor + (top - anchor) * t - 12.0 * 4.0 * t * (1.0 - t)
-    }
-}
-
-/// The Golden Gate Bridge, visual only (it stands 3.4 km outside the flyable square): towers from
-/// OpenStreetMap, piers, the deck and stiffening truss, main cables and suspenders, the anchorage pylons,
-/// the Fort Point arch and the San Francisco approach, in International Orange.
-fn golden_gate(m: &mut Mesh, dem: &Option<Vec<f32>>) {
-    let ground = |s: f64, a: f64| {
-        let p = gg_at(s, a);
-        dem_at(dem, p[0], p[1])
-    };
-    let w = SF_WATER;
-    let u = GG_U;
-    for s0 in [0.0, GG_MAIN] {
-        // Concrete pier up to the legs' pedestals, then the tower.
-        m.obox(gg_at(s0, 0.0), u, 16.0, 24.0, w - 2.0, w + 13.0, CONCRETE, 0.0);
-        for p in GG_TOWER {
-            m.obox(gg_at(s0 + p[2], p[0]), u, p[3], p[1], w + p[4], w + p[5], ORANGE, 0.0);
-        }
-    }
-    // Deck: stiffening truss on the suspended spans, a shallower girder on the approaches.
-    let step = 10.0;
-    let mut s = GG_DECK.0;
-    while s < GG_DECK.1 - 1e-6 {
-        let s1 = (s + step).min(GG_DECK.1);
-        let suspended = s >= -GG_SIDE && s1 <= GG_MAIN + GG_SIDE;
-        let (hw, depth) = if suspended { (GG_CABLE + 0.5, 7.6) } else { (12.0, 4.0) };
-        let (t0, t1) = (gg_deck(s), gg_deck(s1));
-        let (l0, l1, r0, r1) = (gg_at(s, hw), gg_at(s1, hw), gg_at(s, -hw), gg_at(s1, -hw));
+    let mut s = gg::DECK.0;
+    while s < gg::DECK.1 - 1e-6 {
+        let s1 = (s + 10.0).min(gg::DECK.1);
+        let (hw, depth) = if gg::suspended(s) && gg::suspended(s1) { gg::deck_section(s) } else { gg::deck_section(gg::DECK.0) };
+        let (t0, t1) = (gg::deck(s), gg::deck(s1));
+        let (l0, l1, r0, r1) = (gg::at(s, hw), gg::at(s1, hw), gg::at(s, -hw), gg::at(s1, -hw));
         let z = |a: f64, b: f64, c: f64, d: f64| [a as f32, b as f32, c as f32, d as f32];
-        m.wall(r0, r1, z(t0 - depth, t1 - depth, t0 + 1.2, t1 + 1.2), ORANGE, clutter(0.0));
-        m.wall(l1, l0, z(t1 - depth, t0 - depth, t1 + 1.2, t0 + 1.2), ORANGE, clutter(0.0));
+        m.wall(r0, r1, z(t0 - depth, t1 - depth, t0 + gg::RAIL, t1 + gg::RAIL), ORANGE, clutter(0.0));
+        m.wall(l1, l0, z(t1 - depth, t0 - depth, t1 + gg::RAIL, t0 + gg::RAIL), ORANGE, clutter(0.0));
         let ring = |a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2], za: f64, zb: f64| {
             [[a[0] as f32, a[1] as f32, za as f32], [b[0] as f32, b[1] as f32, zb as f32], [c[0] as f32, c[1] as f32, zb as f32], [d[0] as f32, d[1] as f32, za as f32]]
         };
@@ -787,45 +701,46 @@ fn golden_gate(m: &mut Mesh, dem: &Option<Vec<f32>>) {
         m.quad([0.0, 0.0, -1.0], ring(l0, l1, r1, r0, t0 - depth, t1 - depth), ORANGE, [0.0; 2], clutter(0.0), [0.0; 4]);
         s = s1;
     }
-    // Main cables and suspenders, from anchorage to anchorage.
+    let st = gg::cable_stations();
     for side in [-1.0, 1.0] {
-        let a = side * GG_CABLE;
-        let mut s = -GG_SIDE;
-        while s < GG_MAIN + GG_SIDE - 1e-6 {
-            let s1 = (s + GG_SUSP).min(GG_MAIN + GG_SIDE);
-            let (p, q) = (gg_at(s, a), gg_at(s1, a));
-            m.tube([p[0], p[1], gg_cable(s)], [q[0], q[1], gg_cable(s1)], 0.6, ORANGE, 0.0);
-            let near_tower = s1.abs() < 8.0 || (s1 - GG_MAIN).abs() < 8.0;
-            if s1 < GG_MAIN + GG_SIDE - 1.0 && !near_tower && gg_cable(s1) - gg_deck(s1) > 3.0 {
-                m.tube([q[0], q[1], gg_deck(s1)], [q[0], q[1], gg_cable(s1)], 0.15, ORANGE, 0.0);
+        let a = side * gg::CABLE;
+        for win in st.windows(2) {
+            let (s0, s1) = (win[0], win[1]);
+            let (p, q) = (gg::at(s0, a), gg::at(s1, a));
+            m.tube([p[0], p[1], gg::cable(s0)], [q[0], q[1], gg::cable(s1)], gg::CABLE_R, ORANGE, 0.0);
+            let near_tower = s1.abs() < 8.0 || (s1 - gg::MAIN).abs() < 8.0;
+            if s1 < gg::MAIN + gg::SIDE - 1.0 && !near_tower && gg::cable(s1) - gg::deck(s1) > 3.0 {
+                m.tube([q[0], q[1], gg::deck(s1)], [q[0], q[1], gg::cable(s1)], gg::SUSP_R, ORANGE, 0.0);
             }
-            s = s1;
         }
     }
-    // Anchorage pylons at the ends of the side spans, the Fort Point arch south of them, and the approach
-    // piers.
-    for (sc, ha, hc) in [(-GG_SIDE + 4.0, 20.0, 25.0), (GG_MAIN + GG_SIDE, 22.0, 26.0), (-459.0, 6.0, 16.0)] {
-        let g = ground(sc, 0.0).min(gg_deck(sc) - 10.0);
-        m.obox(gg_at(sc, 0.0), u, ha, hc, g - 2.0, gg_deck(sc) + 10.0, CONCRETE, 0.0);
+    let ground = |s: f64, a: f64| {
+        let p = gg::at(s, a);
+        w.terrain(p[0], p[1])
+    };
+    for (sc, ha, hc) in gg::PYLONS {
+        let g = ground(sc, 0.0).min(gg::deck(sc) - 10.0);
+        m.obox(gg::at(sc, 0.0), u, ha, hc, g - 2.0, gg::deck(sc) + 10.0, CONCRETE, 0.0);
     }
-    for a in [-10.0, 10.0] {
-        let (sa, sb) = (-459.0 + 6.0, -GG_SIDE + 4.0 - 20.0);
+    let (sa, sb, ar) = gg::ARCH;
+    for a in [-ar, ar] {
         let n = 16;
+        let rib = |t: f64| {
+            let s = sa + (sb - sa) * t;
+            let g = ground(s, a);
+            let p = gg::at(s, a);
+            [p[0], p[1], g + (gg::deck(s) - 4.0 - g) * (std::f64::consts::PI * t).sin()]
+        };
         for k in 0..n {
-            let rib = |t: f64| {
-                let s = sa + (sb - sa) * t;
-                let g = ground(s, a);
-                let p = gg_at(s, a);
-                [p[0], p[1], g + (gg_deck(s) - 4.0 - g) * (std::f64::consts::PI * t).sin()]
-            };
-            m.tube(rib(k as f64 / n as f64), rib((k + 1) as f64 / n as f64), 1.4, ORANGE, 0.0);
+            m.tube(rib(k as f64 / n as f64), rib((k + 1) as f64 / n as f64), gg::ARCH_R, ORANGE, 0.0);
         }
     }
-    let mut s = GG_DECK.0 + 20.0;
-    while s < -459.0 - 10.0 {
-        let g = ground(s, 0.0).min(gg_deck(s) - 4.0);
-        m.obox(gg_at(s, 0.0), u, 2.0, 9.0, g - 2.0, gg_deck(s) - 4.0, CONCRETE, 0.0);
-        s += 45.0;
+    let ((first, step, last), (pa, pc)) = (gg::APPROACH_PIERS, gg::APPROACH_PIER);
+    let mut s = first;
+    while s < last {
+        let g = ground(s, 0.0).min(gg::deck(s) - 4.0);
+        m.obox(gg::at(s, 0.0), u, pa, pc, g - 2.0, gg::deck(s) - 4.0, CONCRETE, 0.0);
+        s += step;
     }
 }
 
@@ -839,11 +754,11 @@ pub fn building_mesh(w: &World) -> (Vec<PV>, Vec<u32>) {
         match b.kind {
             Kind::Building => m.building(w, b, look),
             Kind::BridgeTower => m.prism(&w.outline(b), b.z0, b.z1, STEEL, 0.5),
-            Kind::Bridge | Kind::Viaduct => {}
+            Kind::Bridge | Kind::Viaduct | Kind::GoldenGate => {}
         }
     }
     bay_bridge(w, &mut m);
     viaducts(w, &mut m);
-    golden_gate(&mut m, &backdrop_dem());
+    golden_gate(&mut m, w);
     (m.v, m.i)
 }
