@@ -161,3 +161,36 @@ def _hold(self, h_ref):
 
 
 TsMap.hold = _hold
+
+
+GATE = dict(hLevel=float("nan"), kHold=0.005, vRefE=float("nan"), kv=0.02, kg=2.5, kpsi=1.0, kphi=2.5, kp=0.8,
+            kiPhi=1.0, kiA=2.0, gcLo=0.05, gcHi=0.35, terminalOnly=True)
+
+
+def _cand(self, **kw):
+    """Candidate law (TsMap.lean `Cand`) for following M, S, R commands; keys as in GATE, missing keys from GATE."""
+    p = dict(GATE); p.update(kw)
+    self._send(" ".join(["P"] + [b(p[k]) for k in ("hLevel", "kHold", "vRefE", "kv", "kg", "kpsi", "kphi", "kp",
+                                                     "kiPhi", "kiA", "gcLo", "gcHi")]
+                            + ["1" if p["terminalOnly"] else "0"]))
+
+
+def _gate(self):
+    self._send("G")
+
+
+TsMap.cand = _cand
+TsMap.gate = _gate
+
+
+def _reftraj(self, x, y, z, v, gam, psi, phi, n_load, thr, n, k):
+    self._send(" ".join(["V"] + [b(a) for a in (x, y, z, v, gam, psi, phi, n_load, thr)] + [str(n), str(k)]))
+    out = []
+    while True:
+        ln = self.p.stdout.readline().strip()
+        if ln == "END":
+            return out
+        out.append(ln)
+
+
+TsMap.reftraj = _reftraj

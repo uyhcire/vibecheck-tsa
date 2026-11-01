@@ -16,7 +16,10 @@ Numbers cross the pipe as the decimal `UInt64` bit patterns of `Float`s, so noth
 Commands, one per stdin line (`b` = a bit pattern):
 * `W wn we wd` (bits): a constant wind (NED, ft/s, JSBSim's `wind` state) for the following `M`, `S`, `D`.
 * `D psi north h y1..y32`: the internals of one frame (`diag`).
-* `H b`: the candidate level-off at altitude `b` (m) for following `M` and `S` (`H` of NaN: the gate's law).
+* `H b`: the gate's law with a level-off at altitude `b` (m) for following `M`, `S`, `R` (`H` of NaN: the gate's law).
+* `P hLevel kHold vRefE kv kg kpsi kphi kp kiPhi kiA gcLo gcHi T` (bits; `T` 1 or 0 for `terminalOnly`): a candidate law (`Cand`) for following `M`, `S`, `R`; `G`: the
+  gate's law again.
+* `V x y z v gam psi phi n thr N K`: a reference trajectory (surfaces and position bits every K frames, FNV-1a hash).
 * `K`: the row keys of the tables the climb reads (`tableKeys`).
 * `Z 1` / `Z 0`: the smoothed loop (`unitQ` before every frame) for the following `M` and `S` commands, or the
   plain one (the default).
@@ -136,18 +139,40 @@ def unitQ (st : State Float) : State Float :=
   let q : Quat Float := ⟨q.q0 / n, q.q1 / n, q.q2 / n, q.q3 / n⟩
   { st with q, qdot := q.qdot st.pqri }
 
-/-! ### A candidate level-off (not in the gate)
+/-! ### Candidate escape laws (not in the gate)
 
-The straight escape with the commanded flight-path gradient capped by an altitude hold:
-`gc = min(gc_climb, clamp(K_HOLD · (hRef − h), −GC_HI, GC_HI))`. Below `hRef − gc_climb / K_HOLD` it is the gate's law
-exactly; at `hRef` it commands level flight. Everything else is copied from `CityGate.Esc.Law` unchanged. Used only
-to evaluate the level-flight trim the proof would need above `zTop` (`docs/termsound-proof.tex`). -/
+`CityGate.Esc.Law` with a parameter record `Cand` (the gate's law is `Cand.gate`): the climb's speed term in
+equivalent airspeed (`v·√σ`, `σ = rhoOf h / 1.225`, when `vRefE` is set), the speed and flight-path gains, the
+heading and roll gains, and a level-off: `gc = min(gc_climb, clamp(kHold · (hLevel − h), −GC_HI, GC_HI))`. Everything
+else is copied from `CityGate.Esc.Law` unchanged. Used to design the terminal phase (`docs/escape-law-terminal.md`)
+and to evaluate the trims the proof needs (`docs/termsound-proof.tex`). -/
 
-def K_HOLD : Float := 0.005
+structure Cand where
+  hLevel : Float := NAN
+  kHold : Float := 0.005
+  vRefE : Float := NAN
+  kv : Float := KV
+  kg : Float := KG
+  kpsi : Float := KPSI
+  kphi : Float := KPHI
+  kp : Float := KP
+  kiPhi : Float := KI_PHI
+  kiA : Float := KI_A
+  gcLo : Float := GC_LO
+  gcHi : Float := GC_HI
+  /-- Apply the climb parameters (`vRefE`, `kv`, `kg`, `kiA`, `gcLo`, `gcHi`) only once the law is turning (past
+  the pull-up, at the start of the frame); before that, the gate's values. -/
+  terminalOnly : Bool := true
 
-def elevHold (hRef : Float) (l : Law) (o : FloatArray) (v g cphi vRef : Float) : Float × Law :=
-  let gc := fmin (clamp (GC_REF + KV * (v - vRef)) GC_LO GC_HI) (clamp (K_HOLD * (hRef - o[2]!)) (-GC_HI) GC_HI)
-  let nLong := g.cos + v * KG * (gc - g) / G0
+def Cand.gate : Cand := {}
+
+def elevHold (c : Cand) (l : Law) (o : FloatArray) (v g cphi vRef : Float) : Float × Law :=
+  let c := if c.terminalOnly && !l.turning then
+      { c with vRefE := NAN, kv := KV, kg := KG, kiA := KI_A, gcLo := GC_LO, gcHi := GC_HI } else c
+  let vs := if c.vRefE.isNaN then v - vRef else v * Float.sqrt (rhoOf o[2]! / 1.225) - c.vRefE
+  let gcClimb := clamp (GC_REF + c.kv * vs) c.gcLo c.gcHi
+  let gc := if c.hLevel.isNaN then gcClimb else fmin gcClimb (clamp (c.kHold * (c.hLevel - o[2]!)) (-GC_HI) GC_HI)
+  let nLong := g.cos + v * c.kg * (gc - g) / G0
   let ncmd := if cphi < 0.35 then NMIN else clamp (nLong / cphi) NMIN NMAX
   let rv2 := rhoOf o[2]! * v * v
   let acmd := fmin (A0 + KA0 * ncmd / rv2) AMAX
@@ -157,10 +182,10 @@ def elevHold (hRef : Float) (l : Law) (o : FloatArray) (v g cphi vRef : Float) :
   let ea := acmd - o[13]!
   let eRaw := E0 + E1 * acmd + KQF * qcmd * 40.0 / v + sc * (KA * ea - KQ * (o[11]! - qcmd)) + l.ia
   let e := clamp eRaw (-1.0) 1.0
-  let ia := if e == eRaw || ea * l.ia < 0.0 then clamp (l.ia + KI_A * ea * DT_JSB) (-0.4) 0.4 else l.ia
+  let ia := if e == eRaw || ea * l.ia < 0.0 then clamp (l.ia + c.kiA * ea * DT_JSB) (-0.4) 0.4 else l.ia
   (e, { l with ia })
 
-def controlsHold (hRef : Float) (l : Law) (o : FloatArray) : Surf × Law :=
+def controlsHold (c : Cand) (l : Law) (o : FloatArray) : Surf × Law :=
   let gh := (obN o * obN o + obE o * obE o).sqrt
   let v := fmax o[6]! 10.0
   let g := Float.atan2 (-(obD o)) gh
@@ -169,7 +194,7 @@ def controlsHold (hRef : Float) (l : Law) (o : FloatArray) : Surf × Law :=
   let cphi := phi.cos
   let dir := ESC_DIR[l.esc]!
   let bank := ESC_BANK[l.esc]!
-  let (e, l) := elevHold hRef l o v g cphi V_REF[l.esc]!
+  let (e, l) := elevHold c l o v g cphi V_REF[l.esc]!
   let track := Float.atan2 (obE o) (obN o)
   let l := if !l.turning && l.t ≥ T_PULL_MIN[l.esc]! && (g ≥ GAM_TURN || l.t ≥ T_PULL_MAX) then
       { l with psiRef := track } else l
@@ -180,17 +205,17 @@ def controlsHold (hRef : Float) (l : Law) (o : FloatArray) : Surf × Law :=
       else clamp (K_STREET * wrap (l.axis - track)) (-BANK_STREET) BANK_STREET
     else if !l.turning then
       if KEEP_BANK && dir * phi > 0.0 then dir * fmin phi.abs bank else 0.0
-    else if dir == 0.0 then clamp (KPSI * wrap (l.psiRef - track)) (-0.15) 0.15
+    else if dir == 0.0 then clamp (c.kpsi * wrap (l.psiRef - track)) (-0.15) 0.15
     else dir * bank
   let ephi := phiT - phi
-  let (kphi, kp) := if l.esc == STREET then (ROLL_STREET_PHI, ROLL_STREET_P) else (KPHI, KP)
+  let (kphi, kp) := if l.esc == STREET then (ROLL_STREET_PHI, ROLL_STREET_P) else (c.kphi, c.kp)
   let ailRaw := kphi * ephi - kp * o[10]! + l.iphi
   let ail := clamp ailRaw (-1.0) 1.0
   let iphi :=
     if l.esc == STREET then
       if ail == ailRaw && ephi.abs < 0.1 then clamp (l.iphi + ROLL_STREET_I * ephi * DT_JSB) (-0.45) 0.45
       else l.iphi
-    else if ail == ailRaw || ephi * l.iphi < 0.0 then clamp (l.iphi + KI_PHI * ephi * DT_JSB) (-0.3) 0.3
+    else if ail == ailRaw || ephi * l.iphi < 0.0 then clamp (l.iphi + c.kiPhi * ephi * DT_JSB) (-0.3) 0.3
     else l.iphi
   let rTurn := G0 / v * sphi
   let beta := o[14]!
@@ -199,18 +224,18 @@ def controlsHold (hRef : Float) (l : Law) (o : FloatArray) : Surf × Law :=
   let ib := if rud == rudRaw || beta * l.ib > 0.0 then clamp (l.ib - KI_B * beta * DT_JSB) (-0.5) 0.5 else l.ib
   (⟨-e, ail, rud, 1.0⟩, { l with iphi, ib })
 
-/-- `Law.step` with the level-off (straight escape: no capture or street turn). -/
-def stepHold (hRef : Float) (l : Law) (p : Plane) : Surf × Law :=
-  let (u, l) := controlsHold hRef l p.ob
+/-- `Law.step` with the candidate parameters (straight escape: no capture or street turn). -/
+def stepHold (c : Cand) (l : Law) (p : Plane) : Surf × Law :=
+  let (u, l) := controlsHold c l p.ob
   (u, { l with t := l.t + DT_JSB })
 
 /-- One frame of the closed loop (`Law.step`, then `Plane.step`); with `smooth`, the quaternion is first scaled to
 unit length (`unitQ`). The law reads only `ob`, which does not depend on the quaternion's norm. -/
-def frame (st : State Float) (l : Law) (ob : FloatArray) (smooth : Bool := false) (hold : Float := NAN) :
+def frame (st : State Float) (l : Law) (ob : FloatArray) (smooth : Bool := false) (cand : Option Cand := none) :
     State Float × Law × FloatArray :=
   let st := if smooth then unitQ st else st
   let p : Plane := { st, ob, ox := 0, oy := 0 }
-  let (u, l') := if hold.isNaN then l.step p else stepHold hold l p
+  let (u, l') := match cand with | none => l.step p | some c => stepHold c l p
   let p' := p.step u
   (p'.st, l', p'.ob)
 
@@ -271,6 +296,18 @@ def tableKeys : List (String × Array Float) :=
    ("CtMach", col0 Gen.tab_CtMach), ("CpMach", col0 Gen.tab_CpMach), ("mixEff", col0 Gen.tab_mixEff),
    ("stdTemp", col0 Gen.tab_stdTemp)]
 
+/-- FNV-1a (64-bit) of a `Float`'s bit pattern, little-endian bytes, folded into `h`. -/
+def fnv (h : UInt64) (f : Float) : UInt64 := Id.run do
+  let mut h := h
+  let b := f.toBits
+  for i in [0:8] do
+    h := (h ^^^ ((b >>> (8 * i).toUInt64) &&& 0xff)) * 0x100000001b3
+  return h
+
+def hex16 (u : UInt64) : String :=
+  let s := String.ofList (Nat.toDigits 16 u.toNat)
+  "".pushn '0' (16 - s.length) ++ s
+
 def bits (f : Float) : String := toString f.toBits.toNat
 def ofBits (s : String) : Float := Float.ofBits (s.toNat!.toUInt64)
 def line (xs : Array Float) : String := " ".intercalate (xs.toList.map bits)
@@ -291,7 +328,7 @@ def main : IO Unit := do
   let stdout ← IO.getStdout
   let mut smooth := false
   let mut wind : V3 Float := V3.zero
-  let mut hold : Float := NAN
+  let mut cand : Option Cand := none
   repeat
     let ln ← stdin.getLine
     if ln.isEmpty then break
@@ -305,7 +342,34 @@ def main : IO Unit := do
         stdout.putStrLn (n ++ " " ++ " ".intercalate (ks.toList.map toString))
       stdout.putStrLn "END"
     else if cmd == "H" then
-      hold := ofBits w[1]!
+      let h := ofBits w[1]!
+      cand := if h.isNaN then none else some { hLevel := h }
+    else if cmd == "P" then
+      let a := (w.extract 1 13).map ofBits
+      cand := some { hLevel := a[0]!, kHold := a[1]!, vRefE := a[2]!, kv := a[3]!, kg := a[4]!, kpsi := a[5]!,
+                     kphi := a[6]!, kp := a[7]!, kiPhi := a[8]!, kiA := a[9]!, gcLo := a[10]!, gcHi := a[11]!,
+                     terminalOnly := w[13]! == "1" }
+    else if cmd == "G" then
+      cand := none
+    else if cmd == "V" then
+      -- reference trajectory: `V x y z v gam psi phi n thr N K`: the straight escape (current law) from
+      -- `startPlane`, N frames; every K-th frame `k elev ail rud thr x y z` as 16-digit hex bit patterns; then the
+      -- FNV-1a hash of all N frames' (elev, ail, rud, thr, x, y, z).
+      let a := (w.extract 1 10).map ofBits
+      let n := w[10]!.toNat!; let k := w[11]!.toNat!
+      let mut p := startPlane a[0]! a[1]! a[2]! a[3]! a[4]! a[5]! a[6]! a[7]! a[8]!
+      let mut l := Law.new 0
+      let mut hsh : UInt64 := 0xcbf29ce484222325
+      for i in [0:n] do
+        let (u, l') := match cand with | none => l.step p | some c => stepHold c l p
+        p := p.step u
+        l := l'
+        let (x, yy, z) := p.pos
+        for f in [u.elev, u.ail, u.rud, u.thr, x, yy, z] do hsh := fnv hsh f
+        if (i + 1) % k == 0 then
+          stdout.putStrLn (s!"{i + 1} " ++ " ".intercalate ([u.elev, u.ail, u.rud, u.thr, x, yy, z].map (hex16 ·.toBits)))
+      stdout.putStrLn s!"HASH {hex16 hsh}"
+      stdout.putStrLn "END"
     else if cmd == "W" then
       wind := ⟨ofBits w[1]!, ofBits w[2]!, ofBits w[3]!⟩
     else if cmd == "D" then
@@ -321,7 +385,7 @@ def main : IO Unit := do
       let (st, l, _) := place base psi north h y
       let st := { st with wind }
       let ob := obsOf st
-      let (st', l', ob') := frame st l ob smooth hold
+      let (st', l', ob') := frame st l ob smooth cand
       let (h', y') := chart psi st' l' ob'
       stdout.putStrLn (line (#[h'] ++ y' ++ #[ob'[1]!, ob'[0]!]))
     else if cmd == "S" then
@@ -334,7 +398,7 @@ def main : IO Unit := do
         if i % k == 0 then
           let (h', y') := chart psi st l ob
           stdout.putStrLn (toString i ++ " " ++ line (#[ob[1]!, ob[0]!, h'] ++ y'))
-        let r := frame st l ob smooth hold
+        let r := frame st l ob smooth cand
         st := r.1; l := r.2.1; ob := r.2.2
       stdout.putStrLn "END"
     else if cmd == "R" || cmd == "O" then
@@ -355,7 +419,7 @@ def main : IO Unit := do
           for j in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 20, 21] do
             let d := (o[j]!.toBits.toNat : Int) - (p.ob[j]!.toBits.toNat : Int)
             worst := max worst d.natAbs
-        let (u, l') := l.step p
+        let (u, l') := match cand with | none => l.step p | some c => stepHold c l p
         p := p.step u
         l := l'
       if cmd == "O" then stdout.putStrLn s!"obs max bit difference {worst}"
