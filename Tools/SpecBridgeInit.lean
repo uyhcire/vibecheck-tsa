@@ -2,7 +2,7 @@ import CityGate.SpecBridge
 
 /-! Numeric check of `InitChecked cityGate GInit`, the bridge's start assumption: from each of the spec's 4 starts,
 after the first frame, the gate's initial escape checks out. Also flies `specFilter` from each start under a few
-pilot commands and reports the margins of `SweepNear` and `OutputsInRange` along the way.
+pilot commands and reports the margins of `AirframeNear` and of the controls' ranges along the way.
 `lake build specbridgeinit && .lake/build/bin/specbridgeinit [frames]`. -/
 
 open CityGate CityGate.SpecBridge
@@ -39,8 +39,8 @@ def main (args : List String) : IO Unit := do
         inRange := inRange && a.clamp.elev.toBits == a.elev.toBits && a.clamp.ail.toBits == a.ail.toBits &&
           a.clamp.rud.toBits == a.rud.toBits && a.clamp.thr.toBits == a.thr.toBits
         let p' := specFilter.frame p u
-        match exactPos (specPlane p'), CitySafety.airframe p.1, CitySafety.airframe p'.1 with
-        | some e, some ps, some ps' => worst := max worst (maxDev e (ps ++ ps'))
-        | _, _, _ => defined := false
+        match exactPos (refPlane p'), CitySafety.airframe p'.1 with
+        | some e, some ps => worst := max worst (maxDev e ps)
+        | _, _ => defined := false
         p := p'
-      IO.println s!"{nm} {pn}: {frames} frames, sweep within {ratD worst} m of end position (all defined: {defined}), controls in range: {inRange}"
+      IO.println s!"{nm} {pn}: {frames} frames, airframe within {ratD worst} m of the reported position (all defined: {defined}), controls in range: {inRange}"

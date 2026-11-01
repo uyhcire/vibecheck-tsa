@@ -3,7 +3,7 @@ import GateSafety.ProofsR
 import Spec.CitySafetyChecks
 
 /-! # The city gate against the reviewed spec: `cityGate_spec_safe` proves `CitySafety.Safe cityMap specFilter`
-from four named assumptions (`TermSound`, `InitChecked`, `OutputsInRange`, `SweepNear`). -/
+from three named assumptions (`TermSoundR`, `InitChecked`, `AirframeNear`). -/
 
 namespace CityGate.SpecBridge
 open GateSafety
@@ -76,13 +76,15 @@ def specFilter : CitySafety.Filter := ⟨Mem', fun _ => none, specAct⟩
 /-- The gate's starts: the aircraft after the first frame from one of the spec's starts. -/
 def GInit (pl : Plane) : Prop := ∃ s, CitySafety.Init s ∧ pl = firstPlane s
 
-/-- The last observation held in the filter's memory (empty before the first frame). -/
-def obOf : Mem' → FloatArray
-  | none => FloatArray.empty
-  | some (ob, _) => ob
+/-- The gate state a closed-loop state of `specFilter` stands for: before the first frame, the gate's start after
+it; afterwards, the gate's current state. -/
+def gateState : JsbExact.State Float × Mem' → Plane × (Mem × Ctl)
+  | (s, none) => (firstPlane s, (cityGate.m₀, cityGate.start (firstPlane s)))
+  | (s, some (ob, mc)) => (planeOf s ob, mc)
 
-/-- The aircraft the gate sees in a closed-loop state of `specFilter`. -/
-def specPlane (p : JsbExact.State Float × Mem') : Plane := planeOf p.1 (obOf p.2)
+/-- The aircraft whose reported position (`exactPos`) the gate's checks bound in a closed-loop state of
+`specFilter`: its own before the first frame's end, else the gate's start after it (0.39 m along). -/
+def refPlane (p : JsbExact.State Float × Mem') : Plane := (gateState p).1
 
 /-! ## The crash cube, any size -/
 
@@ -128,8 +130,7 @@ theorem clear_soundH {h : Rat} (hh : h ≤ 17 / 2) (e : Float) (p : Plane) : cle
 
 /-! ## The assumptions -/
 
-/-- **Assumption:** every control the gate applies is finite and in range, so the spec's clamp changes nothing.
-True for the pilot's valid controls by IEEE 754; for the escape law (which clamps) it means it never outputs NaN. -/
+/-- Every control the gate applies is finite and in range, so the spec's clamp changes nothing (`outputsInRange`). -/
 def OutputsInRange : Prop :=
   ∀ p u, CitySafety.Reach specFilter p → u.Valid →
     (specFilter.act p.2 p.1 u).1.clamp = (specFilter.act p.2 p.1 u).1
@@ -178,12 +179,12 @@ theorem outputsInRange : OutputsInRange := by
 def Near (h : Rat) (c : Rat × Rat × Rat) (q : CitySafety.Pt) : Prop :=
   c.1 - h ≤ q.x ∧ q.x ≤ c.1 + h ∧ c.2.1 - h ≤ q.y ∧ q.y ≤ c.2.1 + h ∧ c.2.2 - h ≤ q.z ∧ q.z ≤ c.2.2 + h
 
-/-- **Assumption:** each frame's airframe points (both ends) lie within `h` m per axis of the end position `c`.
-Follows from points within `r` of the CG plus at most `d` m of travel per frame with `r + d ≤ h`; check numerically. -/
-def SweepNear (h : Rat) : Prop :=
-  ∀ p u, CitySafety.Reach specFilter p → u.Valid → ∀ c, exactPos (specPlane (specFilter.frame p u)) = some c →
-    ∃ ps ps', CitySafety.airframe p.1 = some ps ∧ CitySafety.airframe (specFilter.frame p u).1 = some ps' ∧
-      ∀ q ∈ ps ++ ps', Near h c q
+/-- **Assumption:** in every reachable state, the spec's airframe points are defined and lie within `h` m per axis
+of the gate's reported position `c` (`refPlane`; `exactPos` of the plant's observation). The c172p's points lie at
+most about 5.9 m from its CG; before the first frame `c` is one frame (0.39 m) ahead. Checked by `specbridgeinit`. -/
+def AirframeNear (h : Rat) : Prop :=
+  ∀ p, CitySafety.Reach specFilter p → ∀ c, exactPos (refPlane p) = some c →
+    ∃ ps, CitySafety.airframe p.1 = some ps ∧ ∀ q ∈ ps, Near h c q
 
 /-! ## Correspondence: every spec state is a gate state -/
 
@@ -193,13 +194,6 @@ def Corr (p : JsbExact.State Float × Mem') : Prop :=
   match p.2 with
   | none => CitySafety.Init p.1
   | some (ob, mc) => GateSafety.Reach cityGate GInit (planeOf p.1 ob, mc)
-
-theorem frame_some (p : JsbExact.State Float × Mem') (u : CitySafety.Surfaces) :
-    ∃ ob mc, (specFilter.frame p u).2 = some (ob, mc) := by
-  obtain ⟨s, m⟩ := p
-  cases m with
-  | none => exact ⟨_, _, rfl⟩
-  | some v => obtain ⟨ob, m, c⟩ := v; exact ⟨_, _, rfl⟩
 
 theorem plane_step_st (s : JsbExact.State Float) (ob : FloatArray) (a : Surf) :
     ((planeOf s ob).step a).st = (JsbExact.step s (ofSurf a).toInput).1 := rfl
@@ -253,6 +247,14 @@ theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach specFilter 
       rw [h1, planeOf_eta s ob hg1]
       exact hg
 
+theorem reach_gate (p : JsbExact.State Float × Mem') (hp : CitySafety.Reach specFilter p) :
+    GateSafety.Reach cityGate GInit (gateState p) := by
+  have hc := reach_corr outputsInRange p hp
+  obtain ⟨s, m⟩ := p
+  cases m with
+  | none => exact GateSafety.Reach.init ⟨s, hc, rfl⟩
+  | some v => obtain ⟨ob, mc⟩ := v; exact hc
+
 /-! ## Geometry -/
 
 /-- The cube is convex: a hull of points in it stays in it. -/
@@ -284,51 +286,34 @@ theorem crashH_of_near {h : Rat} {pl : Plane} {c : Rat × Rat × Rat} (hc : exac
 
 /-- The spec's safety from the gate's own: no reachable gate state is a crash of the `h` m cube. -/
 theorem spec_safe_of_gate_safe {h : Rat} (gsafe : GateSafety.Safe cityGate (CrashH h) GInit)
-    (hOut : OutputsInRange) (hNear : SweepNear h) : CitySafety.Safe cityMap specFilter := by
-  intro p u hp hu hsw
-  have hp' : CitySafety.Reach specFilter (specFilter.frame p u) := .step u hu hp
-  obtain ⟨ob, mc, hsome⟩ := frame_some p u
-  have hcorr := reach_corr hOut _ hp'
-  simp only [Corr, hsome] at hcorr
-  have hnc := gsafe _ hcorr
-  have hpl : specPlane (specFilter.frame p u) = planeOf (specFilter.frame p u).1 ob := by
-    simp only [specPlane, hsome, obOf]
-  cases hc : exactPos (specPlane (specFilter.frame p u)) with
-  | none => exact hnc (by rw [← hpl]; simp only [CrashH, hc])
+    (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter := by
+  intro p hp hcr
+  have hnc := gsafe _ (reach_gate p hp)
+  change ¬ CrashH h (refPlane p) at hnc
+  cases hc : exactPos (refPlane p) with
+  | none => exact hnc (by simp only [CrashH, hc])
   | some c =>
-    obtain ⟨ps, ps', h1, h2, hall⟩ := hNear p u hp hu c hc
-    simp only [CitySafety.SweptCrash, h1, h2] at hsw
-    obtain ⟨q, hq, hs⟩ := hsw
-    exact hnc (hpl ▸ crashH_of_near hc (near_hull hall hq) (solid_of_spec q hs))
+    obtain ⟨ps, h1, hall⟩ := hNear p hp c hc
+    simp only [CitySafety.Crash, h1] at hcr
+    obtain ⟨q, hq, hs⟩ := hcr
+    exact hnc (crashH_of_near hc (near_hull hall hq) (solid_of_spec q hs))
 
 theorem clearSoundH {h : Rat} (hh : h ≤ 17 / 2) : ClearSound cityGate (CrashH h) :=
   fun x hx => (cityGate_clear x hx).elim fun e he => clear_soundH hh e x.2 he
 
-/-- **The city gate is safe against the spec**, given four assumptions:
-`hT`: the end-of-escape test means safe forever for the `h` m cube; believed to hold now that leaving the map is not
-an end and the straight ending needs a settled climb, but unproved; as stated, it is false because of fuel
-exhaustion (`JsbExact` burns fuel, so no flight is safe forever), and the spec's horizon is being revised. `hInit`: the 4 starts pass the initial check
-(Float through libm; `specbridgeinit` reports true). `hOut`, `hNear`: see `OutputsInRange`, `SweepNear`. -/
+/-- **The city gate is safe against the spec**, given three assumptions: `hT`, the end-of-escape test means safe
+forever for the `h` m cube (unproved; and false as stated while `JsbExact` burns fuel); `hInit`, the 4 starts pass
+the gate's initial check (`specbridgeinit` reports true); `hNear`, see `AirframeNear`. -/
 theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGate (CrashH h))
-    (hInit : InitChecked cityGate GInit) (hOut : OutputsInRange) (hNear : SweepNear h) :
-    CitySafety.Safe cityMap specFilter :=
-  spec_safe_of_gate_safe (GateSafety.safe cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hOut hNear
+    (hInit : InitChecked cityGate GInit) (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter :=
+  spec_safe_of_gate_safe (GateSafety.safe cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hNear
 
-/-- **`cityGate_spec_safe` with the end-of-escape assumption on the gate's own rollouts only** (`TermSoundR`: rollouts
-of its start controller or of a candidate it proposes at a reachable state), which `TermSound` implies. -/
+/-- **`cityGate_spec_safe` with the end-of-escape assumption on the gate's own rollouts only** (`TermSoundR`: the
+rollouts of its start controller, or of a candidate it proposes at a reachable state, which `TermSound` implies).
+`TermSoundR` is believed to hold now that leaving the map is not an end and the straight ending needs a settled
+climb, but it is unproved, and false as stated while `JsbExact` burns fuel (the spec's horizon is being revised). -/
 theorem cityGate_spec_safe_R {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR cityGate (CrashH h) GInit)
-    (hInit : InitChecked cityGate GInit) (hOut : OutputsInRange) (hNear : SweepNear h) :
-    CitySafety.Safe cityMap specFilter :=
-  spec_safe_of_gate_safe (GateSafety.safeR cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hOut hNear
-
-end CityGate.SpecBridge
-
-namespace CityGate.SpecBridge
-open GateSafety
-
-/-- **`cityGate_spec_safe_R` without `OutputsInRange`**, which is now a theorem (`outputsInRange`). -/
-theorem cityGate_spec_safe_R' {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR cityGate (CrashH h) GInit)
-    (hInit : InitChecked cityGate GInit) (hNear : SweepNear h) : CitySafety.Safe cityMap specFilter :=
-  cityGate_spec_safe_R hh hT hInit outputsInRange hNear
+    (hInit : InitChecked cityGate GInit) (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter :=
+  spec_safe_of_gate_safe (GateSafety.safeR cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hNear
 
 end CityGate.SpecBridge

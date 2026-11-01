@@ -6,7 +6,6 @@ import CityGate.SafetyR
 #print axioms CityGate.SpecBridge.cityGate_spec_safe
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_R
 #print axioms CityGate.city_safe_R
-#print axioms CityGate.SpecBridge.cityGate_spec_safe_R'
 #print axioms CityGate.SpecBridge.outputsInRange
 #print axioms CityGate.SpecBridge.reach_corr
 #print axioms CityGate.SpecBridge.clear_soundH
