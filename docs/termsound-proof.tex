@@ -351,11 +351,11 @@ Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy
 \item[G3] \textbf{S2 constants} $\gamma, \kappa, v_{\min}, v_{\max}$ depend on $r$; without S1 they are not computed. At the trim: climb 4.6--4.9\,m/s, along-track speed about 34\,m/s, cross-track speed 0 relative to the steady track.
 \item[G4] \textbf{S3 above the release altitude.} A level-off (Section~\ref{sec:leveloff}) would reduce this to one trim, contracting at $0.93$ per second; it is not in the gate's law, and its certificate and the climb-to-level handover are not done. Without it: The climb continues to the $g_c$-clamp regime (about 2{,}500\,m, rung 1) and a ceiling near 3{,}150\,m (falsifier, \#30). Needs either a certified set near the ceiling equilibrium or a terminal level-off in the law; neither is done.
 \item[G5] \textbf{Conservatism} against today's accepted states needs S1; only the settling proxy (Section~\ref{sec:conserv}) is reported.
-\item[G10] \textbf{The redesigned terminal phase} (Section~\ref{sec:newlaw}) is specified but not yet in either gate; S1 is to be re-certified on it once it lands.
 \item[G6] \textbf{The 30$^\circ$ and 40$^\circ$ circles} wait for the speed-first law change (\#36 step 0); not attempted.
 \item[G7] \textbf{Tube handover} to a circling end set: condition stated (Section~\ref{sec:dyn}), not proved.
 \item[G8] \textbf{The finite $\Geo$ checker} on the exported map is not written; $T^\star$ is computed exactly.
 \item[G9] \textbf{Modelling assumptions}: exact reals for \texttt{JsbExact}'s \texttt{Float} program, and \texttt{JsbExact} $=$ JSBSim.
+\item[G10] \textbf{The redesigned terminal phase} (Section~\ref{sec:newlaw}) is specified but not yet in either gate; S1 is to be re-certified on it once it lands.
 \end{enumerate}
 
 \section{Lessons}
