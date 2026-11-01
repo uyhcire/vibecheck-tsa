@@ -44,35 +44,34 @@ structure Box where
   rho : I
   eI : I
 
-/-- Elevator (raw, before the scoreboard's clamp) of `stepP p1`, as an interval; `none` when a guard of the law
-cannot be decided on the box (a division by a possibly non-positive quantity). -/
-def elev (b : Box) : Option I :=
-  let u := add (mul b.vx b.dx) (mul b.vz b.dz)
-  let w := sub (mul b.vx b.dz) (mul b.vz b.dx)
-  if !(0 < u.1 && 0 < b.vx.1) then none else
-  let ta := divI (mul w (const 65536)) u
-  let v := isqrt (add (sq b.vx) (sq b.vz))
-  let tg := divI (mul b.vz (const 65536)) b.vx
-  let raw := sub (add (add (const p1.aRef) (divC (mul (const p1.kV) (maxC (sub v (const p1.vC)) (-vBand))) 65536))
-      (divC (mul (const p1.kG) (sub (const p1.gC) tg)) 65536))
-    (divC (mul (const p1.kGL) (maxC (sub tg (const p1.gMax)) 0)) 65536)
-  -- load factor of the stored accelerations, for the aN cap
-  let ln := sub (mul (add b.au (const Ci.gRaw)) b.dx) (mul b.ah b.dz)
-  let n := divC ln Ci.gRaw
-  -- the load-factor cap: aN = a0 + (ta − a0)·nL/n
-  if !(19661 < n.1 && p1.a0 < ta.1) then none else
-  -- nL is nLimUp when vz > 0, else nLim; aN is non-decreasing in nL (ta > a0, n > 0)
-  let nL : I := if 0 < b.vz.1 then const p1.nLimUp else if b.vz.2 ≤ 0 then const p1.nLim else (p1.nLimUp, p1.nLim)
-  let aN := add (const p1.a0) (divI (mul (sub ta (const p1.a0)) nL) n)
-  let ac := clampIv p1.aMin (min p1.aMax aN.1, min p1.aMax aN.2) raw
-  let err := sub ac ta
-  let rho := b.rho
-  let v2 := divC (add (sq b.vx) (sq b.vz)) 65536
-  let ne := divC (mul (divC (mul (divC (mul rho v2) 65536) (add ta (const 3789))) 65536) (const 317)) 65536
-  if !(65536 ≤ v.1) then none else
-  let qRef := divI (mul (const Ci.gRaw) (sub ne (const 65536))) v
-  let e := sub (add (add b.eI (divC (mul (const p1.kF) ac) 65536)) (divC (mul (const p1.kA) err) 65536))
-    (divC (mul (const p1.kQ) (sub b.q qRef)) 65536)
-  some (clamp (-65536) 65536 e)
+def uI (b : Box) : I := add (mul b.vx b.dx) (mul b.vz b.dz)
+def wI (b : Box) : I := sub (mul b.vx b.dz) (mul b.vz b.dx)
+def taI (b : Box) : I := divI (mul (wI b) (const 65536)) (uI b)
+def v2sI (b : Box) : I := add (sq b.vx) (sq b.vz)
+def vI (b : Box) : I := isqrt (v2sI b)
+def tgI (b : Box) : I := divI (mul b.vz (const 65536)) b.vx
+def rawI (b : Box) : I :=
+  sub (add (add (const p1.aRef) (divC (mul (const p1.kV) (maxC (sub (vI b) (const p1.vC)) (-vBand))) 65536))
+      (divC (mul (const p1.kG) (sub (const p1.gC) (tgI b))) 65536))
+    (divC (mul (const p1.kGL) (maxC (sub (tgI b) (const p1.gMax)) 0)) 65536)
+/-- Load factor of the stored accelerations (raw g), for the law's load-factor cap. -/
+def nI (b : Box) : I := divC (sub (mul (add b.au (const Ci.gRaw)) b.dx) (mul b.ah b.dz)) Ci.gRaw
+/-- nL is nLimUp when vz > 0, else nLim. -/
+def nLI (b : Box) : I := if 0 < b.vz.1 then const p1.nLimUp else if b.vz.2 ≤ 0 then const p1.nLim else (p1.nLimUp, p1.nLim)
+def aNI (b : Box) : I := add (const p1.a0) (divI (mul (sub (taI b) (const p1.a0)) (nLI b)) (nI b))
+def acI (b : Box) : I := clampIv p1.aMin (min p1.aMax (aNI b).1, min p1.aMax (aNI b).2) (rawI b)
+def neI (b : Box) : I :=
+  divC (mul (divC (mul (divC (mul b.rho (divC (v2sI b) 65536)) 65536) (add (taI b) (const 3789))) 65536) (const 317)) 65536
+def qRefI (b : Box) : I := divI (mul (const Ci.gRaw) (sub (neI b) (const 65536))) (vI b)
+def eRawI (b : Box) : I :=
+  sub (add (add b.eI (divC (mul (const p1.kF) (acI b)) 65536)) (divC (mul (const p1.kA) (sub (acI b) (taI b))) 65536))
+    (divC (mul (const p1.kQ) (sub b.q (qRefI b))) 65536)
+
+/-- Guards under which the interval evaluation is valid: positive denominators, an active load-factor branch. -/
+def guards (b : Box) : Bool :=
+  0 < (uI b).1 && 0 < b.vx.1 && 19661 < (nI b).1 && p1.a0 < (taI b).1 && 65536 ≤ (vI b).1
+
+/-- Elevator (raw, before the scoreboard's clamp) of `stepP p1`, as an interval; `none` when a guard fails. -/
+def elev (b : Box) : Option I := if guards b then some (clamp (-65536) 65536 (eRawI b)) else none
 
 end Ci.Proof.LawIv
