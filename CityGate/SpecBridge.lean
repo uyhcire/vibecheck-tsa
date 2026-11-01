@@ -1,4 +1,5 @@
 import CityGate.Safety
+import GateSafety.ProofsR
 import Spec.CitySafetyChecks
 
 /-! # The city gate against the reviewed spec: `cityGate_spec_safe` proves `CitySafety.Safe cityMap specFilter`
@@ -241,16 +242,10 @@ theorem crashH_of_near {h : Rat} {pl : Plane} {c : Rat × Rat × Rat} (hc : exac
 
 /-! ## The theorem -/
 
-/-- **The city gate is safe against the spec**, given four assumptions:
-`hT`: the end-of-escape test means safe forever for the `h` m cube; believed to hold now that leaving the map is not
-an end and the straight ending needs a settled climb, but unproved. `hInit`: the 4 starts pass the initial check
-(Float through libm; `specbridgeinit` reports true). `hOut`, `hNear`: see `OutputsInRange`, `SweepNear`. -/
-theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGate (CrashH h))
-    (hInit : InitChecked cityGate GInit) (hOut : OutputsInRange) (hNear : SweepNear h) :
-    CitySafety.Safe cityMap specFilter := by
+/-- The spec's safety from the gate's own: no reachable gate state is a crash of the `h` m cube. -/
+theorem spec_safe_of_gate_safe {h : Rat} (gsafe : GateSafety.Safe cityGate (CrashH h) GInit)
+    (hOut : OutputsInRange) (hNear : SweepNear h) : CitySafety.Safe cityMap specFilter := by
   intro p u hp hu hsw
-  have gsafe := GateSafety.safe cityGate (CrashH h) GInit
-    (fun x hx => (cityGate_clear x hx).elim fun e he => clear_soundH hh e x.2 he) hT hInit
   have hp' : CitySafety.Reach specFilter (specFilter.frame p u) := .step u hu hp
   obtain ⟨ob, mc, hsome⟩ := frame_some p u
   have hcorr := reach_corr hOut _ hp'
@@ -265,5 +260,25 @@ theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGat
     simp only [CitySafety.SweptCrash, h1, h2] at hsw
     obtain ⟨q, hq, hs⟩ := hsw
     exact hnc (hpl ▸ crashH_of_near hc (near_hull hall hq) (solid_of_spec q hs))
+
+theorem clearSoundH {h : Rat} (hh : h ≤ 17 / 2) : ClearSound cityGate (CrashH h) :=
+  fun x hx => (cityGate_clear x hx).elim fun e he => clear_soundH hh e x.2 he
+
+/-- **The city gate is safe against the spec**, given four assumptions:
+`hT`: the end-of-escape test means safe forever for the `h` m cube; believed to hold now that leaving the map is not
+an end and the straight ending needs a settled climb, but unproved; as stated, it is false because of fuel
+exhaustion (`JsbExact` burns fuel, so no flight is safe forever), and the spec's horizon is being revised. `hInit`: the 4 starts pass the initial check
+(Float through libm; `specbridgeinit` reports true). `hOut`, `hNear`: see `OutputsInRange`, `SweepNear`. -/
+theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGate (CrashH h))
+    (hInit : InitChecked cityGate GInit) (hOut : OutputsInRange) (hNear : SweepNear h) :
+    CitySafety.Safe cityMap specFilter :=
+  spec_safe_of_gate_safe (GateSafety.safe cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hOut hNear
+
+/-- **`cityGate_spec_safe` with the end-of-escape assumption on the gate's own rollouts only** (`TermSoundR`: rollouts
+of its start controller or of a candidate it proposes at a reachable state), which `TermSound` implies. -/
+theorem cityGate_spec_safe_R {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR cityGate (CrashH h) GInit)
+    (hInit : InitChecked cityGate GInit) (hOut : OutputsInRange) (hNear : SweepNear h) :
+    CitySafety.Safe cityMap specFilter :=
+  spec_safe_of_gate_safe (GateSafety.safeR cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hOut hNear
 
 end CityGate.SpecBridge
