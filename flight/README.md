@@ -26,6 +26,14 @@ non-zero if any acceptance check fails.
 Demo flags (handy for screenshots): `--scenario 1..5`, `--off`, `--kamikaze`, `--showcase`,
 `--paths`, `--cam 0..4`, `--shot out.png --frames N`.
 
+Recording: `--record DIR` writes rendered frames as `DIR/frame_NNNNN.png` and exits after `--frames N`
+(default 1800). Like `--shot`, it steps a fixed 1/60 s of simulated time per rendered frame and runs animations
+off that clock, so the frames do not depend on how fast the machine renders (two runs give identical frames apart from the HUD's filter-time readout, which is measured wall-clock time). `--record-every K` keeps every
+K-th frame (2 gives 30 fps footage), `--record-from F` skips the first F frames, `--record-scale K` shrinks
+each frame K times (2 turns a Retina capture into its 1x size). `DIR/frames.csv` logs the flight at each kept
+frame (time, simulated time, airframe clearance and its running minimum, filter mode, crash), and
+`DIR/args.txt` the command line; the run ends by printing an `ffmpeg` command that encodes the frames.
+
 ## Photoreal renderer (Metal)
 
 On macOS the demo runs on Metal and starts in a photoreal renderer; `--classic`
