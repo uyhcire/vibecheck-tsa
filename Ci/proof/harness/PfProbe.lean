@@ -138,7 +138,7 @@ def main (args : List String) : IO UInt32 := do
         cur := nx
       IO.println (" | ".intercalate outs.toList)
     return 0
-  | ["safecheck", depth] =>
+  | ["safecheck", depth, hw] =>
     let h := (← IO.getStdin)
     repeat
       let line ← h.getLine
@@ -151,9 +151,9 @@ def main (args : List String) : IO UInt32 := do
         .box a[17]! a[36]!, .box a[18]! a[37]!⟩
       let B : CLOf Iv := ⟨S, .box a[38]! a[39]!⟩
       let dims : List (Nat × Int) := (List.range 20).filterMap fun i =>
-        if i == 0 || i == 1 || i == 11 then none else
+        if i == 0 || i == 11 then none else
         let w := width (B.get i)
-        if w ≤ 0 then none else some (i, 1000000000000 / w)
+        if w ≤ 0 then none else some (i, (if i == 1 then hw.toInt! else 1) * 1000000000000 / w)
       let (okv, n) := countRec dims depth.toNat! B
       IO.println s!"{okv} {n}"
     return 0

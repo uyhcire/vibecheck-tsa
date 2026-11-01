@@ -15,7 +15,7 @@ def lin_bounds(h, pad):
     for b, i in enumerate(gidx):
         if i == 20: continue
         Ay = G[b] * Sg[b]; Al = k[b] * Sg[b]; Ap = np.zeros(NF); Ap[b] = Sg[b]; rows[i] = (Ay, Al, Ap)
-    def half(Ay, Al, Ap): return R * np.sqrt(Ay @ Pi @ Ay) * pad + abs(Al) * tk + np.abs(Ap) @ tp
+    def half(Ay, Al, Ap): return rat(h) * np.sqrt(Ay @ Pi @ Ay) * pad + abs(Al) * tk + np.abs(Ap) @ tp
     out = {i: (c[i], half(*rows[i])) for i in rows}
     out[19] = (c[19], half(*rows[19]))
     for name, (i, j) in {"d1": (3, 17), "d2": (17, 18)}.items():

@@ -49,7 +49,8 @@ for a in np.arange(10, 2660, 50):
     cellsBox.append([int(v) for v in list(lo) + list(hi)] + [d[4], d[5]])
 for n, b in enumerate(cellsBox): out.append(f"def b{n} : Array Int := {arr(b)}")
 out.append("/-- Bounding box of the set in each 50 m altitude cell from 10 m: 19 lows, 19 highs (x unused), then the\nintegrator memory eI's low and high. Redundant with the conditions above by construction (padded); it lets the\none-tick safety proof work on boxes. -/\ndef boxTab : Array (Array Int) := #[" + ", ".join(f"b{n}" for n in range(len(cellsBox))) + "]\n")
-out.append(f"/-- Radius² of the slow ellipsoid, scaled by 2^{K}. -/\ndef r2 : Int := {int(round(R*R*2**K))}\n")
+import kinv
+out.append(f"/-- Radius² of the slow ellipsoid at the form's nodes, scaled by 2^{K}: {kinv.R} up to 2200 m, {kinv.RTOP} from 2400 m. -/\ndef r2Tab : Array Int := " + arr([int(round(v * 2**K)) for v in kinv.r2N]) + "\n")
 out.append("end Ci.Proof.TData\n")
 open("../TData.lean", "w").write("\n".join(out))
 print("fields", [NAMES[i] if i < 21 else i for i in fields], "tk", tk[:3], "tp", tp[3])

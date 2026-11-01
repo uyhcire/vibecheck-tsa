@@ -6,7 +6,7 @@ import Jsb.Conformance
 manifold state (table at 10 m spacing, linear interpolation). With `d` the deviation of the 7 slow coordinates
 (vx, vz, dz, q, rpm, tmap, integrator eI) from `c(h)`, the set requires
 
-* `dᵀ P(h) d ≤ r²`, where `P(h)` interpolates per-altitude Lyapunov matrices of the linearised one-tick map;
+* `dᵀ P(h) d ≤ r(h)²` (r = 4.5 up to 2200 m, 3.6 from 2400 m), where `P(h)` interpolates per-altitude Lyapunov matrices of the linearised one-tick map;
 * the fast coordinates (dx, udot, wdot, ah, au, qd, ah1, au1, pvz, pvz2) slaved to the slow ones: their residual
   `e` from `c(h) + G(h) d` has a component along a kink direction `k(h)` bounded by `τk(h)` (this covers the
   breakpoints of the piecewise-linear lift and drag tables, which the linear slaving cannot follow), and the rest of
@@ -69,7 +69,7 @@ def restOk (p : State × Mem) : Bool := Id.run do
   let fP := h - j * spanP
   let q0 := quad pTab[j]! d
   let q1 := quad pTab[j + 1]! d
-  if lerp q0 q1 fP spanP > r2 then return false
+  if lerp q0 q1 fP spanP > lerp r2Tab[j]! r2Tab[j + 1]! fP spanP then return false
   -- fast coordinates slaved to the slow ones: residual e = (fast − c(h) − G(h) d); its component along the
   -- kink direction k(h) (from the breakpoints of the lift and drag tables) is bounded loosely, the rest tightly
   let nf := fields.size - nSlow
