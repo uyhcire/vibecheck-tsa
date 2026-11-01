@@ -1,6 +1,7 @@
 import CityGate.Map
 import CityGate.Plant
 import VcFilter.Exact
+import CityGate.Landing
 
 /-! What a crash is (trusted surface), the clearance test the gate runs on every frame of every rollout, and its
 soundness (`clear_sound`). -/
@@ -10,8 +11,9 @@ open VcFilter (ratOfFloat)
 
 /-! ### What a crash is (trusted surface) -/
 
-/-- Terrain height (m) at grid node `(i, j)`: `x = gridX0 + i · gridStep`, `y = gridY0 + j · gridStep`. -/
-def node (i j : Nat) : Rat := terrain.getD (j * gridN + i) 0
+/-- Terrain height (m) at grid node `(i, j)`: `x = gridX0 + i · gridStep`, `y = gridY0 + j · gridStep`, raised to the
+world floor `Landing.rwyZ` (the runway surface and JSBSim's ground plane). -/
+def node (i j : Nat) : Rat := max Landing.rwyZ (terrain.getD (j * gridN + i) 0)
 
 /-- Grid coordinate of `x` (m) along an axis starting at `x0`, clamped to the grid `[0, gridN - 1]`. -/
 def gridCoord (x0 : Int) (x : Rat) : Rat := max 0 (min ((gridN - 1 : Nat) : Rat) ((x - x0) / (gridStep : Rat)))
@@ -100,10 +102,10 @@ def boxesClear (xl xh yl yh zl zh : Int) : Bool :=
       (cellBoxes.getD (j * 100 + i) []).all fun b =>
         !(meets xl xh b.xmin b.xmax && meets yl yh b.ymin b.ymax && meets zl zh b.zmin b.zmax)
 
-/-- Terrain heights rounded up to units. -/
-def terrainI : Array Int := terrain.map fun q => (q * S).ceil
+/-- Terrain heights raised to the floor and rounded up to units. -/
+def terrainI : Array Int := terrain.map fun q => (max Landing.rwyZ q * S).ceil
 
-def nodeI (i j : Nat) : Int := terrainI.getD (j * gridN + i) 0
+def nodeI (i j : Nat) : Int := terrainI.getD (j * gridN + i) ((max Landing.rwyZ 0 * S).ceil)
 
 /-- Highest node (units) of grid square `(i, j)`. -/
 def squareTop (i j : Nat) : Int := max (max (nodeI i j) (nodeI (i + 1) j)) (max (nodeI i (j + 1)) (nodeI (i + 1) (j + 1)))
@@ -258,7 +260,7 @@ theorem nodeI_eq (i j : Nat) : nodeI i j = (node i j * S).ceil := by
   unfold nodeI node terrainI
   by_cases h : j * gridN + i < terrain.size
   · simp [Array.getD, h]
-  · simp [Array.getD, h]; rfl
+  · simp [Array.getD, h]
 
 /-- A node lies below the top of any square whose top bounds it in units. -/
 theorem node_le_top {a b i j : Nat} (h : nodeI a b ≤ squareTop i j) : node a b ≤ (squareTop i j : Rat) / S := by

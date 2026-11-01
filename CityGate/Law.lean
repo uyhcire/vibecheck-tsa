@@ -167,7 +167,7 @@ def Law.controls (l : Law) (o : FloatArray) : Surf × Law :=
   let rudRaw := -KB * beta + KR * (o[12]! - rTurn) + l.ib
   let rud := clamp rudRaw (-1.0) 1.0
   let ib := if rud == rudRaw || beta * l.ib > 0.0 then clamp (l.ib - KI_B * beta * DT_JSB) (-0.5) 0.5 else l.ib
-  (⟨-e, ail, rud, 1.0⟩, { l with iphi, ib })
+  (⟨-e, ail, rud, 1.0, 0.0⟩, { l with iphi, ib })
 
 /-- One frame of the escape (`Law::step`): capture, street turn, surfaces; the clock advances. -/
 def Law.step (l : Law) (p : Plane) : Surf × Law :=

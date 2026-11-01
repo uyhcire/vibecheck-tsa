@@ -9,7 +9,7 @@ open CityGate Esc
 def hex (f : Float) : String := String.ofList (Nat.toDigits 16 f.toBits.toNat)
 
 def main : IO Unit := do
-  let mut p := startPlane (-120.0) (-300.0) 100.0 45.0 0.0 FRAC_PI_2 0.0 (Float.cos 0.0) 0.7
+  let mut p := startPlane (-120.0) (-300.0) 100.0 45.0 0.0 FRAC_PI_2 0.0 (Float.cos 0.0) 0.7 100.0
   let mut law := Law.new STREET
   let t0 ← IO.monoNanosNow
   let mut lines : Array String := #[]
