@@ -205,6 +205,7 @@ require, not budget starvation.
 | G | Phase 3 robust margins on/off (works with any filter) |
 | B | escape paths (green valid, red invalid, yellow = committed plan) |
 | M | model mismatch: wind + gusts, weaker and slower aircraft |
+| 7 | wingtip strobes on/off (off by default; `--strobes` to start with them on) |
 | C | camera: chase, cockpit, orbit, overhead, fly-by |
 | 1–5 | scenarios: tower run, dive, ridge, slow and low, tower gap |
 | Y | tower gap with the scripted showcase pilot |
