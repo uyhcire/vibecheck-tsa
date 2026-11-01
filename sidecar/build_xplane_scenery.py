@@ -230,7 +230,8 @@ def write_terrain_obj(path, terr, x0, y0, sp, n, tex="rock.png", tile=60.0):
     for k in range(0, len(idx), 10):
         chunk = idx[k:k + 10]
         out.append(("IDX10 " if len(chunk) == 10 else "IDX ") + " ".join(map(str, chunk)))
-    out.append(f"ATTR_LOD 0 40000")
+    out.append("ATTR_LOD 0 40000")
+    out.append("ATTR_no_cull")           # ponytail: visible from both sides whatever the winding
     out.append(f"TRIS 0 {len(idx)}")
     open(path, "w").write("\n".join(out) + "\n")
 
