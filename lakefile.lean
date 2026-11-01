@@ -132,9 +132,10 @@ target libcityjsb pkg : FilePath := do
   let jx ← jxmath.o.fetch
   let gate ← (← CityGate.get).static.fetch
   let gsafe ← (← GateSafety.get).static.fetch
+  let vcf ← (← VcFilter.get).static.fetch
   let city ← (← CityJsb.get).static.fetch
   let exact ← (← JsbExact.get).static.fetch
-  (Job.collectArray #[abi, jx, gate, gsafe, city, exact]).mapM fun files => do
+  (Job.collectArray #[abi, jx, gate, gsafe, vcf, city, exact]).mapM fun files => do
     buildFileUnlessUpToDate' lib do
       IO.FS.createDirAll (pkg.buildDir / "lib")
       proc {cmd := "cc", args := #["-shared", "-o", lib.toString, "-Wl,-force_load," ++ files[0]!.toString]
