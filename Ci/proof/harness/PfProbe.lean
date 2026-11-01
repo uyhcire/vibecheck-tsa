@@ -1,11 +1,11 @@
-import Ci.proof.Law
+import Ci.proof.T
 import Ci.Bench
 open Vibecheck Jsb Ci Ci.Lawfirst
 
 /-! Numerics for the T proof: batch one-tick evaluation of the lawfirst law. Reads lines of 21 ints
 (19 raw state fields, eI, ac) on stdin and prints the tick image (21 ints, safe, climb). -/
 
-def L : Law := { law1 with step := Ci.Proof.step }
+def L : Law := Ci.Proof.lawT
 
 def toState (a : Array Int) : State :=
   ⟨⟨a[0]!⟩, ⟨a[1]!⟩, ⟨a[2]!⟩, ⟨a[3]!⟩, ⟨a[4]!⟩, ⟨a[5]!⟩, ⟨a[6]!⟩, ⟨a[7]!⟩, ⟨a[8]!⟩, ⟨a[9]!⟩, ⟨a[10]!⟩,
@@ -30,7 +30,7 @@ partial def loop (h : IO.FS.Stream) (o : IO.FS.Stream) (k : Nat) : IO Unit := do
   for _ in [0:k] do
     let r := tickT L s m
     s := r.s; m := r.m; ok := ok && r.safe; cl := cl && r.climb
-  o.putStrLn s!"{showA (ofState s)} {m.eI} {m.ac} {ok} {cl}"
+  o.putStrLn s!"{showA (ofState s)} {m.eI} {m.ac} {ok} {cl} {L.inT (toState a, (⟨a[19]!, a[20]!⟩ : Mem))} {L.inT (s, m)}"
   o.flush
   loop h o k
 

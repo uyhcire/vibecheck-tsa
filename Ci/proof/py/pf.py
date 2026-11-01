@@ -24,3 +24,12 @@ def traj(x, n):
     out = subprocess.run([EXE, "traj", str(n)], input=inp, capture_output=True, text=True, check=True).stdout
     rows = [l.split() for l in out.strip().split("\n")]
     return np.array([[int(v) for v in r[1:22]] for r in rows], dtype=np.int64)
+
+def ticks_T(points, k=1):
+    """-> image, safe, climb, inT(before), inT(after)"""
+    inp = "\n".join(" ".join(str(int(v)) for v in p) for p in points) + "\n"
+    out = subprocess.run([EXE, "tick", str(k)], input=inp, capture_output=True, text=True, check=True).stdout
+    rows = [l.split() for l in out.strip().split("\n")]
+    img = np.array([[int(v) for v in r[:21]] for r in rows], dtype=np.int64)
+    b = lambda j: np.array([r[j] == "true" for r in rows])
+    return img, b(21), b(22), b(23), b(24)
