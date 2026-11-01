@@ -4,6 +4,10 @@ The gatekeeper filter (`flight/src/envfilter.rs`, `--env gate`; packaged as `lib
 proved. This page separates what is exact, what is only checked numerically, and what is proved elsewhere in the
 repository, and lists where a proof of the gate would start.
 
+The objective a proof must reach is `Safe F` in [`safety-objective.md`](safety-objective.md): no reachable state
+of the aircraft, an arbitrary pilot and the filter is a crash. Terminal sets, escape laws and the steps below are
+one route to it, not part of the objective.
+
 ## What the gate claims and how it is supported
 
 The claim: from a start where some escape verifies, the aircraft never hits terrain or a building, whatever the
