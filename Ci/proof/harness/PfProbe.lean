@@ -3,6 +3,7 @@ import Ci.proof.LawIv
 import Ci.proof.SafeIv
 import PfAff
 import PfReal
+import PfJac
 import Jsb.Enc
 import Ci.Bench
 open Vibecheck Jsb Ci Ci.Lawfirst
@@ -162,6 +163,17 @@ def main (args : List String) : IO UInt32 := do
     return 0
   | ["aff"] => PfAff.run; return 0
   | ["realgap"] => PfReal.run; return 0
+  | ["jac"] => PfJac.run; return 0
+  | ["elevof"] =>
+    let h := (← IO.getStdin)
+    repeat
+      let line ← h.getLine
+      if line.isEmpty then break
+      let a := ((line.trimAscii.toString.splitOn " ").filter (· ≠ "") |>.map String.toInt!).toArray
+      if a.size < 21 then break
+      let r := Ci.Proof.step ⟨a[19]!, a[20]!⟩ (toState a)
+      IO.println s!"{r.1.elev.raw},{r.2.eI}"
+    return 0
   | ["tick", k] => loop (← IO.getStdin) (← IO.getStdout) k.toNat!; return 0
   | ["bench", i, n] =>
     let lines := (← IO.FS.lines "../../../Ci/data/bench.csv").toList.drop 1

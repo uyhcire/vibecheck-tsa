@@ -39,11 +39,7 @@ def lerp (a b num den : Int) : Int := a + (b - a) * num / den
 def quad (P : Array (Array Int)) (d : Array Int) : Int :=
   ((List.range 7).map fun i => ((List.range 7).map fun j => P[i]![j]! * d[i]! * d[j]!).sum).sum
 
-def gmul (G : Array (Array Int)) (d : Array Int) (k : Nat) : Int := Id.run do
-  let mut acc : Int := 0
-  for j in [0:7] do
-    acc := acc + G[k]![j]! * d[j]!
-  return acc
+def gmul (G : Array (Array Int)) (d : Array Int) (k : Nat) : Int := ((List.range 7).map fun j => G[k]![j]! * d[j]!).sum
 
 /-- Altitude band, stall bit, stored α command. -/
 def bandOk (p : State × Mem) : Bool :=
@@ -76,29 +72,39 @@ def quadOk (p : State × Mem) : Bool :=
 open TData in
 /-- The fast coordinates slaved to the slow ones: residual e = (fast − c(h) − G(h) d); its component along the kink
 direction k(h) (from the breakpoints of the lift and drag tables) is bounded loosely, the rest tightly. -/
-def fastOk (p : State × Mem) : Bool := Id.run do
+def nFast : Nat := TData.fields.size - TData.nSlow
+
+open TData in
+/-- Fast-coordinate residuals `e = fast − c(h) − G(h) d` (raw). -/
+def fastEs (p : State × Mem) : Array Int :=
+  let h := p.1.h.raw
+  let j := nodeJ h
+  let d := dSlow p
+  (List.range nFast).toArray.map fun k =>
+    dev p (nSlow + k) - lerp (gmul gTab[j]! d k) (gmul gTab[j + 1]! d k) (nodeF h) (100 * 65536) / (2 ^ gK : Int)
+
+open TData in
+def dotK (kv es : Array Int) : Int := ((List.range nFast).map fun k => kv[k]! * es[k]!).sum
+
+open TData in
+/-- The kink coordinate of the residual (scaled 2^30). -/
+def fastLam (p : State × Mem) : Int :=
+  let h := p.1.h.raw
+  lerp (dotK kTab[nodeJ h]! (fastEs p)) (dotK kTab[nodeJ h + 1]! (fastEs p)) (nodeF h) (100 * 65536)
+
+open TData in
+def fastOk (p : State × Mem) : Bool :=
   let h := p.1.h.raw
   let j := nodeJ h
   let fP := nodeF h
   let spanP : Int := 100 * 65536
-  let d := dSlow p
-  let nf := fields.size - nSlow
-  let es : Array Int := (List.range nf).toArray.map fun k =>
-    dev p (nSlow + k) - lerp (gmul gTab[j]! d k) (gmul gTab[j + 1]! d k) fP spanP / (2 ^ gK : Int)
-  let dotK := fun (kv : Array Int) => Id.run do
-    let mut acc : Int := 0
-    for k in [0:nf] do
-      acc := acc + kv[k]! * es[k]!
-    return acc
-  let lam := lerp (dotK kTab[j]!) (dotK kTab[j + 1]!) fP spanP
+  let lam := fastLam p
   let tk := lerp tkTab[j]! tkTab[j + 1]! fP spanP
-  let mut ok := -tk ≤ lam && lam ≤ tk
-  for k in [0:nf] do
+  (-tk ≤ lam && lam ≤ tk) && (List.range nFast).all (fun k =>
     let kb := lerp (kbTab[j]!)[k]! (kbTab[j + 1]!)[k]! fP spanP
-    let perp := es[k]! - lam * kb / (2 ^ 50 : Int)
+    let perp := (fastEs p)[k]! - lam * kb / (2 ^ 50 : Int)
     let t := lerp (tpTab[j]!)[k]! (tpTab[j + 1]!)[k]! fP spanP
-    if !(-t ≤ perp && perp ≤ t) then ok := false
-  return ok
+    decide (-t ≤ perp) && decide (perp ≤ t))
 
 /-- The conditions above other than the cell box (the band is checked first, so no table is read out of range). -/
 def restOk (p : State × Mem) : Bool := bandOk p && quadOk p && fastOk p
