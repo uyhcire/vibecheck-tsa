@@ -63,13 +63,13 @@ From the spec's 4 starts, whatever the pilot does each JSBSim frame, no reachabl
    - `CityGate/SpecMap.lean`: the city, the runway, the floor and the datum.
    - `CityGate/Plant.lean`: the plant step, which is `JsbExact` with fuel frozen and brakes.
 3. **Check the one assumption.**
-   - `FunnelSoundR` (`CityGate/SpecBridge.lean`): from any state the end-of-escape test accepts, the autoland's flight never crashes.
+   - `FunnelSoundR` (`CityGate/SpecBridge.lean`): from any state the end-of-escape test accepts on the gate's own rollouts, the autoland's flight does not crash until it has landed (the spec's `Landed`, where the flight ends).
    - The end test is `inFunnel` (`CityGate/Autoland.lean`, the same as `in_funnel` in `flight/src/autoland.rs`).
    - Evidence, not proof: `cargo run --release --no-default-features --features jsb --bin landing` flies the autoland from a grid of 62 funnel states, and all land.
 4. **Check the two `native_decide` lemmas** (`SpecBridgeNative.lean`). `startsChecked_true` says the 4 starts pass the gate's initial check; `startsClear_true` says they are crash-free. Both trust the compiler and libm.
 5. **Check that the proof is about the code that runs.** `frameOut_fst` (`CityGate/Ffi.lean`) proves the exported frame is `cityGate.frame`, and the demo's `exact-rollout-lean` mode flies it.
 6. **The proved pieces worth spot-checking:**
-   - `GateSafety.safeR`: the induction.
+   - `GateSafety.safeU` (`GateSafety/ProofsU.lean`): the induction, for a closed loop that ends at a landing.
    - `clear_spec_sound` (`CityGate/ClearSpec.lean`): the clearance test is sound against the spec's `Crash`. It uses a box from the reported pose, which is why no `AirframeNear` assumption is left.
    - `cityGate_spec_safe_funnel_of` (`CityGate/SpecBridge.lean`): spec reachability maps to gate reachability.
 

@@ -1,6 +1,6 @@
 import CityGate.Safety
 import CityGate.SpecMap
-import GateSafety.ProofsR
+import GateSafety.ProofsU
 import Spec.CitySafetyChecks
 
 /-! # The city gate against the reviewed spec
@@ -98,10 +98,14 @@ def gateState : JsbExact.State Float × Mem' → Plane × (Mem × Ctl)
 /-- The gate's crash: the spec's crash of the aircraft's plant state. It allows a landing (wheels on the runway). -/
 def GCrash (pl : Plane) : Prop := CitySafety.Crash cityMap pl.st
 
+/-- The gate's landed: the spec's `Landed` of the aircraft's plant state. The closed loop ends there, as the spec's
+`Reach` does. -/
+def GLanded (pl : Plane) : Prop := CitySafety.Landed cityMap pl.st
+
 /-- **The funnel assumption.** The end-of-escape test is `inFunnel`, so this says: from the landing funnel, the
-autoland's flight never crashes, under the spec's crash rule, which allows a landing. Only for the rollouts the gate
-flies (`TermSoundR`). -/
-def FunnelSoundR : Prop := TermSoundR cityGate GCrash GInit
+autoland's flight does not crash until it has landed (up to and including the frame it lands on), under the spec's
+crash rule, which allows a landing. Only for the rollouts the gate flies (`TermSoundRU`). -/
+def FunnelSoundR : Prop := TermSoundRU cityGate GCrash GLanded GInit
 
 theorem clearSound_of (hc : ∀ e pl, clearAt e pl = true → ¬ GCrash pl) : ClearSound cityGate GCrash :=
   fun x hx => (cityGate_clear x hx).elim fun e he => hc e x.2 he
@@ -161,7 +165,7 @@ the gate with the same plant state. -/
 def Corr (p : JsbExact.State Float × Mem') : Prop :=
   match p.2 with
   | none => CitySafety.Init p.1
-  | some (ob, mc) => GateSafety.Reach cityGate GInit (planeOf p.1 ob, mc)
+  | some (ob, mc) => GateSafety.ReachU cityGate GLanded GInit (planeOf p.1 ob, mc)
 
 theorem plane_step_st (s : JsbExact.State Float) (ob : FloatArray) (a : Surf) :
     ((planeOf s ob).step a).st = (CitySafety.specStep s (ofSurf a).toInput).1 := rfl
@@ -182,7 +186,7 @@ theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach cityMap spe
   intro p hp
   induction hp with
   | init h => exact h
-  | @step p u hu _ hp ih =>
+  | @step p u hu hnl hp ih =>
     have hs := frame_fst p u (hOut p u hp hu)
     obtain ⟨s, m⟩ := p
     cases m with
@@ -191,10 +195,10 @@ theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach cityMap spe
           ((firstPlane s).st, some ((firstPlane s).ob, cityGate.m₀, cityGate.start (firstPlane s))) := by
         exact Prod.ext hs rfl
       rw [e]
-      exact GateSafety.Reach.init ⟨s, ih, rfl⟩
+      exact GateSafety.ReachU.init ⟨s, ih, rfl⟩
     | some v =>
       obtain ⟨ob, m, c⟩ := v
-      have hg := GateSafety.Reach.step (toSurf u) ih
+      have hg := GateSafety.ReachU.step (toSurf u) hnl ih
       generalize hw : (cityGate.choose (planeOf s ob) m c (toSurf u)).getD c = w at hs
       have hg1 : (cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).1 =
           (planeOf s ob).step (cityGate.ctl w (planeOf s ob)).1 := by
@@ -217,11 +221,11 @@ theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach cityMap spe
       exact hg
 
 theorem reach_gate (p : JsbExact.State Float × Mem') (hp : CitySafety.Reach cityMap specFilter p) :
-    GateSafety.Reach cityGate GInit (gateState p) := by
+    GateSafety.ReachU cityGate GLanded GInit (gateState p) := by
   have hc := reach_corr outputsInRange p hp
   obtain ⟨s, m⟩ := p
   cases m with
-  | none => exact GateSafety.Reach.init ⟨s, hc, rfl⟩
+  | none => exact GateSafety.ReachU.init ⟨s, hc, rfl⟩
   | some v => obtain ⟨ob, mc⟩ := v; exact hc
 
 /-! ## Crash-free starts, decided -/
@@ -335,7 +339,7 @@ theorem not_crash_of_startClearB {s : JsbExact.State Float} (h : startClearB s =
 
 /-- **The city gate is safe against the spec.** It takes four hypotheses:
 - `hc`: the clearance test is sound against the spec's crash;
-- `hF`: from the landing funnel, the autoland never crashes (`FunnelSoundR`);
+- `hF`: from the landing funnel, the autoland does not crash until it has landed (`FunnelSoundR`);
 - `hInit`: the starts pass the gate's initial check;
 - `hStart`: the starts are crash-free.
 
@@ -343,7 +347,7 @@ theorem not_crash_of_startClearB {s : JsbExact.State Float} (h : startClearB s =
 theorem cityGate_spec_safe_funnel_of (hc : ∀ e pl, clearAt e pl = true → ¬ GCrash pl) (hF : FunnelSoundR)
     (hInit : InitChecked cityGate GInit) (hStart : ∀ s, CitySafety.Init s → ¬ CitySafety.Crash cityMap s) :
     CitySafety.Safe cityMap specFilter := by
-  have gsafe := GateSafety.safeR cityGate GCrash GInit (clearSound_of hc) hF hInit
+  have gsafe := GateSafety.safeU cityGate GCrash GLanded GInit (clearSound_of hc) hF hInit
   intro p hp
   obtain ⟨s, m⟩ := p
   cases m with
