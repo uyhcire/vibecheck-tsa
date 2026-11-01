@@ -1,4 +1,5 @@
 import CityGate
+import Tools.termsound.TsInterval
 
 /-! # `tsmap`: the escape closed loop as a frame map in local coordinates
 
@@ -370,6 +371,16 @@ def main : IO Unit := do
           stdout.putStrLn (s!"{i + 1} " ++ " ".intercalate ([u.elev, u.ail, u.rud, u.thr, x, yy, z].map (hex16 ·.toBits)))
       stdout.putStrLn s!"HASH {hex16 hsh}"
       stdout.putStrLn "END"
+    else if cmd == "B" then
+      -- `B psi north c1..c33 b1..b33` (bits): `TsInterval.frameBox` with the terminal phase and level-off; prints 34
+      -- lines (h', y'(32), β), each `lo hi` then 34 `lo hi` derivative pairs, then a line of saturation flags.
+      let psi := ofBits w[1]!; let north := ofBits w[2]!
+      let c := (w.extract 3 36).map ofBits; let bb := (w.extract 36 69).map ofBits
+      let ((h', y'), beta, sats) := TsInterval.frameBox {} base psi north c bb
+      for o in #[h'] ++ y' ++ #[beta] do
+        let ds := (List.range TsInterval.NV).toArray.map fun j => o.dget j
+        stdout.putStrLn (line (#[o.v.lo, o.v.hi] ++ ds.foldl (fun acc g => acc ++ #[g.lo, g.hi]) #[]))
+      stdout.putStrLn (" ".intercalate (sats.toList.map fun s => if s.t then "1" else "0"))
     else if cmd == "W" then
       wind := ⟨ofBits w[1]!, ofBits w[2]!, ofBits w[3]!⟩
     else if cmd == "D" then

@@ -194,3 +194,19 @@ def _reftraj(self, x, y, z, v, gam, psi, phi, n_load, thr, n, k):
 
 
 TsMap.reftraj = _reftraj
+
+
+def _box(self, c, bw, psi=0.0, north=0.0):
+    """Interval-dual frame over the box c ± bw (33 inputs): (lo, hi) arrays of shape (34,) for the values
+    (h', y', beta) and (34, 34) for the derivatives, plus the saturation flags (1 = can be active)."""
+    self._send(" ".join(["B", b(psi), b(north)] + [b(v) for v in c] + [b(v) for v in bw]))
+    vals, ders = [], []
+    for _ in range(34):
+        r = [f(s) for s in self.p.stdout.readline().split()]
+        vals.append(r[:2]); ders.append(np.array(r[2:]).reshape(34, 2))
+    sats = [int(x) for x in self.p.stdout.readline().split()]
+    vals = np.array(vals); ders = np.array(ders)
+    return vals[:, 0], vals[:, 1], ders[:, :, 0], ders[:, :, 1], sats
+
+
+TsMap.box = _box
