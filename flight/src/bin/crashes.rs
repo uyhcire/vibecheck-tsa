@@ -1,9 +1,13 @@
 //! Records the crashes of the hostile-pilot harness episodes (P1 filter on) as JSON for plotting.
 //! `cargo run --release --no-default-features --features jsb --bin crashes -- OUT_DIR [episodes] [--pm]
 //!   [--env exact|fitted|fitted25|gate] [--escapes 3|5|6] [--law cegis1|cegis2|lawfirst] [--budget FRAMES] [--time-cap MS] [--threads N] [--only EPISODE]
-//!   [--scenario K [--pilot hostile|kamikaze|mixed]]`
+//!   [--check-threads N [--verify-seeds]] [--scenario K [--pilot hostile|kamikaze|mixed]]`
 //! (`--pm` flies the point-mass model instead of JSBSim.) `--scenario K` starts every episode at scenario K
 //! (1-5) instead of a random start; with K = 5 (Tower gap) the scripted showcase pilot flies one more.
+//! `--check-threads N` (N ≥ 1) has the gate check every escape to its full horizon on N threads
+//! (`envfilter::CHECK_THREADS`; 0, the default, is the budgeted sequential check); `--verify-seeds` re-flies
+//! every worker rollout on the calling thread and stops on any difference. `summary.csv`'s `digest` column
+//! hashes each episode's states, modes and commands, so two runs can be compared tick for tick.
 use cityflight::escape::*;
 use cityflight::filter::*;
 use cityflight::harness::par_map;
@@ -56,6 +60,25 @@ struct Stats {
     secs: f64,
     tv: Vec<[f32; 3]>,
     jump: Vec<[f32; 3]>,
+    frames_all: Vec<u32>,
+    cpu_workers_ms: Vec<f32>,
+    /// `digest` of the episode's records.
+    digest: u64,
+}
+
+/// FNV-1a over every tick's state, mode and applied command: equal digests mean the same closed-loop run.
+fn digest(recs: &[Rec]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    let mut eat = |x: u64| {
+        for b in x.to_le_bytes() {
+            h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+        }
+    };
+    for r in recs {
+        r.s.iter().chain(r.u.iter()).for_each(|v| eat(v.to_bits()));
+        eat(r.mode as u64);
+    }
+    h
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -135,6 +158,7 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
         st.outcomes = g.outcomes;
         (st.runs, st.short_runs) = (g.runs, g.short_runs);
         (st.cpu_ms, st.wall_ms, st.frames) = (g.cpu_ms, g.wall_ms, g.frames);
+        (st.frames_all, st.cpu_workers_ms) = (g.frames_all, g.cpu_workers_ms);
     }
     (sim.crashed, recs, plans, st)
 }
@@ -231,6 +255,12 @@ fn main() {
             cityflight::envfilter::table();
         }
     }
+    if let Some(n) = args.iter().position(|a| a == "--check-threads").and_then(|i| args.get(i + 1)?.parse().ok()) {
+        cityflight::envfilter::CHECK_THREADS.store(n, std::sync::atomic::Ordering::Relaxed);
+    }
+    if args.iter().any(|a| a == "--verify-seeds") {
+        cityflight::envfilter::VERIFY_SEEDS.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     std::fs::create_dir_all(&out).unwrap();
     let world = World::new(1337);
     let scen: Option<usize> = args.iter().position(|a| a == "--scenario").and_then(|i| args.get(i + 1)?.parse::<usize>().ok()).map(|k| k.clamp(1, SCENARIOS.len()) - 1);
@@ -277,16 +307,17 @@ fn main() {
             if crashed {
                 std::fs::write(format!("{out}/{name}.json"), json(&world, name, *e, *pk == PilotKind::Kamikaze, &recs, &plans)).unwrap();
             }
+            let st = Stats { digest: digest(&recs), ..st };
             (name.clone(), crashed, recs.last().map_or(0.0, |r| r.t), st)
         },
         |_, _| {},
     );
-    let mut rows = String::from("name,crashed,t_end,first_accept,ticks,commit_ticks,blind_ticks\n");
+    let mut rows = String::from("name,crashed,t_end,first_accept,ticks,commit_ticks,blind_ticks,digest\n");
     for (name, crashed, t, st) in &res {
         if *crashed {
             println!("{name} crashed at t={t:.1} ({} start)", if st.first_accept { "verified" } else { "unverified" });
         }
-        writeln!(rows, "{name},{crashed},{t:.2},{},{},{},{}", st.first_accept, st.ticks, st.commit_ticks, st.blind_ticks).unwrap();
+        writeln!(rows, "{name},{crashed},{t:.2},{},{},{},{},{:016x}", st.first_accept, st.ticks, st.commit_ticks, st.blind_ticks, st.digest).unwrap();
     }
     std::fs::write(format!("{out}/summary.csv"), rows).unwrap();
     let count = |f: &dyn Fn(&(String, bool, f64, Stats)) -> bool| res.iter().filter(|r| f(r)).count();
@@ -339,8 +370,17 @@ fn main() {
     let mut cpu: Vec<f32> = res.iter().flat_map(|r| r.3.cpu_ms.iter().copied()).collect();
     let mut wall: Vec<f32> = res.iter().flat_map(|r| r.3.wall_ms.iter().copied()).collect();
     let mut fr: Vec<f32> = res.iter().flat_map(|r| r.3.frames.iter().map(|&f| f as f32)).collect();
+    // All threads: the calling thread's CPU plus the pool workers'; all frames, including discarded rollouts.
+    let mut cpu_all: Vec<f32> = res.iter().flat_map(|r| r.3.cpu_ms.iter().zip(&r.3.cpu_workers_ms).map(|(a, b)| a + b)).collect();
+    let mut fr_all: Vec<f32> = res.iter().flat_map(|r| r.3.frames_all.iter().map(|&f| f as f32)).collect();
     if !cpu.is_empty() {
-        for (label, v) in [("thread CPU ms", &mut cpu), ("wall ms", &mut wall), ("JSBSim frames", &mut fr)] {
+        let parallel = cityflight::envfilter::CHECK_THREADS.load(std::sync::atomic::Ordering::Relaxed) > 1;
+        let mut rows: Vec<(&str, &mut Vec<f32>)> = vec![("thread CPU ms", &mut cpu), ("wall ms", &mut wall), ("JSBSim frames", &mut fr)];
+        if parallel {
+            rows.push(("CPU all thr. ms", &mut cpu_all));
+            rows.push(("frames all", &mut fr_all));
+        }
+        for (label, v) in rows {
             let mean = v.iter().map(|&x| x as f64).sum::<f64>() / v.len() as f64;
             println!("check {label:14}: median {:.2}  mean {mean:.2}  p99 {:.2}  p99.9 {:.2}  max {:.2}", pct(v, 0.5), pct(v, 0.99), pct(v, 0.999), pct(v, 1.0));
         }

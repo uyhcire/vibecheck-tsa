@@ -10,14 +10,15 @@
 //! - turns: a steady climbing helix whose ground circle (with margin for radius and centre drift) is clear
 //!   at the current height, so climbing around it from here on never meets anything.
 //!
-//! `--env gate` schedules the checks gatekeeper-style under a per-tick frame budget (see `Gate`).
+//! `--env gate` schedules the checks gatekeeper-style (see `Gate`): either sequentially under a per-tick
+//! frame budget, or (`CHECK_THREADS` ≥ 1) every escape to its full horizon, in parallel (`verify_first`).
 
 use crate::jsb::*;
 use crate::model::*;
 use crate::world::{World, CELL, MAP_HALF, NC, R_BODY};
 use std::f64::consts::{FRAC_PI_2, PI};
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 pub static ENV_FILTER: AtomicU8 = AtomicU8::new(0);
 
@@ -479,7 +480,13 @@ pub fn rollout(world: &World, p: &JsbPlant, esc: usize, max_frames: usize) -> Ro
 }
 
 /// `rollout` with an explicit law, stopping with `Outcome::Budget` at the wall-clock `deadline` if given.
-pub fn rollout_law(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>) -> Roll {
+pub fn rollout_law(world: &World, p: &JsbPlant, law: Law, max_frames: usize, deadline: Option<std::time::Instant>) -> Roll {
+    rollout_ctl(world, p, law, max_frames, deadline, None)
+}
+
+/// `rollout_law` that also stops with `Outcome::Budget` once `cancel = (best, i)` has `best < i`: a candidate
+/// earlier in the priority order verified, so this one's verdict no longer matters.
+fn rollout_ctl(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>, cancel: Option<(&AtomicUsize, usize)>) -> Roll {
     let esc = law.esc;
     let mut q = p.fork();
     law.capture(&q.obs);
@@ -521,7 +528,7 @@ pub fn rollout_law(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize,
         let t = k as f64 * DT_JSB;
         r.t = t;
         if k % SAMPLE == 0 {
-            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) || cancel.is_some_and(|(b, i)| b.load(Ordering::Relaxed) < i) {
                 r.outcome = Outcome::Budget;
                 return r;
             }
@@ -788,6 +795,223 @@ pub fn check(world: &World, kind: Kind, p: &JsbPlant) -> (Option<usize>, Vec<[f6
     (None, first)
 }
 
+/// How `Gate` checks its candidate escapes. 0: one after another under the per-tick frame budget `BUDGET`.
+/// N ≥ 1: every candidate gets its full horizon and the first in priority order that verifies wins
+/// (`verify_first`), on N threads (this one and N - 1 pool workers). The verdict does not depend on N: it is the
+/// one the sequential check reaches with an unlimited budget.
+pub static CHECK_THREADS: AtomicUsize = AtomicUsize::new(0);
+/// Debug: re-run every rollout a pool worker flew on the calling thread's plant and panic unless the two agree
+/// bit for bit (checks that a `Seed` rebuilds the plant exactly).
+pub static VERIFY_SEEDS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+/// Worker threads for `verify_first`, started on first use with `CHECK_THREADS - 1` of them (at least 1). They
+/// live as long as the process, so each sets up Lean's per-thread state once.
+fn pool() -> &'static Mutex<std::sync::mpsc::Sender<Job>> {
+    static POOL: OnceLock<Mutex<std::sync::mpsc::Sender<Job>>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Job>();
+        let rx = Arc::new(Mutex::new(rx));
+        for i in 0..CHECK_THREADS.load(Ordering::Relaxed).saturating_sub(1).max(1) {
+            let rx = rx.clone();
+            std::thread::Builder::new()
+                .name(format!("gate-check-{i}"))
+                .spawn(move || loop {
+                    let job = rx.lock().unwrap().recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => return,
+                    }
+                })
+                .expect("spawn a gate check worker");
+        }
+        Mutex::new(tx)
+    })
+}
+
+/// Jobs on the pool that may borrow from the caller's stack: dropping the scope waits until every job it
+/// spawned has finished (also when the caller unwinds), so the borrows outlive the jobs.
+struct Scope<'s> {
+    left: Arc<(Mutex<usize>, Condvar)>,
+    panicked: Arc<std::sync::atomic::AtomicBool>,
+    _borrows: std::marker::PhantomData<&'s ()>,
+}
+
+impl<'s> Scope<'s> {
+    fn new() -> Scope<'s> {
+        Scope { left: Arc::new((Mutex::new(0), Condvar::new())), panicked: Arc::default(), _borrows: std::marker::PhantomData }
+    }
+
+    fn spawn(&self, f: impl FnOnce() + Send + 's) {
+        *self.left.0.lock().unwrap() += 1;
+        let (left, panicked) = (self.left.clone(), self.panicked.clone());
+        let job: Box<dyn FnOnce() + Send + 's> = Box::new(move || {
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err() {
+                panicked.store(true, Ordering::Relaxed);
+            }
+            let mut n = left.0.lock().unwrap();
+            *n -= 1;
+            if *n == 0 {
+                left.1.notify_all();
+            }
+        });
+        // SAFETY: `Scope::drop` blocks until this job has run, and `Scope` (which has a `Drop` impl) cannot
+        // outlive `'s`, so everything the job borrows is alive while it runs.
+        let job: Job = unsafe { std::mem::transmute::<Box<dyn FnOnce() + Send + 's>, Job>(job) };
+        pool().lock().unwrap().send(job).expect("gate check pool is gone");
+    }
+}
+
+impl Drop for Scope<'_> {
+    fn drop(&mut self) {
+        let mut n = self.left.0.lock().unwrap();
+        while *n > 0 {
+            n = self.left.1.wait(n).unwrap();
+        }
+        drop(n);
+        if self.panicked.load(Ordering::Relaxed) && !std::thread::panicking() {
+            panic!("a gate check worker panicked");
+        }
+    }
+}
+
+/// One candidate for `verify_first`: the escape `law` flown from `plant`. Candidates after the first are flown
+/// on other threads from `seed` (a `Seed` of `plant`); without one, everything runs on the calling thread.
+pub struct Cand<'a> {
+    pub plant: &'a JsbPlant,
+    pub seed: Option<&'a Seed>,
+    pub law: Law,
+}
+
+/// Result of `verify_first`: the first candidate that verified (its index and rollout), the outcome of every
+/// rollout that decided it (escape, outcome), the JSBSim frames those rollouts spent (from `frames0`), and the
+/// last rollout that failed (for display). Also all frames flown, including rollouts cut short or discarded
+/// because an earlier candidate verified, and the pool workers' thread CPU (s).
+pub struct Verdict {
+    pub found: Option<(usize, Roll)>,
+    pub tried: Vec<(usize, Outcome)>,
+    pub frames: usize,
+    pub last: Option<Roll>,
+    pub frames_all: usize,
+    pub cpu_workers: f64,
+}
+
+impl Verdict {
+    pub fn empty(frames0: usize) -> Verdict {
+        Verdict { found: None, tried: Vec::new(), frames: frames0, last: None, frames_all: frames0, cpu_workers: 0.0 }
+    }
+
+    /// Record a rollout that decides the verdict (candidate `i`); whether it verified.
+    fn decide(&mut self, i: usize, r: Roll) -> bool {
+        self.frames += r.frames;
+        self.tried.push((r.esc, r.outcome));
+        if r.ok() {
+            self.found = Some((i, r));
+            true
+        } else {
+            self.last = Some(r);
+            false
+        }
+    }
+}
+
+/// Frames a candidate's rollout may use (besides the budget): a resumed law (`t > 0`) at most `RESUME_CAP`.
+fn law_cap(law: &Law) -> usize {
+    if law.t > 0.0 { RESUME_CAP } else { usize::MAX }
+}
+
+/// Check candidates in order and return the first whose escape verifies. A candidate is the aircraft after a
+/// candidate tick and the escape law state to fly from there.
+/// - `CHECK_THREADS` = 0: one after another under the per-tick budget. The first rollout runs to its verdict;
+///   later ones run only while at least `MIN_ATTEMPT` frames of `BUDGET` are left (`frames0` are spent).
+/// - `CHECK_THREADS` ≥ 1: every candidate gets its full horizon (a resumed law `RESUME_CAP`) and the first in
+///   priority order that verifies wins. With more than one thread and seeds, the candidates run concurrently:
+///   the first on this thread, the rest on the pool, each from its own copy of the plant rebuilt from the seed
+///   on the worker (Lean objects are never shared between threads). A candidate stops as soon as an earlier one
+///   has verified, since it can no longer win; no other cut-off depends on timing, so the verdict is the
+///   sequential full-horizon one (the wall-clock `deadline`, if given, is the exception).
+pub fn verify_first(world: &World, cands: &[Cand], frames0: usize, deadline: Option<std::time::Instant>) -> Verdict {
+    let mut v = Verdict::empty(frames0);
+    let threads = CHECK_THREADS.load(Ordering::Relaxed);
+    let n = cands.len();
+    if threads == 0 {
+        for (i, c) in cands.iter().enumerate() {
+            let left = BUDGET.load(Ordering::Relaxed).saturating_sub(v.frames);
+            if i > 0 && left < MIN_ATTEMPT {
+                break;
+            }
+            let max = if i == 0 { usize::MAX } else { left };
+            let r = rollout_ctl(world, c.plant, c.law, max.min(law_cap(&c.law)), deadline, None);
+            v.frames_all += r.frames;
+            if v.decide(i, r) {
+                break;
+            }
+        }
+        return v;
+    }
+    if threads == 1 || n < 2 || !cands[1..].iter().all(|c| c.seed.is_some()) {
+        for (i, c) in cands.iter().enumerate() {
+            let r = rollout_ctl(world, c.plant, c.law, law_cap(&c.law), deadline, None);
+            v.frames_all += r.frames;
+            if v.decide(i, r) {
+                break;
+            }
+        }
+        return v;
+    }
+    let best = AtomicUsize::new(usize::MAX);
+    let slots: Vec<Mutex<Option<(Roll, f64)>>> = (0..n).map(|_| Mutex::new(None)).collect();
+    {
+        let scope = Scope::new();
+        for i in 1..n {
+            let (seed, law, best, slot) = (cands[i].seed.unwrap(), cands[i].law, &best, &slots[i]);
+            scope.spawn(move || {
+                if best.load(Ordering::Relaxed) < i {
+                    return;
+                }
+                let c0 = thread_cpu();
+                let p = JsbPlant::from_seed(seed);
+                let r = rollout_ctl(world, &p, law, law_cap(&law), deadline, Some((best, i)));
+                drop(p);
+                if r.ok() {
+                    best.fetch_min(i, Ordering::Relaxed);
+                }
+                *slot.lock().unwrap() = Some((r, thread_cpu() - c0));
+            });
+        }
+        let r = rollout_ctl(world, cands[0].plant, cands[0].law, law_cap(&cands[0].law), deadline, None);
+        if r.ok() {
+            best.fetch_min(0, Ordering::Relaxed);
+        }
+        *slots[0].lock().unwrap() = Some((r, 0.0));
+    }
+    let verify = VERIFY_SEEDS.load(Ordering::Relaxed);
+    for (i, slot) in slots.into_iter().enumerate() {
+        let Some((r, cpu)) = slot.into_inner().unwrap() else { continue };
+        v.frames_all += r.frames;
+        v.cpu_workers += cpu;
+        if v.found.is_some() {
+            continue;
+        }
+        if verify && i > 0 {
+            let c = &cands[i];
+            let q = rollout_ctl(world, c.plant, c.law, law_cap(&c.law), deadline, None);
+            let bits = |r: &Roll| r.path.iter().chain(&r.tail).flat_map(|p| p.map(f64::to_bits)).collect::<Vec<u64>>();
+            assert!(
+                q.outcome == r.outcome && q.frames == r.frames && q.min_clear.to_bits() == r.min_clear.to_bits() && bits(&q) == bits(&r),
+                "seeded rollout {i} (escape {}) differs from the fork's: {:?}/{} vs {:?}/{}",
+                r.esc,
+                r.outcome,
+                r.frames,
+                q.outcome,
+                q.frames
+            );
+        }
+        v.decide(i, r);
+    }
+    v
+}
 
 /// Per-tick budget in JSBSim frames: 15 ms at the 6.7 µs per checked frame measured on an M4 Max. In frames,
 /// not wall time, so runs are reproducible.
@@ -813,57 +1037,9 @@ pub const RESUME_CAP: usize = 1100;
 pub const HOLD_TICKS: u64 = 50;
 pub const HANDBACK_EXTRA: f64 = 3.0;
 
-/// Result of `verify_first`: the first candidate that verified (its index and rollout), the outcome of every
-/// rollout tried (escape, outcome), the JSBSim frames spent, and the last rollout that failed (for display).
-pub struct Verdict {
-    pub found: Option<(usize, Roll)>,
-    pub tried: Vec<(usize, Outcome)>,
-    pub frames: usize,
-    pub last: Option<Roll>,
-}
-
-/// Check candidates in order and return the first whose escape verifies. A candidate is the aircraft after a
-/// candidate tick and the escape law state to fly from there. The first rollout runs to its verdict; later
-/// ones run only while at least `MIN_ATTEMPT` frames of the per-tick budget are left (`frames0` are spent).
-/// A resumed law gets at most `RESUME_CAP` frames.
-pub fn verify_first(world: &World, cands: &[(&JsbPlant, Law)], frames0: usize, deadline: Option<std::time::Instant>) -> Verdict {
-    let mut v = Verdict { found: None, tried: Vec::new(), frames: frames0, last: None };
-    for (i, (p, law)) in cands.iter().enumerate() {
-        let left = BUDGET.load(Ordering::Relaxed).saturating_sub(v.frames);
-        if i > 0 && left < MIN_ATTEMPT {
-            break;
-        }
-        let max = if i == 0 { usize::MAX } else { left };
-        let r = rollout_law(world, p, *law, if law.t > 0.0 { max.min(RESUME_CAP) } else { max }, deadline);
-        v.frames += r.frames;
-        v.tried.push((law.esc, r.outcome));
-        if r.ok() {
-            v.found = Some((i, r));
-            return v;
-        }
-        v.last = Some(r);
-    }
-    v
-}
-
 /// Turn direction of a law's terminal set, or of its escape before the street escape picks a side.
 fn law_dir(l: &Law) -> f64 {
     if l.dir() != 0.0 { l.dir() } else { ESCAPES[l.esc].dir }
-}
-
-/// One tick of the pilot's command (as `JsbPlant::advance_pilot`), returning the surfaces of each frame.
-fn pilot_frames(p: &mut JsbPlant, u: &Pilot, dt: f64) -> Vec<[f64; 4]> {
-    let mut out = Vec::with_capacity(4);
-    p.lag -= dt;
-    while p.lag < -1e-12 {
-        match u {
-            Pilot::Fbw(c) => p.frame(c),
-            Pilot::Surfaces(s) => p.frame_raw(s[0], s[1], s[2], s[3]),
-        }
-        p.lag += DT_JSB;
-        out.push(p.surf);
-    }
-    out
 }
 
 /// Gatekeeper state.
@@ -915,9 +1091,14 @@ pub struct Gate {
     pub prev_dir: f64,
     pub blend_ticks: u64,
     /// Per-tick filter cost: thread CPU (ms), wall (ms), JSBSim frames.
+    /// Per-tick filter cost: thread CPU (ms), wall (ms), JSBSim frames of the rollouts that decided the tick.
     pub cpu_ms: Vec<f32>,
     pub wall_ms: Vec<f32>,
     pub frames: Vec<u32>,
+    /// With parallel checks (`CHECK_THREADS` > 1): all JSBSim frames flown, including discarded rollouts, and
+    /// the pool workers' CPU (ms).
+    pub frames_all: Vec<u32>,
+    pub cpu_workers_ms: Vec<f32>,
 }
 
 impl Gate {
@@ -946,6 +1127,8 @@ impl Gate {
             cpu_ms: Vec::new(),
             wall_ms: Vec::new(),
             frames: Vec::new(),
+            frames_all: Vec::new(),
+            cpu_workers_ms: Vec::new(),
         };
         let mut best: Option<Roll> = None;
         for esc in 0..n_esc() {
@@ -1019,7 +1202,10 @@ impl Gate {
             cand.bumpless_fbw();
         }
         let f0 = (-cand.lag / DT_JSB).ceil().max(0.0) as usize;
-        let cand_surf = pilot_frames(&mut cand, u_p, dt);
+        // Hysteresis (proposal logic: staying committed is always safe): no hand-back check during the hold.
+        let holding = self.law.is_some() && self.run_len < HOLD_TICKS;
+        let full = CHECK_THREADS.load(Ordering::Relaxed) > 0;
+        let (cand_surf, dump) = cand.advance_pilot_dump(u_p, dt, full && filter_on && !holding);
         if !filter_on {
             *plant = cand;
             self.tick_surfaces = cand_surf;
@@ -1030,15 +1216,11 @@ impl Gate {
         let cap = TIME_CAP_MS.load(Ordering::Relaxed);
         let deadline = (cap > 0).then(|| w0 + std::time::Duration::from_millis(cap as u64));
         let laws = self.candidate_laws(&plant.obs);
-        let cands: Vec<(&JsbPlant, Law)> = laws.iter().map(|&l| (&cand, l)).collect();
-        // Hysteresis (proposal logic: staying committed is always safe): no hand-back check during the hold,
-        // and after it a hand-back only with `HANDBACK_EXTRA` of spare clearance.
+        let seed = dump.map(|d| cand.seed(d));
+        let cands: Vec<Cand> = laws.iter().map(|&law| Cand { plant: &cand, seed: seed.as_ref(), law }).collect();
+        // After the hold, hand back only with `HANDBACK_EXTRA` of spare clearance.
         let committed = self.law.is_some();
-        let mut v = if committed && self.run_len < HOLD_TICKS {
-            Verdict { found: None, tried: Vec::new(), frames: f0, last: None }
-        } else {
-            verify_first(world, &cands, f0, deadline)
-        };
+        let mut v = if holding { Verdict::empty(f0) } else { verify_first(world, &cands, f0, deadline) };
         if committed && v.found.as_ref().is_some_and(|(_, r)| r.min_clear < MARGIN + HANDBACK_EXTRA) {
             v.last = v.found.take().map(|(_, r)| r);
         }
@@ -1109,6 +1291,8 @@ impl Gate {
         self.cpu_ms.push(((thread_cpu() - c0) * 1e3) as f32);
         self.wall_ms.push((w0.elapsed().as_secs_f64() * 1e3) as f32);
         self.frames.push(v.frames as u32);
+        self.frames_all.push(v.frames_all as u32);
+        self.cpu_workers_ms.push((v.cpu_workers * 1e3) as f32);
         accept
     }
 }
