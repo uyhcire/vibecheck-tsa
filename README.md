@@ -88,6 +88,7 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 
 - `Vibecheck/` the verified core (core Lean only, no Mathlib).
 - `Envelope/`: the performance-envelope filter and its theorem (core Lean only).
+- `GateSafety/`: the gatekeeper's safety by induction (`GateSafety.safe`, core Lean only); see `docs/gate-proof-status.md`.
 - `App/`, `Main.lean`, `c/shim.c`: SDL3 frontend. Lean runs `main` off the process main thread, but Cocoa needs the main thread, so the shim owns `main` and forwards SDL calls.
 - `Jsb/`: fixed-point Lean port of JSBSim's c172p longitudinal model (unverified; not imported by `Vibecheck/`), with residual tooling in `sysid/` and `Tools/JsbResid.lean`.
 - `JsbExact/`, `Tools/JsbExactResid.lean`, `jsbx/`, `c/jxmath.c`: offline bit-exact Lean port of JSBSim's c172p (see below; unverified, not imported by anything else).
