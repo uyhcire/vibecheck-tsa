@@ -107,6 +107,10 @@ lean_exe jsbdrift where
   root := `Tools.JsbDrift
   moreLinkObjs := #[jxmath.o]
 
+lean_exe citygatespot where
+  root := `Tools.CityGateSpot
+  moreLinkObjs := #[jxmath.o]
+
 target cityjsb_abi.o pkg : FilePath := do
   let oFile := pkg.buildDir / "c" / "cityjsb_abi.o"
   let srcJob ← inputTextFile <| pkg.dir / "c" / "cityjsb_abi.c"
