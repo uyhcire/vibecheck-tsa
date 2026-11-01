@@ -117,12 +117,14 @@ structure StartCond where
 def StartCond.state (c : StartCond) : State Float :=
   CityJsb.setFuelE (CityJsb.initAt c.x c.y c.z c.v 0 c.psi 0 c.alpha) c.fuel
 
-/-- The allowed starts: wings level, level flight at 50 m/s, 1500 m above the map origin (on the demo map, seed
-1337, the terrain peaks at 927 m and the roofs at 459 m), heading north, east, south or west, with 8 lb of fuel per
-tank (the template carries 100), so every flight has to end in a landing within minutes. -/
+/-- The allowed starts: wings level, level flight at 50 m/s, 291 m above sea level (map altitude 300 m on the demo map,
+datum 9 m), with 8 lb of fuel per tank (the template carries 100), so every flight has to end in a landing within
+minutes. They are in the landing pattern south-west of the city, clear of terrain and buildings: at the downwind point
+(-1800, -740) heading east, south or west, and on the runway's extended centreline 1.9 km out heading east, towards it.
+(Heading north from the downwind point is left out: no autoland escape reaches the funnel from there.) -/
 def startConds : List StartCond :=
-  [⟨0, 0, 1500, 50, 0, 0.0223, 8⟩, ⟨0, 0, 1500, 50, 1.5707963267948966, 0.0223, 8⟩,
-   ⟨0, 0, 1500, 50, 3.141592653589793, 0.0223, 8⟩, ⟨0, 0, 1500, 50, 4.71238898038469, 0.0223, 8⟩]
+  [⟨-1800, -740, 291, 50, 1.5707963267948966, 0.0223, 8⟩, ⟨-1800, -740, 291, 50, 3.141592653589793, 0.0223, 8⟩,
+   ⟨-1800, -740, 291, 50, 4.71238898038469, 0.0223, 8⟩, ⟨-2000, -1340, 291, 50, 1.5707963267948966, 0.0223, 8⟩]
 
 /-- The allowed starting states. -/
 def Init (s : State Float) : Prop := ∃ c ∈ startConds, s = c.state

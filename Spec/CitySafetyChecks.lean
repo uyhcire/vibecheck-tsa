@@ -15,9 +15,10 @@ example : ratOf (Float.ofBits 0x7ff8000000000000) = none := by decide +kernel
 
 /-! ## `Init` is satisfiable -/
 
-def north : StartCond := ⟨0, 0, 1500, 50, 0, 0.0223, 8⟩
+/-- The first allowed start: at the downwind point, heading east. -/
+def start0 : StartCond := ⟨-1800, -740, 291, 50, 1.5707963267948966, 0.0223, 8⟩
 
-example : Init north.state := ⟨north, List.mem_cons_self .., rfl⟩
+example : Init start0.state := ⟨start0, List.mem_cons_self .., rfl⟩
 
 /-! ## Hulls -/
 
@@ -81,7 +82,8 @@ theorem idle_valid : idle.Valid :=
 
 /-! ## A hand-made map -/
 
-def tower : Box := ⟨-50, 50, 150, 200, -3 / 2, 2000⟩
+/-- A tower 800 m east of the first start, across its initial heading. -/
+def tower : Box := ⟨-1000, -900, -800, -680, -3 / 2, 2000⟩
 
 def pole : Box := ⟨3, 16 / 5, -1 / 2, 1 / 2, -3 / 2, 30⟩
 
@@ -110,17 +112,18 @@ deriving instance DecidableEq for Pt
 
 instance (b : Box) (q : Pt) : Decidable (b.Contains q) := by unfold Box.Contains; infer_instance
 
--- 50 m up, west of the pole and south of the tower: nothing is touched
+-- 50 m up, west of the pole and east of the tower: nothing is touched
 example : ¬ HullHits tiny (level (-10) 0 50) := by
   rintro ⟨q, hq, hs⟩
   have hz := hull_lin_ge 0 0 1 48 (by decide +kernel) hq
   have hy := hull_lin_ge 0 (-1) 0 (-5) (by decide +kernel) hq
+  have hx := hull_lin_ge 1 0 0 (-20) (by decide +kernel) hq
   rcases hs with h | ⟨b, hb, hc⟩
   · rw [tiny_terrain] at h; grind
   · simp [tiny] at hb; rcases hb with rfl | rfl <;> (simp [Box.Contains, tower, pole] at hc; grind)
 
 -- sitting 1 m up, the nose gear is 0.46 m below the ground
-example : Crash tiny (north.state) ∨ HullHits tiny (level 0 0 1) :=
+example : Crash tiny (start0.state) ∨ HullHits tiny (level 0 0 1) :=
   .inr ⟨_, inHull_of_mem (List.mem_cons_self ..), Or.inl (by rw [tiny_terrain]; decide +kernel)⟩
 
 -- 20 m up next to the pole: no airframe point is in the pole, but the right wing between them is
@@ -223,13 +226,13 @@ theorem cruise_valid : cruise.Valid :=
    ⟨3 / 4, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩⟩
 
-/-- The state after `n` frames of `cruise` from `north` under `passThrough`. -/
-def cruiseAt (n : Nat) : State Float × Unit := (List.replicate n cruise).foldl passThrough.frame (north.state, ())
+/-- The state after `n` frames of `cruise` from `start0` under `passThrough`. -/
+def cruiseAt (n : Nat) : State Float × Unit := (List.replicate n cruise).foldl passThrough.frame (start0.state, ())
 
 -- `Tools/CitySafetyDemo.lean` evaluates `h` by running the plant; `Lean.ofReduceBool` would be needed to use that here
 theorem passThrough_unsafe_of_cruise (n : Nat) (hl : ∀ k < n, ¬ Landed tiny (cruiseAt k).1)
     (h : vertexCrash tiny (cruiseAt n).1 = true) : ¬ Safe tiny passThrough :=
-  not_safe_of_trace ⟨north, List.mem_cons_self .., rfl⟩ _
+  not_safe_of_trace ⟨start0, List.mem_cons_self .., rfl⟩ _
     (fun u hu => by rw [List.eq_of_mem_replicate hu]; exact cruise_valid)
     (fun k hk => by
       rw [List.length_replicate] at hk

@@ -32,5 +32,5 @@ def main : IO Unit := do
   for c in startConds do
     let hit := vertexCrash tiny c.state
     IO.println s!"start psi={c.psi}: vertexCrash tiny at the start = {hit}"
-  run "cruise north into the tower" north cruise (128 * 60)
-  run "dive south into the ground" ⟨0, 0, 1500, 50, 3.141592653589793, 0.0223, 8⟩ ⟨0.5, 0, 0, 0, 0⟩ (128 * 120)
+  run "cruise from the first start" start0 cruise (128 * 60)
+  run "dive south into the ground" ⟨-1800, -740, 291, 50, 3.141592653589793, 0.0223, 8⟩ ⟨0.5, 0, 0, 0, 0⟩ (128 * 120)
