@@ -30,7 +30,7 @@ From an allowed start, whatever surfaces and throttle the pilot gives each JSBSi
 - `crashes OUT N --secs S` shortens episodes.
 - `lake exe citygatespot` is the spot check: the street escape for 8 s is bit-identical to Rust.
 - Candidates are checked one after another, stopping at the first that verifies. `CITYGATE_PAR=N` checks up to N at once in rounds of `CITYGATE_ROUND` frames (default 64); the frame is the same.
-- `crashes` with `--safety-filter exact-rollout-lean` prints per-tick CPU. `CITYGATE_TRACE=1` writes each episode's per-frame trace (`OUT/<episode>.trace`) for comparing two builds with `cmp`. `CITYGATE_COUNT=1` also prints plant frames per tick (it runs every check twice).
+- `crashes` with `--safety-filter exact-rollout-lean` prints per-tick CPU. `CITYGATE_TRACE=1` writes each episode's per-frame trace (`OUT/<episode>.trace`) for comparing two builds with `cmp`. `CITYGATE_COUNT=1` also prints plant frames per tick (it runs every check twice). `CITYGATE_PROBE=1` writes `OUT/<episode>.probe`: per tick the gate's CPU, and per check each candidate's frames, why its rollout ended, and the time and work in `fly`, `clear` and `term` (it also runs every check twice).
 
 **The Lean gate is not the Rust gate.** Only the Lean one is proved.
 - **Clearance:** a cube in exact arithmetic, checked every frame, including the pilot's frames. Rust uses a sphere plus a wing capsule in floating point, every 8 frames.
