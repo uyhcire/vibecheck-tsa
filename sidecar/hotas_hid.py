@@ -20,6 +20,7 @@ class Hotas:
         self.pitch = self.roll = self.yaw = 0.0   # -1..1, pitch +1 = stick back
         self.throttle = 0.0                      # 0..1
         self.trigger = False
+        self.buttons = 0        # bit i = button i+1 held (1 = trigger)
         self.seen = False
         cf, iokit = _lib("CoreFoundation"), _lib("IOKit")
         self._cf = cf
@@ -72,7 +73,8 @@ class Hotas:
         self.pitch = (y - 512) / 511.5
         self.throttle = (255 - b[4]) / 255
         self.yaw = (b[5] - 128) / 127.5
-        self.trigger = bool(b[10] & 0x10)
+        self.buttons = (b[10] >> 4) | (b[11] << 4)
+        self.trigger = bool(self.buttons & 1)
 
     def poll(self):
         """Process pending reports without blocking."""
@@ -86,6 +88,8 @@ def selftest():
     assert abs(h.pitch) < 0.01 and abs(h.roll) < 0.01 and h.throttle == 0 and abs(h.yaw) < 0.01 and not h.trigger
     h.decode(bytes([0xFF, 0x03, 0x00, 0x00, 0, 255, 255, 255, 128, 128, 0x18, 0x00]))  # full right, full fwd, full thr
     assert h.roll > 0.99 and h.pitch < -0.99 and h.throttle == 1 and h.yaw > 0.99 and h.trigger
+    h.decode(bytes([0x00, 0x02, 0x00, 0x02, 255, 128, 255, 255, 128, 128, 0x28, 0x01]))  # buttons 2 and 5
+    assert h.buttons == 0b10010 and not h.trigger
     print("hotas_hid selftest ok")
 
 

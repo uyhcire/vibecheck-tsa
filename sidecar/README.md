@@ -45,6 +45,16 @@ On a crash it prints why, writes the aircraft's velocity into X-Plane with a har
 
 X-Plane's own downtown is procedural autogen and does not match the footprints, so `build_xplane_scenery.py` writes a custom scenery pack, `Custom Scenery/OSM Obstacles - SF Downtown`, straight from `sf_buildings.json`: each polygon becomes a facade extruded to its height, and X-Plane's objects, facades, autogen, forests, draped polygons and strings are excluded inside the obstacle box. What X-Plane draws there is then exactly what the sidecar can crash into. The script encodes the DSF tile itself (no DSFTool); rebuild it after refreshing the JSON and restart X-Plane. The downtown scenario is aimed at the Salesforce Tower: hands off, you hit it.
 
+## Backup CBF guard (`--filter bcbf`)
+
+`--filter bcbf` puts the `bcbf-city-flight` backup control barrier function between the stick and JSBSim. `flight/src/bin/filterd.rs` runs the crate's fly-by-wire pilot and filter as a line protocol; `sidecar/bcbf.py` converts the JSBSim state into the crate's map frame (`flight/data/sf/geo.py`), sends the sticks, and turns the returned load-factor / roll-rate / throttle demand into elevator, aileron and throttle with two PI loops. Build the bridge once: `cd flight && cargo build --release --no-default-features --bin filterd`.
+
+- HOTAS button 2 toggles the filter in flight (`--toggle-button`, `--filter-on` to start active); button 3 toggles the crate's kamikaze autopilot (`--kamikaze-button`), which dives at the nearest tall building.
+- The status line shows `cbf ON/off`, the filter mode (free, BLEND, COMMIT), the barrier `h` (clearance of the best escape) and the true clearance from the crate's world.
+- The obstacle set is the crate's `flight/data/sf/sf_world.bin` (41,000 convex prisms, terrain, Bay Bridge, viaducts). `build_xplane_scenery.py --world flight/data/sf/sf_world.bin` renders exactly that in X-Plane. The flight ends when the crate's true clearance goes negative.
+- The filter predicts with the crate's point-mass model, not JSBSim. Its Phase 3 margins (`robust`, the default; `--nominal` in `filterd` turns them off) exist for that mismatch, but the crate's guarantee does not transfer. Measured here, hands off with the kamikaze autopilot: filter off crashes in 12 s; filter on survived 125 s with a 3 m minimum clearance.
+- The downtown scenario starts inside the crate's 6 km map (`x = 2700 m`), 1.1 NM east of downtown.
+
 ## Which JSBSim model
 
 X-Plane's SR22: 2300 lb empty, 3600 lb max, 310 hp injected piston, constant-speed prop, low wing, fixed gear, Vne 205 kt. On paper JSBSim 1.3.3's **c182** (230 hp, constant-speed prop, 2950 lb) is the closest stock single. On the ground it is not usable from a stick: with zero rudder it swings 150° left under takeoff power, and the pa28 spins. The **c172p** (160 hp, the model `Jsb/` ports to Lean) rolls straight and lifts off at ~65 kt, so it is the default. Pick another with `--model`. An "sr22ish" copy of `c182.xml` with the SR22's engine, weights and 144.9 ft² wing, plus a tamer nosewheel, is the next step.

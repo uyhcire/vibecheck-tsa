@@ -145,8 +145,8 @@ def hit_obstacle(lat, lon, agl_m):
 SCENARIOS = {
     "final-kpao31": dict(lat=37.4189, lon=-122.0735, hdg=322.0, alt_ft=1000.0, kts=75.0, gamma=-3.0, flaps=0.33,
                          terrain_ft=7.0, note="3 NM final to Palo Alto runway 31, flaps 10, on a 3 deg slope"),
-    "sf-downtown": dict(lat=37.7920, lon=-122.3650, hdg=265.0, alt_ft=600.0, kts=100.0, gamma=0.0, flaps=0.0,
-                        terrain_ft=0.0, note="over the Bay 2 NM east of downtown San Francisco, pointed at the Salesforce Tower at 600 ft"),
+    "sf-downtown": dict(lat=37.792049, lon=-122.374326, hdg=262.0, alt_ft=600.0, kts=100.0, gamma=0.0, flaps=0.0,
+                        terrain_ft=0.0, note="over the Bay 1.1 NM east of downtown San Francisco, pointed at the Salesforce Tower at 600 ft"),
 }
 
 
@@ -260,6 +260,12 @@ def main():
                     help="start here on the ground instead of where X-Plane's aircraft is (e.g. KPAO rwy 13: "
                          "37.46358,-122.11749,142,2)")
     ap.add_argument("--scenario", choices=sorted(SCENARIOS), help="airborne start: " + "; ".join(f"{k}: {v['note']}" for k, v in SCENARIOS.items()))
+    ap.add_argument("--filter", choices=["none", "bcbf"], default="none",
+                    help="bcbf: guard the pilot with the bcbf-city-flight backup CBF (flight/target/release/filterd)")
+    ap.add_argument("--filter-on", action="store_true", help="start with the filter active")
+    ap.add_argument("--toggle-button", type=int, default=2, help="HOTAS button that toggles the filter (1 = trigger)")
+    ap.add_argument("--kamikaze-button", type=int, default=3, help="HOTAS button that toggles the kamikaze autopilot")
+    ap.add_argument("--kamikaze", action="store_true", help="start with the kamikaze autopilot flying (tests)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -284,12 +290,20 @@ def main():
         print(f"X-Plane aircraft at {lat:.5f} {lon:.5f}  {ele:.0f} m MSL  hdg {psi:.0f}  agl {agl:.1f} m")
     else:
         lat, lon, ele, psi, agl = 37.46358, -122.11749, 2.0, 142.0, 0.0   # KPAO runway 13
+    bcbf = None
+    if args.filter == "bcbf":
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir
+        from bcbf import Bcbf
+        bcbf = Bcbf()
+        bcbf_on = args.filter_on
+        kamikaze = args.kamikaze
+        print(f"backup CBF loaded; button {args.toggle_button} toggles it (starts {'ON' if bcbf_on else 'off'})")
     buildings = Buildings()
     print(f"{len(buildings.items)} building footprints loaded" if buildings.items else "no sf_buildings.json: landmark towers only")
     hotas = None
     trim_thr = 0.0
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir
     if args.pilot == "hid":
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir
         from hotas_hid import Hotas
         hotas = Hotas()
 
@@ -352,6 +366,7 @@ def main():
     if args.viewer == "xplane":
         sock.sendto(dref_set("sim/operation/override/override_engines", 1.0), xp)  # lets ENGN_tacrad stick
     frame = 1.0 / args.hz
+    last_buttons = 0
     next_t = time.monotonic()
     last_print = 0.0
     try:
@@ -366,10 +381,23 @@ def main():
             pitch, roll, yaw = deadzone(pitch, 0.1), deadzone(roll, 0.1), deadzone(yaw, 0.15)
             if fdm["gear/unit/WOW"]:
                 yaw *= 0.5   # ponytail: nosewheel gain; a twist grip at taxi speed loops the plane otherwise
-            fdm["fcs/elevator-cmd-norm"] = -pitch   # X-Plane +1 = stick back, JSBSim +1 = elevator down
-            fdm["fcs/aileron-cmd-norm"] = roll
-            fdm["fcs/rudder-cmd-norm"] = -yaw   # twist right must yaw right; JSBSim's sign is the other way
-            fdm["fcs/throttle-cmd-norm"] = thr
+            if bcbf:
+                pressed = hotas.buttons if hotas else 0
+                if pressed & ~last_buttons & (1 << (args.toggle_button - 1)):
+                    bcbf_on = not bcbf_on
+                    print(f"\n*** BACKUP CBF {'ON' if bcbf_on else 'OFF'} ***", flush=True)
+                if pressed & ~last_buttons & (1 << (args.kamikaze_button - 1)):
+                    kamikaze = not kamikaze
+                    print(f"\n*** KAMIKAZE AUTOPILOT {'ON' if kamikaze else 'OFF'} ***", flush=True)
+                last_buttons = pressed
+                el, ai, th = bcbf.tick(fdm, pitch, roll, thr, bcbf_on, frame, kamikaze)
+                fdm["fcs/elevator-cmd-norm"], fdm["fcs/aileron-cmd-norm"], fdm["fcs/throttle-cmd-norm"] = el, ai, th
+                fdm["fcs/rudder-cmd-norm"] = -yaw
+            else:
+                fdm["fcs/elevator-cmd-norm"] = -pitch   # X-Plane +1 = stick back, JSBSim +1 = elevator down
+                fdm["fcs/aileron-cmd-norm"] = roll
+                fdm["fcs/rudder-cmd-norm"] = -yaw   # twist right must yaw right; JSBSim's sign is the other way
+                fdm["fcs/throttle-cmd-norm"] = thr
             for _ in range(sub):
                 fdm.run()
             if args.viewer == "xplane":
@@ -380,6 +408,8 @@ def main():
                     sock.sendto(pk, xp)
                 sock.sendto(dref_set("sim/cockpit2/engine/actuators/throttle_ratio[0]", thr), xp)  # cockpit lever
             why = crashed(fdm, vals, AGL, ELE, args.viewer == "xplane", buildings)
+            if bcbf and bcbf.clear < 0 and not why:
+                why = "hit the city (bcbf world)"
             if why:
                 print(f"\nCRASHED: {why} at {fdm['velocities/vc-kts']:.0f} kt")
                 if args.viewer == "xplane":
@@ -395,6 +425,7 @@ def main():
                       f"{100 * fdm['propulsion/engine/power-hp'] / RATED_HP.get(args.model, 160):3.0f}%  "
                       f"hdg {fdm['attitude/psi-deg']:3.0f}  thr {thr:.2f} stick {pitch:+.2f} roll {roll:+.2f} "
                       f"yaw {yaw:+.2f} wow {fdm['gear/unit/WOW']:.0f}"
+                      + (f"  {bcbf.status()}" if bcbf else "")
                       + (f"  near: {nb[0]} {nb[1]:.0f} m, {nb[2]:.0f} m tall" if (nb := buildings.nearest(
                           fdm["position/lat-geod-deg"], fdm["position/long-gc-deg"])) and nb[1] < 400 else ""), flush=True)
             next_t += frame
@@ -402,6 +433,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if bcbf:
+            bcbf.close()
         if args.viewer == "xplane":
             for i in range(len(PILOT)):
                 sock.sendto(rref_request(pilot_base + i, PILOT[i], 0), xp)

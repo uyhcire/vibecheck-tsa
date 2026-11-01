@@ -5,9 +5,11 @@ buildings, autogen and forests are excluded inside the obstacle box, so what X-P
 there is the JSON and nothing else. Writes the DSF tile directly (no DSFTool needed).
 
 usage: python3 -I sidecar/build_xplane_scenery.py [--xplane ~/X-Plane-12] [--buildings sidecar/sf_buildings.json]
+       python3 -I sidecar/build_xplane_scenery.py --world flight/data/sf/sf_world.bin   # the bcbf filter's own city
 """
 import argparse
 import hashlib
+import sys
 import json
 import os
 import struct
@@ -118,13 +120,62 @@ LOD 0.000000 30000.000000
 """
 
 
+def read_sf_world(path):
+    """The bcbf crate's collision world (flight/data/sf/sf_world.bin) as the same building list
+    build_dsf takes: name, height above the crate's terrain, polygon in lat/lon."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+    from bcbf import from_local
+    b = open(path, "rb").read()
+    assert b[:4] == b"SFW1" and struct.unpack_from("<I", b, 4)[0] == 1
+    lon0, lat0, e0, n0, half = struct.unpack_from("<5d", b, 8)
+    tn, tsp = struct.unpack_from("<If", b, 48)
+    off = 56
+    terr = struct.unpack_from(f"<{tn * tn}f", b, off)
+    off += 4 * tn * tn
+
+    def ground(x, y):   # bilinear on the tn x tn grid, rows south -> north
+        fx, fy = (x + half) / tsp, (y + half) / tsp
+        i, j = int(max(0, min(tn - 2, fx))), int(max(0, min(tn - 2, fy)))
+        u, v = max(0.0, min(1.0, fx - i)), max(0.0, min(1.0, fy - j))
+        z00, z10, z01, z11 = terr[j * tn + i], terr[j * tn + i + 1], terr[(j + 1) * tn + i], terr[(j + 1) * tn + i + 1]
+        return (z00 * (1 - u) + z10 * u) * (1 - v) + (z01 * (1 - u) + z11 * u) * v
+
+    n = struct.unpack_from("<I", b, off)[0]
+    off += 4
+    out = []
+    for _ in range(n):
+        z0, z1, kind, nv, _pad, group = struct.unpack_from("<ffBBHI", b, off)
+        off += 16
+        pts = struct.unpack_from(f"<{2 * nv}f", b, off)
+        off += 8 * nv
+        xy = list(zip(pts[0::2], pts[1::2]))
+        cx, cy = sum(q[0] for q in xy) / nv, sum(q[1] for q in xy) / nv
+        h = z1 - ground(cx, cy)
+        if h < 2.0 or nv < 3:
+            continue
+        poly = []
+        for x, y in xy:
+            lon, lat = from_local(x, y)
+            poly.append([lat, lon])
+        out.append({"name": f"{('building', 'bridge', 'viaduct', 'bridge tower')[kind] if kind < 4 else kind} {group}",
+                    "height_m": h, "polygon": poly})
+    s, w = from_local(-half, -half)[1], from_local(-half, -half)[0]
+    nn, e = from_local(half, half)[1], from_local(half, half)[0]
+    return out, [s, w, nn, e]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--xplane", default=os.path.expanduser("~/X-Plane-12"))
     ap.add_argument("--buildings", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "sf_buildings.json"))
+    ap.add_argument("--world", help="build from the bcbf crate's sf_world.bin instead of the JSON")
     args = ap.parse_args()
-    data = json.load(open(args.buildings))
-    bbox = [float(x) for x in data["bbox"].split(",")]
+    if args.world:
+        blds, bbox = read_sf_world(args.world)
+        data = {"buildings": blds}
+    else:
+        data = json.load(open(args.buildings))
+        bbox = [float(x) for x in data["bbox"].split(",")]
     root = os.path.join(args.xplane, "Custom Scenery", PACK)
     os.makedirs(os.path.join(root, "Earth nav data", "+30-130"), exist_ok=True)
     os.makedirs(os.path.join(root, "facades"), exist_ok=True)
