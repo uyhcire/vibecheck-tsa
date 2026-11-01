@@ -215,8 +215,8 @@ def crashed(fdm, vals, AGL, ELE, have_xplane, buildings):
     if name:
         return f"hit the {name}"
     vdown_fps = fdm["velocities/v-down-fps"]
-    if have_xplane and agl_m < 0.0 and fdm["velocities/vc-kts"] > 20:
-        return "flew into the terrain"
+    if have_xplane and agl_m < -2.0 and fdm["velocities/vc-kts"] > 20 and not fdm["gear/unit/WOW"]:
+        return "flew into the terrain"   # 2 m slack: X-Plane's runway and JSBSim's flat terrain differ by that much
     if fdm["gear/unit/WOW"] and vdown_fps > 10.0:
         return f"hit the ground at {vdown_fps * 60:.0f} ft/min"
     return None
@@ -376,8 +376,14 @@ def main():
         sock.sendto(rref_request(ELE, "sim/flightmodel/position/elevation", 20), xp)
     print(f"flying {args.model} under JSBSim at {args.hz} Hz; Ctrl-C hands X-Plane its physics back")
 
+    def overrides():
+        # VEHX implies a plane-path override, but X-Plane drops it if a flight (re)loads after we start; assert it
+        # explicitly and once a second, or X-Plane's own physics shows through between our frames (flicker).
+        sock.sendto(dref_set("sim/operation/override/override_planepath[0]", 1.0), xp)
+        sock.sendto(dref_set("sim/operation/override/override_engines", 1.0), xp)   # lets ENGN_tacrad stick
+
     if args.viewer == "xplane":
-        sock.sendto(dref_set("sim/operation/override/override_engines", 1.0), xp)  # lets ENGN_tacrad stick
+        overrides()
         if args.daytime:
             sock.sendto(dref_set("sim/time/use_system_time", 0.0), xp)
             sock.sendto(dref_set("sim/time/zulu_time_sec", 72000.0), xp)   # 20:00Z = noon PDT
@@ -436,6 +442,8 @@ def main():
             now = time.monotonic()
             if now - last_print >= 1.0:
                 last_print = now
+                if args.viewer == "xplane":
+                    overrides()
                 print(f"t={fdm.get_sim_time():6.1f}s  {fdm['velocities/vc-kts']:5.1f} kt  "
                       f"{fdm['position/h-agl-ft']:6.0f} ft AGL  pitch {fdm['attitude/theta-deg']:5.1f}  "
                       f"roll {fdm['attitude/phi-deg']:5.1f}  rpm {fdm['propulsion/engine/engine-rpm']:4.0f}  "
