@@ -416,7 +416,7 @@ def main():
                 last_buttons = pressed
                 el, ai, th = bcbf.tick(fdm, pitch, roll, thr, bcbf_on, frame, kamikaze, args.hostile)
                 fdm["fcs/elevator-cmd-norm"], fdm["fcs/aileron-cmd-norm"], fdm["fcs/throttle-cmd-norm"] = el, ai, th
-                fdm["fcs/rudder-cmd-norm"] = -yaw
+                fdm["fcs/rudder-cmd-norm"] = -yaw * getattr(bcbf, "rudder_gain", 1.0)
             else:
                 fdm["fcs/elevator-cmd-norm"] = -pitch   # X-Plane +1 = stick back, JSBSim +1 = elevator down
                 fdm["fcs/aileron-cmd-norm"] = roll

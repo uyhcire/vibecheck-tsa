@@ -73,18 +73,26 @@ X-Plane's own downtown is procedural autogen and does not match the footprints, 
 
 `final-kpao31-2nm` puts you 2 NM out on the 3 deg slope to KPAO runway 31 at 80 kt, flaps 20. The filter
 (`sidecar/approach_cbf.py`) keeps you inside a cone fixed to the runway 31 threshold (apex 50 ft above it,
-standard threshold crossing height): elevation angle 2 to 4 deg, lateral angle within 3 deg (never tighter
-than 5 m), and a speed band of 80 +/-10 KIAS on final that slides to 75 +/-5 at the threshold and 65 +/-5
-over the runway. Inside the cone and the band your inputs pass through unchanged; at an edge the filter
-clamps the load factor, bank/roll rate or throttle (status line shows `[n+ p- thr+]`). The stick commands
-load factor (centre = hold the flight path) and bank angle (centre = wings level).
+standard threshold crossing height) and a speed band. **The pilot's authority shrinks with distance**: beyond
+1.6 NM the cone is 2-4 deg in elevation and +/-3 deg laterally with a 30 deg bank limit and full rudder; from
+there to 0.3 NM it narrows linearly to 2.5-3 deg and +/-1 deg (never thinner than +/-3 m vertically or 3 m
+laterally), 10 deg of bank and 30 % rudder, and stays there to the threshold. The speed band is 80 +/-10 KIAS
+on final, sliding to 75 +/-5 at the threshold and 65 +/-5 over the runway until the wheels touch. Inside the
+set your inputs pass through unchanged; at an edge the filter clamps load factor, roll rate or throttle (the
+status line shows `[n+ p- thr+]` and the current tolerances). The stick commands load factor (centre = hold
+the flight path) and bank angle (centre = wings level).
 
-From 0.3 NM the upper wall of the cone switches off and the **flare barrier** takes over: the sink rate may
-not exceed 180 ft/min plus 0.12 per second of wheel height, so the round-out is exponential and the wheels
-touch at about 180 ft/min. The lower wall stays on to the threshold, so you cannot land short; the speed band
-stays on until the wheels touch. Hands off with the lever at idle, it lands itself 300 m past the threshold
-at 60-69 kt. The same stick button toggles it. `--selftest` flies a hands-off and a hostile (nose-down,
-left, idle) pilot headless to touchdown and checks the cone, the band, the sink rate and the centreline.
+Each bound is a closed-form exponential CBF: load factor for the vertical walls (relative degree 2), roll
+rate for the lateral walls (degree 3) and the bank limit (degree 1), throttle for speed (degree 2 through the
+engine spool-up, with the load factor taking over when the throttle saturates, never below a floor).
+
+**Flare.** Inside 0.3 NM climbing is barred and the sink rate may not exceed 180 ft/min plus 0.12 per second
+of wheel height, so the round-out is exponential and the wheels touch at about 150-250 ft/min; the cone's
+floor holds to the threshold, so a dive cannot land short; over the runway the sink must be at least 85 % of
+that limit, so a float cannot last. Hands off at idle it lands itself about 300 m past the threshold.
+`--selftest` flies a hands-off pilot, a hostile one (nose-down, left, idle) and a floating one (full back
+stick, right roll, full power, rudder) headless to touchdown: all three land on the runway, on speed, within
+3 m of the centreline. The same stick button toggles the filter.
 
 ## Which JSBSim model
 
