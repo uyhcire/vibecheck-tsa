@@ -43,6 +43,8 @@ cargo run --release --no-default-features --features jsb --bin jsbtune          
 
 ### Exact-rollout gatekeeper (`--env gate`)
 
+Proof status (nothing about this filter is proved yet; what is exact and what is numerical): `../docs/gate-proof-status.md`.
+
 `src/envfilter.rs` predicts with the plant itself: each check forks the JSBSim aircraft and flies an escape
 law on the copy, frame by frame, so a committed escape flies exactly the frames that were checked.
 

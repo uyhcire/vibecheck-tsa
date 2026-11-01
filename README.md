@@ -164,6 +164,8 @@ differs from the first frame, by at most 4e-9 ft in position and 2e-12 ft/s in b
 
 ## libgate: the gatekeeper filter for a host running JSBSim
 
+Integration guide: `docs/xplane-integration.md`. What is and is not proved about the gate: `docs/gate-proof-status.md`.
+
 `gate/` packages the gatekeeper filter of `flight/src/envfilter.rs` as a C library for a host that flies the
 c172p in JSBSim 1.3.3 itself. Each tick the host passes its JSBSim state dump (`jsbx::export_state`) and the
 pilot's command; `gate_tick` imports the state into `JsbExact`, checks the pilot's command for one tick followed
