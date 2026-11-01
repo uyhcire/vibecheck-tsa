@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -84,6 +84,14 @@ fly-off:
 showcase:
 	$(MAKE) fly ARGS="--showcase --cinematic --paths $(ARGS)"
 
+# Fly while sampling the process (macOS `sample`) and logging tick times, for later analysis: results in OUT.
+profile:
+	lake build $(LAKE_OPTS) libcityjsb
+	cd flight && cargo build --release --features jsb --bin cityflight
+	Tools/profile-fly.sh $(OUT) $(FILTER) $(ARGS)
+profile-lean:
+	$(MAKE) profile FILTER=exact-rollout-lean OUT=/tmp/profile-lean
+
 # Headless crash test: N hostile episodes plus the kamikaze scenarios, results in OUT.
 crashes:
 	$(CITY) $(CARGO_HEADLESS) crashes -- $(OUT) $(N) --safety-filter $(FILTER) $(ARGS)
@@ -117,7 +125,7 @@ pdf:
 	cd docs && tectonic termsound-proof.tex
 
 help:
-	@echo "Fly:      make fly | fly-lean | fly-off | showcase   (FILTER=..., ARGS=\"...\")"
+	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | test   (N=..., OUT=...)"
 	@echo "Proofs:   make verify | proofs"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
