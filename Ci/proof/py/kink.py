@@ -2,7 +2,8 @@
 import numpy as np, sample as sm, os
 from sample import *
 sm.GsN = np.load("GsN_fit.npy")
-X = sm.sample(16000, 6.0, 0.0); img, *_ = ticks(X)
+import os; RR = float(os.environ.get("RR", "6.0"))
+X = sm.sample(16000, RR, 0.0); img, *_ = ticks(X)
 H = img[:,1]/65536; E = np.array([coords(xi)[2] for xi in img])     # signed residuals, STEP units
 K = []; TK = []; TP = []
 floor = np.array([0.05,0.1,0.5,0.1,0.5,0.05,0.1,0.5,0.02,0.02,0.02]) * 0.5

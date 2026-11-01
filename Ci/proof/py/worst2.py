@@ -1,7 +1,7 @@
 """Adversarial search against the Lean T v3: hill-climb (V'/r^2, fast'/tol), exits score +10."""
 import numpy as np, sys, kinv
 from kinv import *
-R = 6.0; SAFE = 1.1
+import os; R = float(os.environ.get("RR", "6.0")); SAFE = float(os.environ.get("SAFE", "1.25"))
 rng2 = np.random.default_rng(int(sys.argv[1]))
 HLO, HHI = float(sys.argv[2]), float(sys.argv[3])
 def fc(x):

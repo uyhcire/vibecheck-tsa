@@ -1,5 +1,6 @@
 import Ci.proof.Sub
 import Ci.proof.TData
+import Jsb.Conformance
 
 /-! ci-proof terminal set: a neighbourhood of the law's climb manifold. At altitude h the centre `c(h)` is the
 manifold state (table at 10 m spacing, linear interpolation). With `d` the deviation of the 7 slow coordinates
@@ -10,7 +11,9 @@ manifold state (table at 10 m spacing, linear interpolation). With `d` the devia
   `e` from `c(h) + G(h) d` has a component along a kink direction `k(h)` bounded by `τk(h)` (this covers the
   breakpoints of the piecewise-linear lift and drag tables, which the linear slaving cannot follow), and the rest of
   `e` bounded componentwise by `τ⊥(h)`;
-* 10 m ≤ h ≤ 2640 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive).
+* 10 m ≤ h ≤ 2640 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
+* the state and `eI` inside the bounding box of the above over the state's 50 m altitude cell (`boxOk`); redundant
+  by construction, it lets the one-tick safety proof work on boxes.
 
 All arithmetic is on integers: table lookups, two 7×7 quadratic forms, two 10×7 products and a few dot products. -/
 
@@ -46,7 +49,8 @@ def gmul (G : Array (Array Int)) (d : Array Int) (k : Nat) : Int := Id.run do
   return acc
 
 open TData in
-def inT (p : State × Mem) : Bool := Id.run do
+/-- The conditions above other than the cell box. -/
+def restOk (p : State × Mem) : Bool := Id.run do
   let s := p.1
   let m := p.2
   let h := s.h.raw
@@ -85,6 +89,31 @@ def inT (p : State × Mem) : Bool := Id.run do
     let t := lerp (tpTab[j]!)[k]! (tpTab[j + 1]!)[k]! fP spanP
     if !(-t ≤ perp && perp ≤ t) then ok := false
   return ok
+
+instance (I : Iv) (x : Fx) : Decidable (I.Mem x) := by cases I <;> unfold Iv.Mem <;> infer_instance
+instance (S : StateOf Iv) (s : StateOf Fx) : Decidable (S.Mem s) := by unfold StateOf.Mem; infer_instance
+instance (B : CLOf Iv) (c : CLOf Fx) : Decidable (B.Mem c) := by unfold CLOf.Mem; infer_instance
+
+/-- Width of the altitude cells of `TData.boxTab`. -/
+def cellSpan : Int := 50 * 65536
+
+/-- Cell of altitude `h` (raw). -/
+def cellIdx (h : Int) : Nat := ((h - hLoT) / cellSpan).toNat
+
+/-- Box `i` of `TData.boxTab` as an interval state (x unconstrained); the 20th coordinate is the memory `eI`. -/
+def cellBox (i : Nat) : CLOf Iv :=
+  let b := TData.boxTab[i]!
+  let f (k : Nat) : Iv := .box b[k]! b[19 + k]!
+  ⟨⟨.top, f 1, f 2, f 3, f 4, f 5, f 6, f 7, f 8, f 9, f 10, f 11, f 12, f 13, f 14, f 15, f 16, f 17, f 18⟩,
+   .box b[38]! b[39]!⟩
+
+/-- The state and memory as a point of `cellBox`'s space. -/
+def pt (p : State × Mem) : CLOf Fx := ⟨p.1, ⟨p.2.eI⟩⟩
+
+def boxOk (p : State × Mem) : Bool := decide ((cellBox (cellIdx p.1.h.raw)).Mem (pt p))
+
+/-- The terminal set: the cell box (redundant, for the safety proof) and the conditions above. -/
+def inT (p : State × Mem) : Bool := boxOk p && restOk p
 
 /-- The ci-proof law with the climb-manifold terminal set. -/
 def lawT : Ci.Law :=

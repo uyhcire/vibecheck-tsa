@@ -19,7 +19,7 @@ GK = 20
 gsel = [k for k, g in enumerate(gidx) if g != 20]
 Gint = [[[int(round(GN[n][k][j] * Sg[k] / Sy[j] * 2**GK)) for j in range(7)] for k in gsel] for n in range(len(HN))]
 kN = np.load("kN.npy"); tkN = np.load("tkN.npy"); tpN = np.load("tpN.npy")
-SAFE = 1.1   # margin on the fixed-point tolerances
+SAFE = float(os.environ.get("SAFE", "1.25"))   # margin on the fixed-point tolerances
 kr = [[int(round(kN[n][k] / Sg[k] * 2**30)) for k in gsel] for n in range(len(HN))]
 kb = [[int(round(kN[n][k] * Sg[k] * 2**20)) for k in gsel] for n in range(len(HN))]
 tk = [int(round(tkN[n] * SAFE * 2**30)) for n in range(len(HN))]
@@ -42,6 +42,13 @@ out.append("/-- Kink direction of the fast residual (per raw unit, scaled 2^30) 
 out.append("/-- The same direction in raw units per unit of the kink coordinate, scaled 2^20. -/\ndef kbTab : Array (Array Int) := #[" + ", ".join(arr(t) for t in kb) + "]\n")
 out.append("/-- Bound on the kink coordinate (scaled 2^30). -/\ndef tkTab : Array Int := " + arr(tk) + "\n")
 out.append("/-- Bounds (raw) on the fast residual after removing the kink component. -/\ndef tpTab : Array (Array Int) := #[" + ", ".join(arr(t) for t in tp) + "]\n")
+import boxes3
+cellsBox = []
+for a in np.arange(10, 2660, 50):
+    lo, hi, d = boxes3.cellbox(a, a + 50)
+    cellsBox.append([int(v) for v in list(lo) + list(hi)] + [d[4], d[5]])
+for n, b in enumerate(cellsBox): out.append(f"def b{n} : Array Int := {arr(b)}")
+out.append("/-- Bounding box of the set in each 50 m altitude cell from 10 m: 19 lows, 19 highs (x unused), then the\nintegrator memory eI's low and high. Redundant with the conditions above by construction (padded); it lets the\none-tick safety proof work on boxes. -/\ndef boxTab : Array (Array Int) := #[" + ", ".join(f"b{n}" for n in range(len(cellsBox))) + "]\n")
 out.append(f"/-- Radius² of the slow ellipsoid, scaled by 2^{K}. -/\ndef r2 : Int := {int(round(R*R*2**K))}\n")
 out.append("end Ci.Proof.TData\n")
 open("../TData.lean", "w").write("\n".join(out))

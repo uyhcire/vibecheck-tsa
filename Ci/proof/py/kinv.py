@@ -6,7 +6,7 @@ kN = np.load("kN.npy"); tkN = np.load("tkN.npy"); tpN = np.load("tpN.npy")
 def kat(h): k = sm.interpN(kN, h).copy(); k[10] = 0; return k / np.linalg.norm(k)
 def tkat(h): return sm.interpN(tkN, h)
 def tpat(h): return sm.interpN(tpN, h)
-R = 6.0
+R = float(os.environ.get("RR", "6.0"))
 rng = np.random.default_rng(int(sys.argv[2]) if len(sys.argv) > 2 else 1)
 def ksample(n, r=R, fl=1.0, fp=1.0, hlo=10, hhi=2635):
     pts = []
