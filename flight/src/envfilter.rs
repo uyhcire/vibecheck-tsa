@@ -808,6 +808,10 @@ pub const RESUME_TICKS: u64 = 100;
 /// Frames a resumed escape (one already flying, `Law::t > 0`) may use in a check: past the first terminal
 /// tests (6 s, then every 0.5 s), so a resumed escape that does not settle again leaves budget for fresh ones.
 pub const RESUME_CAP: usize = 1100;
+/// Hysteresis: a commit holds at least this many ticks (1 s) before a hand-back is checked, and hands back
+/// only to a candidate whose escape keeps `MARGIN + HANDBACK_EXTRA` (m) at every sample.
+pub const HOLD_TICKS: u64 = 50;
+pub const HANDBACK_EXTRA: f64 = 3.0;
 
 /// Result of `verify_first`: the first candidate that verified (its index and rollout), the outcome of every
 /// rollout tried (escape, outcome), the JSBSim frames spent, and the last rollout that failed (for display).
@@ -1027,7 +1031,17 @@ impl Gate {
         let deadline = (cap > 0).then(|| w0 + std::time::Duration::from_millis(cap as u64));
         let laws = self.candidate_laws(&plant.obs);
         let cands: Vec<(&JsbPlant, Law)> = laws.iter().map(|&l| (&cand, l)).collect();
-        let v = verify_first(world, &cands, f0, deadline);
+        // Hysteresis (proposal logic: staying committed is always safe): no hand-back check during the hold,
+        // and after it a hand-back only with `HANDBACK_EXTRA` of spare clearance.
+        let committed = self.law.is_some();
+        let mut v = if committed && self.run_len < HOLD_TICKS {
+            Verdict { found: None, tried: Vec::new(), frames: f0, last: None }
+        } else {
+            verify_first(world, &cands, f0, deadline)
+        };
+        if committed && v.found.as_ref().is_some_and(|(_, r)| r.min_clear < MARGIN + HANDBACK_EXTRA) {
+            v.last = v.found.take().map(|(_, r)| r);
+        }
         let n = n_esc();
         for &(esc, out) in &v.tried {
             self.outcomes[esc][out as usize] += 1;
