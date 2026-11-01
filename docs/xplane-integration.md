@@ -53,7 +53,8 @@ gate_config cfg = {GATE_ABI_VERSION, sizeof cfg,
                    NULL,            // map_path: reserved, must be NULL
                    lat0, lon0,      // origin_lat_deg, origin_lon_deg: the point that is map (0, 0)
                    0.0,             // origin_alt_m: the altitude above sea level that is map height 0
-                   GATE_PILOT_SURFACES, 3 /* tick_frames */, 0 /* budget_frames */, 0 /* time_cap_ms */};
+                   GATE_PILOT_SURFACES, 3 /* tick_frames */, 0 /* budget_frames */, 0 /* time_cap_ms */,
+                   0);              // fuel_drain: 0 = the host's JSBSim has propulsion/fuel_freeze = 1 (see Exactness)
 int err;
 gate *g = gate_new(&cfg, &err);          // builds the map (about a second)
 
@@ -153,6 +154,11 @@ The filter's predictions are exact only if the host's JSBSim computes what `JsbE
   for bit (`jsbx/replay_pip.py`).
 - The **c172p** files that ship with that version.
 - A **1/128 s** frame (`fdm.Setdt(1.0 / 128)`). `JsbExact` steps only at that rate.
+- **Infinite fuel**: `propulsion/fuel_freeze` set to 1 after the model is initialised
+  (`fdm.SetPropertyValue("propulsion/fuel_freeze", 1)`). The safety theorem is about the aircraft with infinite fuel,
+  and `gate_config.fuel_drain = 0` (the default) makes the filter import and roll out with fuel freeze as well. A host
+  that keeps fuel burning sets `fuel_drain = 1` instead. The two settings must agree: with a mismatch the rollouts are
+  not the host's future (the tank, and so the mass, differ from the first frame on).
 - Mixture 0.9 and brakes off (the filter's simulated frames use those).
 - Flaps retracted: `JsbExact` has no flap kinematics.
 - No gusts or turbulence. A constant wind is carried in the state and predicted; a changing one is not.
@@ -168,9 +174,13 @@ relative differences, and the first frame they differ:
 ```sh
 lake build jsbdrift && .lake/build/bin/jsbdrift /path/to/log            # log.names + log.bin
 .lake/build/bin/jsbdrift /path/to/log --horizon 2048                     # re-import every 16 s, as the filter does
+.lake/build/bin/jsbdrift /path/to/log --freeze                           # log from a host with propulsion/fuel_freeze = 1
 ```
 
-`jsbx/drift_host.cpp` is an example host. Reference results: the reference build reproduces 120 s of varied flight
+Run the drift check in the mode the host flies: `--freeze` for a host with `propulsion/fuel_freeze` set to 1 (the
+setting that matches `fuel_drain = 0`), no flag for a host that burns fuel (`fuel_drain = 1`). `jsbx/drift_host.cpp`
+takes `freeze` as its fifth argument to write a log in the first mode. With the mode mismatched, the tank fields
+differ on every frame. `jsbx/drift_host.cpp` is an example host. Reference results: the reference build reproduces 120 s of varied flight
 bit for bit; a JSBSim built with `-ffp-contract=off` differs from the first frame, by at most 4e-9 ft in position
 over the same 120 s.
 

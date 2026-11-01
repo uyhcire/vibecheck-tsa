@@ -1578,6 +1578,8 @@ async fn main() {
     let shot = arg("--shot");
     let shot_frames: u32 = arg("--frames").and_then(|s| s.parse().ok()).unwrap_or(90);
     #[cfg(feature = "jsb")]
+    cityflight::jsb::parse_fuel_args(&args);
+    #[cfg(feature = "jsb")]
     if args.iter().any(|a| a == "--jsb") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -1609,6 +1611,8 @@ async fn main() {
     if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
         if f == "exact-rollout-lean" {
+            // The Lean gate rolls out with fuel freeze (CityGate.Plane.step); a burning flown plant would not match it.
+            assert!(cityflight::jsb::fuel_freeze_default(), "--fuel-drain does not combine with exact-rollout-lean (the Lean gate always rolls out with fuel freeze)");
             cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse(&f), std::sync::atomic::Ordering::Relaxed);

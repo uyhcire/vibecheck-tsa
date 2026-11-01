@@ -156,6 +156,7 @@ fn main() {
     let out = args[0].clone();
     let filt = envfilter::parse(&args[1]);
     let trials: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(400);
+    cityflight::jsb::parse_fuel_args(&args);
     cityflight::jsb::JSB_PLANT.store(true, Ordering::Relaxed);
     if let Some(l) = args.iter().position(|a| a == "--law").and_then(|i| args.get(i + 1)) {
         envfilter::LAW_SEL.store(envfilter::parse_law(l), std::sync::atomic::Ordering::Relaxed);

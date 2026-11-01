@@ -59,6 +59,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let what = args.first().map_or("all", |s| s.as_str());
     let world = World::new(1337);
+    cityflight::jsb::parse_fuel_args(&args);
     cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse("exact-rollout"), std::sync::atomic::Ordering::Relaxed);
     match what {

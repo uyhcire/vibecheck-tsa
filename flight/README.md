@@ -79,6 +79,14 @@ load-factor / roll-rate / throttle commands into elevator, aileron, rudder and t
 angle-of-attack protection. The filter still predicts with the point-mass model, so this measures it under
 model mismatch; wind and the `M` mismatch toggle do not affect the JSBSim aircraft.
 
+**Fuel.** Every mode that flies the JSBSim aircraft (`--jsb`, `--safety-filter exact-rollout`, the `crashes`, `adversary`, `esclab`, `regimes`, `harness`, `drawstep` and `jsbtune` bins) flies with infinite fuel
+by default: JSBSim's `propulsion/fuel_freeze` is on, mirroring the safety spec's assumption (`../docs/safety-objective.md`,
+`CitySafety.specStep`). The flown aircraft and every rollout fork step the same setting; it is chosen in one place
+(`jsb::fuel_freeze_default`, applied by `JsbPlant`'s constructors, carried by `fork` and `Seed`). `--fuel-drain` on any of
+those bins restores fuel burning for both. `--fuel-drain` does not combine with `--safety-filter exact-rollout-lean`, whose
+Lean gate always rolls out with fuel freeze. `cargo run --release --features jsb --bin fuelcheck` against
+`lake exe fuelfreezecheck` (arguments printed by `fuelcheck`) compares the plant with `JsbExact.step` bit for bit in both settings.
+
 ```sh
 (cd .. && lake build libcityjsb)
 cargo run --release --features jsb -- --jsb                                        # the demo

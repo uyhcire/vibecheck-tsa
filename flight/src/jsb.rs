@@ -15,6 +15,23 @@ pub fn enabled() -> bool {
     JSB_PLANT.load(Ordering::Relaxed)
 }
 
+/// Set once at startup (`--fuel-drain`): plants built afterwards burn fuel. By default they fly with infinite fuel
+/// (JSBSim's `propulsion/fuel_freeze`), the plant the safety theorem is about (`CitySafety.specStep`).
+pub static FUEL_DRAIN: AtomicBool = AtomicBool::new(false);
+
+/// Read `--fuel-drain` from a bin's arguments into `FUEL_DRAIN`; call before building any plant.
+pub fn parse_fuel_args(args: &[String]) {
+    if args.iter().any(|a| a == "--fuel-drain") {
+        FUEL_DRAIN.store(true, Ordering::Relaxed);
+    }
+}
+
+/// The fuel-freeze setting for a plant built now. Every plant gets its setting here (`adopt`) and forks and seeds
+/// carry it, so the plant that flies and the plants that roll out from it always step the same model.
+pub fn fuel_freeze_default() -> bool {
+    !FUEL_DRAIN.load(Ordering::Relaxed)
+}
+
 #[repr(C)]
 struct Raw {
     _p: [u8; 0],
@@ -26,6 +43,7 @@ extern "C" {
     fn cityjsb_new(h: f64, v: f64, gam: f64, psi: f64, phi: f64, alpha: f64) -> *mut Raw;
     fn cityjsb_step(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, obs: *mut f64);
     fn cityjsb_step_dump(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, dump: *mut f64);
+    fn cityjsb_set_fuel_freeze(p: *mut Raw, on: i32);
     fn cityjsb_clone(p: *const Raw) -> *mut Raw;
     fn cityjsb_free(p: *mut Raw);
     fn cityjsb_from_dump(dump: *const f64, n: usize) -> *mut Raw;
@@ -180,6 +198,8 @@ pub const GAINS: Gains = Gains { kn_p: 0.21, kn_i: 0.84, kq: 0.21, kp_p: 4.0, kp
 
 pub struct JsbPlant {
     raw: *mut Raw,
+    /// Fuel freeze of `raw` (set by `adopt`, copied by `fork` and `seed`).
+    freeze: bool,
     pub obs: Obs,
     origin: [f64; 2],
     /// JSBSim time minus simulation time (s); JSBSim frames run while this is negative.
@@ -206,6 +226,7 @@ unsafe impl Send for JsbPlant {}
 #[derive(Clone, Debug)]
 pub struct Seed {
     dump: Vec<f64>,
+    freeze: bool,
     obs: Obs,
     origin: [f64; 2],
     lag: f64,
@@ -218,10 +239,18 @@ pub struct Seed {
 }
 
 /// Angle of attack for lift `n` g at airspeed `v` (rough c172p lift curve), for the initial state.
-fn alpha_for(n: f64, v: f64) -> f64 {
+pub fn alpha_for(n: f64, v: f64) -> f64 {
     let qbar = 0.5 * 1.225 * v * v;
     let cl = n * 1043.0 * G / (qbar * 16.2);
     ((cl - 0.31) / 4.6).clamp(-0.05, 0.25)
+}
+
+/// The only place a plant's fuel freeze is set: `raw` steps with `freeze` from now on.
+fn adopt(raw: *mut Raw, freeze: bool) -> *mut Raw {
+    if !raw.is_null() {
+        unsafe { cityjsb_set_fuel_freeze(raw, freeze as i32) };
+    }
+    raw
 }
 
 impl JsbPlant {
@@ -230,10 +259,12 @@ impl JsbPlant {
         let v = s[V].max(20.0);
         let alpha = alpha_for(s[N].max(0.5), v);
         let psi_jsb = PI / 2.0 - s[PSI];
-        let raw = unsafe { cityjsb_new(s[Z], v, s[GAM], psi_jsb, -s[PHI], alpha) };
+        let freeze = fuel_freeze_default();
+        let raw = adopt(unsafe { cityjsb_new(s[Z], v, s[GAM], psi_jsb, -s[PHI], alpha) }, freeze);
         assert!(!raw.is_null(), "libcityjsb: Lean runtime failed to initialise");
         let mut p = JsbPlant {
             raw,
+            freeze,
             obs: Obs::default(),
             origin: [s[X], s[Y]],
             lag: 0.0,
@@ -255,16 +286,22 @@ impl JsbPlant {
     /// The exact aircraft a JSBSim state dump describes, placed on the map by `frame`; `None` if the dump does
     /// not have `dump_len()` fields. Fly-by-wire state starts at rest (`carry_fbw` keeps it across imports).
     pub fn from_dump(dump: &[f64], frame: MapFrame) -> Option<JsbPlant> {
+        JsbPlant::from_dump_ff(dump, frame, fuel_freeze_default())
+    }
+
+    /// `from_dump` with the fuel freeze given (a host whose JSBSim has `propulsion/fuel_freeze` set passes `true`).
+    pub fn from_dump_ff(dump: &[f64], frame: MapFrame, freeze: bool) -> Option<JsbPlant> {
         let mut out = [0.0; NOBS];
         if unsafe { cityjsb_obs_from_dump(dump.as_ptr(), dump.len(), out.as_mut_ptr()) } != 0 {
             return None;
         }
-        let raw = unsafe { cityjsb_from_dump(dump.as_ptr(), dump.len()) };
+        let raw = adopt(unsafe { cityjsb_from_dump(dump.as_ptr(), dump.len()) }, freeze);
         if raw.is_null() {
             return None;
         }
         Some(JsbPlant {
             raw,
+            freeze,
             obs: Obs::from(&out),
             origin: [0.0, 0.0],
             lag: 0.0,
@@ -305,7 +342,7 @@ impl JsbPlant {
     pub fn fork(&self) -> JsbPlant {
         let raw = unsafe { cityjsb_clone(self.raw) };
         assert!(!raw.is_null());
-        JsbPlant { raw, ..*self }
+        JsbPlant { raw, ..*self } // the clone carries the fuel freeze (`cityjsb_clone`)
     }
 
     /// `advance_pilot`, also returning the surfaces flown on each frame and, if `want_dump`, the state dump after
@@ -352,6 +389,7 @@ impl JsbPlant {
     pub fn seed(&self, dump: Vec<f64>) -> Seed {
         Seed {
             dump,
+            freeze: self.freeze,
             obs: self.obs,
             origin: self.origin,
             lag: self.lag,
@@ -366,10 +404,11 @@ impl JsbPlant {
 
     /// An independent plant equal to the one `s` was taken from. Its Lean objects belong to the calling thread.
     pub fn from_seed(s: &Seed) -> JsbPlant {
-        let raw = unsafe { cityjsb_from_dump(s.dump.as_ptr(), s.dump.len()) };
+        let raw = adopt(unsafe { cityjsb_from_dump(s.dump.as_ptr(), s.dump.len()) }, s.freeze);
         assert!(!raw.is_null(), "libcityjsb: bad state dump");
         JsbPlant {
             raw,
+            freeze: s.freeze,
             obs: s.obs,
             origin: s.origin,
             lag: s.lag,
@@ -442,6 +481,11 @@ impl JsbPlant {
             self.frame(u);
             self.lag += DT_JSB;
         }
+    }
+
+    /// Whether this plant steps with fuel freeze (infinite fuel).
+    pub fn fuel_freeze(&self) -> bool {
+        self.freeze
     }
 
     /// The aircraft in the point-mass model's coordinates (x east, y north, heading counter-clockwise from +x,

@@ -29,9 +29,13 @@ int main(int argc, char **argv) {
   if (argc == 1) {
     double h = gate_map_surface(g, -120, -60) + 88.0;
     host = cityjsb_new(h, 45.0, 0.0, 0.0, 0.0, 0.06);
+    cityjsb_set_fuel_freeze(host, 1);
     cityjsb_step_dump(host, 0.0, 0.0, 0.0, 0.75, dump);
   }
   if (!host) { fprintf(stderr, "bad state dump\n"); return 1; }
+  // gate_config.fuel_drain is 0, so the gate assumes infinite fuel: the stand-in host steps with fuel freeze, as a
+  // JSBSim host with propulsion/fuel_freeze = 1 does.
+  cityjsb_set_fuel_freeze(host, 1);
   // The pilot holds a little right aileron: the bank grows until the aircraft turns into the towers.
   gate_pilot pilot = {GATE_ABI_VERSION, sizeof pilot, GATE_PILOT_SURFACES, 0, -0.02, 0.06, 0.0, 0.75, 0, 0};
   gate_result r;
