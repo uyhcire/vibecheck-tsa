@@ -42,6 +42,8 @@ fn mode_code(m: Mode) -> u8 {
 #[derive(Default)]
 struct Stats {
     first_accept: bool,
+    /// Stopped on the runway (funnel mode).
+    landed: bool,
     ticks: u64,
     commit_ticks: u64,
     blind_ticks: u64,
@@ -150,11 +152,11 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
             }
         }
         last_mode = sim.fs.mode;
-        if sim.crashed {
+        if sim.crashed || sim.landed {
             break;
         }
     }
-    let mut st = Stats { first_accept: sim.started_safe, ticks: sim.ticks, commit_ticks: sim.commit_ticks, ..Default::default() };
+    let mut st = Stats { first_accept: sim.started_safe, ticks: sim.ticks, commit_ticks: sim.commit_ticks, landed: sim.landed, ..Default::default() };
     (st.switches, st.secs, st.tv, st.jump) = (switches, sim.time(), tvs, jumps);
     if let Some(g) = sim.lean.take() {
         st.first_accept = g.start_ok;
@@ -274,6 +276,13 @@ fn main() {
     if args.iter().any(|a| a == "--verify-seeds") {
         cityflight::envfilter::VERIFY_SEEDS.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    if args.iter().any(|a| a == "--funnel") {
+        cityflight::autoland::FUNNEL.store(true, std::sync::atomic::Ordering::Relaxed);
+        cityflight::envfilter::N_USED.store(cityflight::autoland::N_AUTO as u8, std::sync::atomic::Ordering::Relaxed);
+    }
+    if let Some(lb) = args.iter().position(|a| a == "--fuel").and_then(|i| args.get(i + 1)?.parse().ok()) {
+        cityflight::jsb::set_fuel_lb(lb);
+    }
     std::fs::create_dir_all(&out).unwrap();
     let world = World::new(1337);
     let scen: Option<usize> = args.iter().position(|a| a == "--scenario").and_then(|i| args.get(i + 1)?.parse::<usize>().ok()).map(|k| k.clamp(1, SCENARIOS.len()) - 1);
@@ -351,6 +360,7 @@ fn main() {
         count(&|r| kam(r) && r.1 && r.3.first_accept),
         count(&|r| kam(r) && r.3.first_accept)
     );
+    println!("landings (stopped on the runway): {} / {}", count(&|r| r.3.landed), res.len());
     if let Some(r) = res.iter().find(|r| r.0 == "showcase") {
         println!("showcase: {} ({} start), {} of {} ticks committed", if r.1 { "CRASHED" } else { "no crash" }, if r.3.first_accept { "verified" } else { "unverified" }, r.3.commit_ticks, r.3.ticks);
     }

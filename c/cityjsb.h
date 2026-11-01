@@ -38,6 +38,14 @@ void cityjsb_step(cityjsb *p, double elev, double ail, double rud, double thr, d
 // fields JsbExact does not model are NaN): JsbExact standing in for JSBSim when testing a dump consumer.
 void cityjsb_step_dump(cityjsb *p, double elev, double ail, double rud, double thr, double *dump);
 
+// cityjsb_step with both wheel brakes at brk (0 released, 1 full).
+void cityjsb_step_brake(cityjsb *p, double elev, double ail, double rud, double thr, double brk, double obs[CITYJSB_NOBS]);
+
+// Set both tanks to lb pounds of fuel (the template carries 100 each); fuel on board (lb, both tanks) if the
+// engine is running, else -1.
+void cityjsb_set_fuel(cityjsb *p, double lb);
+double cityjsb_fuel(const cityjsb *p);
+
 // An independent copy (for look-ahead rollouts); the state itself is shared until either copy steps.
 cityjsb *cityjsb_clone(const cityjsb *p);
 

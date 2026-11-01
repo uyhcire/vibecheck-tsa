@@ -4,6 +4,8 @@ pub mod filter;
 pub mod harness;
 pub mod runway;
 #[cfg(feature = "jsb")]
+pub mod autoland;
+#[cfg(feature = "jsb")]
 pub mod envfilter;
 #[cfg(feature = "jsb")]
 pub mod jsb;

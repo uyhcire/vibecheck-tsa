@@ -35,6 +35,8 @@ pub struct Sim<'w> {
     pub wind_est: [f64; 3],
     rng: Rng,
     pub crashed: bool,
+    /// Stopped on the runway (funnel mode): the flight is over.
+    pub landed: bool,
     pub crash_clear: f64,
     pub true_clear: f64,
     pub min_true_clear: f64,
@@ -91,6 +93,7 @@ impl<'w> Sim<'w> {
             wind_est: if cfg.filter.robust { wind_mean } else { [0.0; 3] },
             rng,
             crashed: false,
+            landed: false,
             crash_clear: 0.0,
             true_clear: world.true_clearance([s0[X], s0[Y], s0[Z]]),
             min_true_clear: f64::INFINITY,
@@ -370,6 +373,21 @@ impl<'w> Sim<'w> {
     #[cfg(feature = "jsb")]
     fn env_after_tick(&mut self) {
         self.s = self.jsb.as_ref().unwrap().state();
+        // Funnel mode: near the runway the landing contact rule replaces the clearance check.
+        if crate::autoland::funnel() {
+            if let Some(c) = crate::autoland::landing_contact(self.world, self.jsb.as_ref().unwrap()) {
+                self.k += STEPS_PER_TICK;
+                match c {
+                    crate::autoland::Contact::Crash => {
+                        self.crashed = true;
+                        self.crash_clear = -1.0;
+                    }
+                    crate::autoland::Contact::Landed => self.landed = true,
+                    _ => {}
+                }
+                return;
+            }
+        }
         self.env_after_state();
     }
 

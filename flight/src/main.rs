@@ -915,7 +915,7 @@ impl App {
     }
 
     fn step(&mut self, dt: f64) {
-        if self.sim.crashed {
+        if self.sim.crashed || self.sim.landed {
             return;
         }
         self.acc += dt;
@@ -1587,6 +1587,15 @@ async fn main() {
         }),
         std::sync::atomic::Ordering::Relaxed,
     );
+    #[cfg(feature = "jsb")]
+    if args.iter().any(|a| a == "--funnel") {
+        cityflight::autoland::FUNNEL.store(true, std::sync::atomic::Ordering::Relaxed);
+        cityflight::envfilter::N_USED.store(cityflight::autoland::N_AUTO as u8, std::sync::atomic::Ordering::Relaxed);
+    }
+    #[cfg(feature = "jsb")]
+    if let Some(lb) = arg("--fuel").and_then(|s| s.parse().ok()) {
+        cityflight::jsb::set_fuel_lb(lb);
+    }
     #[cfg(feature = "jsb")]
     if let Some(l) = arg("--law") {
         cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(&l), std::sync::atomic::Ordering::Relaxed);
