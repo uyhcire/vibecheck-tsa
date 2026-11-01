@@ -1,6 +1,6 @@
 //! Closed-loop check of the library with raw-surface pilots: `JsbExact` stands in for the host's JSBSim
 //! (`cityjsb_step_dump`), every tick goes through the state-dump import, and the host flies the surfaces the
-//! filter returns. `gatecheck [EPISODES] [--threads N] [--secs S] [--fbw]`
+//! filter returns. `gatecheck [EPISODES] [--threads N] [--secs S] [--fbw] [--fuel-drain]` (default: infinite fuel, host and filter)
 use cityflight::model::{State, GAM, PHI, PSI, V, X, Y, Z};
 use cityflight::sim::{random_start, scenario_start, SCENARIOS};
 use cityflight::world::Rng;
@@ -16,6 +16,7 @@ struct Raw {
 extern "C" {
     fn cityjsb_new(h: f64, v: f64, gam: f64, psi: f64, phi: f64, alpha: f64) -> *mut Raw;
     fn cityjsb_step_dump(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, dump: *mut f64);
+    fn cityjsb_set_fuel_freeze(p: *mut Raw, on: i32);
     fn cityjsb_free(p: *mut Raw);
 }
 
@@ -69,6 +70,8 @@ fn run(filter: &mut Filter, s0: State, seed: u64, secs: f64, fbw: bool) -> Ep {
     filter.set_origin(-(s0[Y] / m).to_degrees(), -(s0[X] / A).to_degrees(), 0.0);
     let v = s0[V].max(20.0);
     let raw = unsafe { cityjsb_new(s0[Z], v, s0[GAM], PI / 2.0 - s0[PSI], -s0[PHI], alpha_for(v)) };
+    // The host stands in for a JSBSim with propulsion/fuel_freeze set exactly when the filter assumes it is.
+    unsafe { cityjsb_set_fuel_freeze(raw, !filter.cfg.fuel_drain as i32) };
     let mut dump = vec![0.0; filter.import_len()];
     unsafe { cityjsb_step_dump(raw, 0.0, 0.0, 0.0, 0.7, dump.as_mut_ptr()) };
     let mut pilot = RawPilot { rng: Rng::new(seed ^ 0x5eed), hold: 0.0, u: [0.0; 4] };
@@ -110,13 +113,14 @@ fn main() {
     let threads = arg("--threads").unwrap_or(4.0) as u64;
     let secs = arg("--secs").unwrap_or(60.0);
     let fbw = args.iter().any(|a| a == "--fbw");
+    let fuel_drain = args.iter().any(|a| a == "--fuel-drain");
     let next = std::sync::atomic::AtomicU64::new(0);
     let total = episodes + SCENARIOS.len() as u64;
     let results = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|sc| {
         for _ in 0..threads {
             sc.spawn(|| {
-                let mut filter = Filter::new(Config { pilot: if fbw { PilotKind::Fbw } else { PilotKind::Surfaces }, ..Config::default() });
+                let mut filter = Filter::new(Config { pilot: if fbw { PilotKind::Fbw } else { PilotKind::Surfaces }, fuel_drain, ..Config::default() });
                 loop {
                     let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if i >= total {

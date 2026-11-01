@@ -30,6 +30,15 @@ int cityjsb_obs_from_dump(const double *dump, size_t n, double obs[CITYJSB_NOBS]
 size_t cityjsb_dump_len(void);
 const char *cityjsb_dump_field(size_t i);
 
+// Fuel freeze, a setting of each plant (JSBSim's `propulsion/fuel_freeze`). Off (0) for every plant that cityjsb_new
+// or cityjsb_from_dump returns: cityjsb_step and cityjsb_step_dump burn fuel, as they always have. On (non-zero), the
+// same two calls skip JSBSim's ConsumeFuel (the tanks never drain: infinite fuel), which is the plant the safety
+// theorem is about (CitySafety.specStep). The setting applies to every later frame of that plant and is copied by
+// cityjsb_clone, so a rollout fork steps as the plant it was cloned from does. Compare against a JSBSim host only with
+// the same setting there (`propulsion/fuel_freeze` 1 after init), or the tank fields differ from the first frame on.
+void cityjsb_set_fuel_freeze(cityjsb *p, int on);
+int cityjsb_fuel_freeze(const cityjsb *p);
+
 // One JSBSim frame (1/128 s). Controls are JSBSim's normalised commands: elevator positive = nose down,
 // aileron, rudder in [-1, 1], throttle in [0, 1].
 void cityjsb_step(cityjsb *p, double elev, double ail, double rud, double thr, double obs[CITYJSB_NOBS]);

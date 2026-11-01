@@ -15,16 +15,19 @@ lean_object *cityjsb_step_lean(lean_obj_arg s, double elev, double ail, double r
 lean_object *cityjsb_from_dump_lean(lean_obj_arg a);
 lean_object *cityjsb_obs_from_dump_lean(lean_obj_arg a);
 lean_object *cityjsb_step_dump_lean(lean_obj_arg s, double elev, double ail, double rud, double thr);
+lean_object *cityjsb_step_ff_lean(lean_obj_arg s, uint8_t ff, double elev, double ail, double rud, double thr);
+lean_object *cityjsb_step_dump_ff_lean(lean_obj_arg s, uint8_t ff, double elev, double ail, double rud, double thr);
 size_t cityjsb_dump_len_lean(lean_object *unit);
 lean_object *cityjsb_dump_field_lean(size_t i);
 
-struct cityjsb { lean_object *st; };
+struct cityjsb { lean_object *st; int fuel_freeze; };
 
 API cityjsb *cityjsb_new(double h_m, double v, double gam, double psi, double phi, double alpha) {
   if (!lean_rt_ensure()) return NULL;
   cityjsb *p = malloc(sizeof *p);
   if (!p) return NULL;
   p->st = cityjsb_init(h_m, v, gam, psi, phi, alpha);
+  p->fuel_freeze = 0;
   return p;
 }
 
@@ -62,6 +65,7 @@ API cityjsb *cityjsb_from_dump(const double *dump, size_t n) {
   if (lean_obj_tag(r) == 0) { lean_dec(r); return NULL; }
   cityjsb *p = malloc(sizeof *p);
   if (!p) { lean_dec(r); return NULL; }
+  p->fuel_freeze = 0;
   p->st = lean_ctor_get(r, 0);
   lean_inc(p->st);
   lean_dec(r);
@@ -81,7 +85,8 @@ API int cityjsb_obs_from_dump(const double *dump, size_t n, double obs[CITYJSB_N
 
 API void cityjsb_step(cityjsb *p, double elev, double ail, double rud, double thr, double obs[CITYJSB_NOBS]) {
   lean_rt_ensure();
-  lean_object *res = cityjsb_step_lean(p->st, elev, ail, rud, thr);
+  lean_object *res = p->fuel_freeze ? cityjsb_step_ff_lean(p->st, 1, elev, ail, rud, thr)
+                                    : cityjsb_step_lean(p->st, elev, ail, rud, thr);
   lean_object *st = lean_ctor_get(res, 0);
   lean_object *fa = lean_ctor_get(res, 1);
   lean_inc(st);
@@ -92,7 +97,8 @@ API void cityjsb_step(cityjsb *p, double elev, double ail, double rud, double th
 
 API void cityjsb_step_dump(cityjsb *p, double elev, double ail, double rud, double thr, double *dump) {
   lean_rt_ensure();
-  lean_object *res = cityjsb_step_dump_lean(p->st, elev, ail, rud, thr);
+  lean_object *res = p->fuel_freeze ? cityjsb_step_dump_ff_lean(p->st, 1, elev, ail, rud, thr)
+                                    : cityjsb_step_dump_lean(p->st, elev, ail, rud, thr);
   lean_object *st = lean_ctor_get(res, 0);
   lean_object *fa = lean_ctor_get(res, 1);
   lean_inc(st);
@@ -101,12 +107,17 @@ API void cityjsb_step_dump(cityjsb *p, double elev, double ail, double rud, doub
   p->st = st;
 }
 
+API void cityjsb_set_fuel_freeze(cityjsb *p, int on) { p->fuel_freeze = on != 0; }
+
+API int cityjsb_fuel_freeze(const cityjsb *p) { return p->fuel_freeze; }
+
 API cityjsb *cityjsb_clone(const cityjsb *p) {
   lean_rt_ensure();
   cityjsb *c = malloc(sizeof *c);
   if (!c) return NULL;
   lean_inc(p->st);
   c->st = p->st;
+  c->fuel_freeze = p->fuel_freeze;
   return c;
 }
 

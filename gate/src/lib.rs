@@ -26,6 +26,9 @@ pub struct Config {
     pub tick_frames: usize,
     pub budget_frames: Option<usize>,
     pub time_cap_ms: Option<u32>,
+    /// The host's JSBSim burns fuel (`propulsion/fuel_freeze` 0). Default false: the host sets it to 1, which is the
+    /// plant the safety theorem is about, and imported states roll out with it.
+    pub fuel_drain: bool,
 }
 
 impl Default for Config {
@@ -37,6 +40,7 @@ impl Default for Config {
             tick_frames: DEFAULT_TICK_FRAMES,
             budget_frames: None,
             time_cap_ms: None,
+            fuel_drain: false,
         }
     }
 }
@@ -105,7 +109,7 @@ impl Filter {
     }
 
     pub fn import(&self, dump: &[f64]) -> Option<JsbPlant> {
-        JsbPlant::from_dump(dump, self.frame)
+        JsbPlant::from_dump_ff(dump, self.frame, !self.cfg.fuel_drain)
     }
 
     pub fn tick(&mut self, mut plant: JsbPlant, pilot: Pilot) -> Tick {

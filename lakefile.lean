@@ -100,6 +100,10 @@ lean_exe cityplanttest where
   root := `Tools.CityPlantTest
   moreLinkObjs := #[jxmath.o]
 
+lean_exe fuelfreezecheck where
+  root := `Tools.FuelFreezeCheck
+  moreLinkObjs := #[jxmath.o]
+
 lean_exe cityimporttest where
   root := `Tools.CityImportTest
   moreLinkObjs := #[jxmath.o]
