@@ -1,0 +1,206 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{hyp}{Hypothesis}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Solid}{\mathcal{S}}
+\newcommand{\Top}{\mathrm{top}}
+\newcommand{\hull}{\operatorname{hull}}
+\newcommand{\Crash}{\mathrm{Crash}}
+\title{Certified end sets for the exact-rollout gate:\\ an informal proof of \texttt{TermSoundR}}
+\author{vibecheck-tsa, tracker \#30}
+\date{Draft, 2026-11-01}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The Lean exact-rollout gate is proved safe against \texttt{CitySafety.Safe} (PR \#29) under one substantive assumption, \texttt{TermSoundR}: an end-of-escape test that passes on a real rollout implies that continuing the escape never crashes. This note gives an informal proof of \texttt{TermSoundR} for a redesigned end test. The test certifies membership in a \emph{funnel}: a dynamics set (a robust Lyapunov sublevel set around the escape law's settled climb) together with a map-clearance condition that tolerates slow drift. The proof uses \emph{local} end sets (a climbing turn or a straight climb, entered seconds after the escape starts), so the close calls decided by exact rollouts stay provable. The model-specific facts are isolated as explicit hypotheses (H1--H6). Discharging them is the model ladder of tracker \#30 (rungs 1--5). Everything else is proved here.
+\end{abstract}
+
+\section{Setting}
+
+\paragraph{Plant and closed loop.} A state $x$ comprises the plant state (\texttt{JsbExact}, fuel frozen, PR \#31) and the escape law's state. One JSBSim frame ($\Delta t = 1/128$\,s) of the escape closed loop is a deterministic map $F : x \mapsto x'$. The reported CG position is $P(x) = (P_{xy}(x), z(x)) \in \R^2 \times \R$, as in the spec of PR \#27 (\texttt{report}).
+
+\paragraph{Map.} $\Solid \subseteq \R^3$ is the static solid set: closed building boxes and the region at or below the terrain, with the terrain continued past the map edge. For $p \in \R^2$ let
+\[ \Top(p) \;=\; \max\Bigl(\mathrm{terrain}(p),\ \max\{ z^{\max}_b : p \in \mathrm{xy}(b)\}\Bigr), \]
+so that $(p, h) \in \Solid \Rightarrow h \le \Top(p)$. Let $T^\star = \sup_p \Top(p)$, which is finite because the terrain is clamped at the edge and there are finitely many boxes.
+
+\paragraph{Crash.} With $A(x)$ the airframe points of PR \#27,
+\[ \Crash(x) \iff \hull A(x) \cap \Solid \neq \emptyset . \]
+
+\begin{hyp}[H1, airframe extent]\label{h1}
+Every point of $A(x)$ lies within $e$ of $P(x)$ in each horizontal axis and vertically, for every state in the dynamics sets below. This is PR \#29's \texttt{AirframeNear}. In the reals it follows from rotation invariance, because the airframe vectors are fixed in the body frame. For the \texttt{Float}-reported pose it is a small rounding bound.
+\end{hyp}
+
+\begin{lemma}[hull box]\label{lem:hullbox}
+Under H1, every $q \in \hull A(x)$ satisfies $|q_x - P_x| \le e$, $|q_y - P_y| \le e$ and $|q_z - z(x)| \le e$. Hence $\|q_{xy} - P_{xy}(x)\| \le \sqrt2\, e =: e'$.
+\end{lemma}
+\begin{proof}
+The axis box $[P \pm e]$ is convex and contains $A(x)$, so it contains the hull.
+\end{proof}
+
+\section{From certified end sets to \texttt{TermSoundR}}
+
+\begin{definition}
+A \emph{certified end set} for an escape law with closed loop $F$ is a set $C$ with
+(i) $C$ forward invariant, $F(C) \subseteq C$; and (ii) $C \cap \Crash = \emptyset$.
+An end test $\mathit{term}$ is \emph{certifying} if $\mathit{term}(x) \Rightarrow x \in C$.
+\end{definition}
+
+\begin{theorem}\label{thm:term}
+If the end test is certifying for some certified end set, then \texttt{TermSoundR} holds.
+\end{theorem}
+\begin{proof}
+Let $\mathit{term}(x)$ hold at some frame of a rollout. Then $x \in C$. By (i) and induction, $F^n(x) \in C$ for all $n$. By (ii), no $F^n(x)$ crashes, which is \texttt{SafeForever}. The restriction to real rollouts (the \texttt{R} in \texttt{TermSoundR}) is not used: certifying tests are sound on every state. This is the point of \emph{certify by construction}. The test reads only the current state and constants it computes itself (centre, radius, entry altitude, $\rho$), so the unrestricted \texttt{TermSound} also holds. That rules out the fabricated-history counterexample by construction.
+\end{proof}
+
+The rest of the note builds certified end sets of the form $C = D \cap G$: a dynamics part $D$ and a geometric part $G$.
+
+\section{The dynamics part: a robust sublevel set}
+
+Fix an escape law (a climbing turn at bank $\phi^\star$, or a straight climb with heading hold).
+
+\paragraph{Error coordinates.} Let $\xi(x) \in \R^m$ be the deviation of $x$ from the settled climb, in coordinates that omit the neutral modes:
+\begin{itemize}
+\item for the turn, the horizontal position, the heading and the altitude;
+\item for the straight climb, the along-track position, the lateral offset and the altitude.
+\end{itemize}
+$\xi$ also omits the altitude dependence of the trim, as follows. The trim $x^\star(h)$ depends on altitude through air density. Write $\xi(x) = \Pi\bigl(x - x^\star(z(x))\bigr)$.
+
+\paragraph{The simplified model.} Let $F_S$ be the closed loop of a simplified model (a rung of the ladder), with error map $\xi' = \Phi(\xi, h)$. Let $V(\xi) = \xi^\top Q \xi$ with $Q \succ 0$, and write $\|\xi\|_Q = \sqrt{V(\xi)}$.
+
+\begin{hyp}[H2, contraction on the simplified model]
+There are $\rho > 0$ and $\lambda \in [0,1)$ with $\|\Phi(\xi, h)\|_Q \le \lambda \|\xi\|_Q$ whenever $\|\xi\|_Q \le \sqrt\rho$, for all altitudes $h$ in the band $[h_{\min}, h_{\max}]$.
+\end{hyp}
+
+\begin{hyp}[H3, residual]
+For every state with $\|\xi(x)\|_Q \le \sqrt\rho$ and $z(x)$ in the band, one frame of the real closed loop $F$ differs from the simplified one in error coordinates by at most $\delta$ in $Q$-norm:
+\[ \bigl\|\xi(F(x)) - \Phi(\xi(x), z(x))\bigr\|_Q \le \delta . \]
+This bound includes the trim shift $x^\star(z(x')) - x^\star(z(x))$, which is $O(|\Delta z|)$ and small per frame.
+\end{hyp}
+
+\begin{lemma}[robust invariance]\label{lem:robust}
+Under H2 and H3, if $\delta \le (1-\lambda)\sqrt\rho$, then $D := \{x : \|\xi(x)\|_Q \le \sqrt\rho,\ z(x) \in \text{band}\}$ satisfies $\|\xi(F(x))\|_Q \le \sqrt\rho$ for every $x \in D$.
+\end{lemma}
+\begin{proof}
+By the triangle inequality in the $Q$-norm,
+$\|\xi(F x)\|_Q \le \|\Phi(\xi(x), z(x))\|_Q + \delta \le \lambda \sqrt\rho + (1-\lambda)\sqrt\rho = \sqrt\rho$.
+\end{proof}
+
+The altitude band is handled by H5 and Lemma~\ref{lem:inv}.
+
+\paragraph{Consequences of being in $D$.} On the compact set $\|\xi\|_Q \le \sqrt\rho$, the quantities below are continuous functions of $\xi$ and of the one-frame disturbance, so they come with explicit bounds. Let $Z := T^\star + e + \epsilon$ for a small $\epsilon > 0$.
+
+\begin{hyp}[H4, bounds on $D$]
+For $x \in D$:
+\begin{enumerate}
+\item \textbf{Climb.} $z(Fx) - z(x) \ge \gamma \Delta t$ if $z(x) \le Z + \eta$, and $z(Fx) - z(x) \ge -\eta$ always. Here $\gamma > 0$ and $\eta > 0$.
+\item \textbf{Path.} Turn: the instantaneous turn centre $c(x)$ (the CG displaced by the turn radius toward the inside of the turn) satisfies $\bigl|\|P_{xy}(x) - c(x)\| - r^\star\bigr| \le \delta_r$. Straight climb: no condition beyond 3.
+\item \textbf{Drift.} Turn: $\|c(Fx) - c(x)\| \le \kappa\Delta t$. Straight climb: the CG's horizontal displacement in one frame has a component of at most $\kappa\Delta t$ across, and at most $v_{\max}\Delta t$ along, the held heading.
+\end{enumerate}
+\end{hyp}
+
+\begin{hyp}[H5, the altitude band is invariant]
+$D$'s band $[h_{\min}, h_{\max}]$ contains every altitude the closed loop reaches from $D$. Concretely, $z(x) \le h_{\max} \Rightarrow z(Fx) \le h_{\max}$, because the climb stops at the service ceiling, about 4\,km for the C172 at full throttle and well above $Z \approx 930$\,m. The lower end follows from H4.1 once $h_{\min} \le z_0 - \eta$. Fuel is infinite (\#31).
+\end{hyp}
+
+Write $s := \kappa/\gamma$ (horizontal drift per metre climbed) and $g := \gamma/v_{\max}$ (the guaranteed climb gradient).
+
+\section{The certified end sets}
+
+The constants are fixed at entry: the turn centre $c_0$ or entry point $o$ with held heading $u$ (a unit vector), and the entry altitude $z_0$. They are carried as part of the state; the dynamics does not change them.
+
+\begin{definition}[augmented invariants]
+For the turn,
+\[ I_{\mathrm{helix}}(x; c_0, z_0) :\iff x\in D \;\wedge\; \Bigl( z(x) \ge Z \;\vee\; \bigl(z(x) \ge z_0 \wedge \|c(x) - c_0\| \le s\,(z(x) - z_0)\bigr)\Bigr). \]
+For the straight climb, with along-track $a(x) = (P_{xy}(x)-o)\cdot u$ and lateral $w(x) = |(P_{xy}(x)-o)\times u|$,
+\[ I_{\mathrm{ray}}(x; o, u, z_0) :\iff x\in D \;\wedge\; \Bigl( z(x) \ge Z \;\vee\; \bigl(z(x) - z_0 \ge \max(0, g\,a(x)) \wedge w(x) \le s\,(z(x) - z_0)\bigr)\Bigr). \]
+\end{definition}
+
+At entry, with $c_0 = c(x)$, $o = P_{xy}(x)$ and $z_0 = z(x)$, the second disjunct holds with equalities, so $I$ holds iff $x\in D$.
+
+\begin{lemma}[invariance]\label{lem:inv}
+Under H2--H5 and $\delta \le (1-\lambda)\sqrt\rho$, $I_{\mathrm{helix}}$ and $I_{\mathrm{ray}}$ are forward invariant under $F$, with the constants unchanged.
+\end{lemma}
+\begin{proof}
+$D$ is invariant by Lemma~\ref{lem:robust} and H5. For the disjunction:
+\begin{itemize}
+\item \emph{If $z \ge Z$:} when $z \le Z+\eta$, H4.1 gives $z' \ge z + \gamma\Delta t \ge Z$. When $z > Z + \eta$, it gives $z' \ge z - \eta > Z$. So the first disjunct persists.
+\item \emph{If $z < Z$ (second disjunct):} H4.1 gives $z' - z \ge \gamma\Delta t$.
+  \begin{itemize}
+  \item Turn: $\|c' - c_0\| \le s(z - z_0) + \kappa\Delta t = s(z-z_0) + s\gamma\Delta t \le s(z' - z_0)$, and $z' \ge z \ge z_0$.
+  \item Straight climb: $w' \le w + \kappa\Delta t \le s(z' - z_0)$ by the same computation. $a' \le a + v_{\max}\Delta t$, so $g\,a' \le g\,a + \gamma\Delta t \le (z - z_0) + (z' - z) = z' - z_0$.
+  \end{itemize}
+  If $z' \ge Z$ the first disjunct holds instead. Either way the disjunction holds at $x'$.
+\end{itemize}
+\end{proof}
+
+\begin{definition}[funnel certificates]
+With $e' := \sqrt2\,e$ and $d(p) := \bigl|\|p - c_0\| - r^\star\bigr|$:
+\begin{align*}
+G_{\mathrm{helix}}(c_0, z_0) &:\iff \forall p.\ \Top(p) + e \ge z_0 \;\Rightarrow\; d(p) > \delta_r + e' + s\,(\Top(p) + e - z_0),\\
+G_{\mathrm{ray}}(o, u, z_0) &:\iff \forall p.\ \Top(p) + e \ge z_0 \;\Rightarrow\; w(p) > e' + s\,(\Top(p) + e - z_0) \;\vee\; \Top(p) + e < z_0 + g\,(a(p) - e'),
+\end{align*}
+where $a(p), w(p)$ are the along-track and lateral coordinates of $p$. In words: anything tall enough to reach the entry altitude stands far enough outside the circle (or beside, or ahead of the climb line), and "far enough" grows with its height at slope $s$.
+\end{definition}
+
+\begin{lemma}[no crash inside the funnel]\label{lem:helix}
+$I_{\mathrm{helix}}(x; c_0, z_0) \wedge G_{\mathrm{helix}}(c_0, z_0) \Rightarrow \neg\Crash(x)$, and likewise for the ray.
+\end{lemma}
+\begin{proof}
+Suppose $q \in \hull A(x) \cap \Solid$. Then $q_z \le \Top(q_{xy})$, and $q_z \ge z - e$ by Lemma~\ref{lem:hullbox}, so
+\[ z \;\le\; \Top(q_{xy}) + e. \tag{$\ast$} \]
+\begin{itemize}
+\item \emph{If $z \ge Z$:} $(\ast)$ gives $\Top(q_{xy}) \ge T^\star + \epsilon > T^\star$, which is impossible.
+\item \emph{Otherwise, the second disjunct holds:} then $\Top(q_{xy}) + e \ge z \ge z_0$, so the certificate applies at $p = q_{xy}$.
+  \begin{itemize}
+  \item Turn: $d(q_{xy}) \le \bigl|\|P_{xy} - c(x)\| - r^\star\bigr| + \|c(x) - c_0\| + \|q_{xy} - P_{xy}\| \le \delta_r + s(z - z_0) + e' \le \delta_r + e' + s(\Top(q_{xy}) + e - z_0)$ by H4.2 and $(\ast)$. This contradicts $G_{\mathrm{helix}}$.
+  \item Straight climb: $w(q_{xy}) \le w(x) + e' \le e' + s(\Top(q_{xy}) + e - z_0)$, so the first disjunct of $G_{\mathrm{ray}}$ fails. Also $a(q_{xy}) \le a(x) + e'$ and $z - z_0 \ge g\,a(x)$, so $\Top(q_{xy}) + e \ge z \ge z_0 + g\,(a(q_{xy}) - e')$, and the second disjunct fails too.
+  \end{itemize}
+\end{itemize}
+\end{proof}
+
+\paragraph{Finite certificate.} $\Top$ is piecewise linear on the terrain triangles, so its maximum on a cell is at a vertex. There are finitely many boxes. Outside the grid the terrain is constant along the clamping direction, and points with $\Top(p) + e < z_0$ are irrelevant. So $G$ reduces to finitely many checks:
+\begin{itemize}
+\item each grid cell (including the clamped border cells), using its maximum vertex height as an upper bound for $\Top$ and its nearest point to the circle or line as a lower bound for $d$, $w$ or $a$;
+\item each box's footprint, with its $z^{\max}$.
+\end{itemize}
+Only cells within horizontal distance $r^\star + \delta_r + e' + s\,(T^\star + e - z_0)$ of $c_0$ (or the corresponding wedge for the straight climb) matter. Upper bounds for $\Top$ and lower bounds for distances are conservative, hence sound. Comparing squared distances keeps everything in exact $\mathbb{Q}$. This is the analogue of PR \#25's \texttt{clearAt}/\texttt{clear\_sound}.
+
+\section{Main result}
+
+\begin{theorem}
+Let the end test be: $\|\xi(x)\|_Q \le \sqrt\rho$, $z(x)$ is in the band, and either $G_{\mathrm{helix}}(c(x), z(x))$ or $G_{\mathrm{ray}}(P_{xy}(x), u, z(x))$ holds. It is evaluated exactly on the decoded state. Under H1--H5 and $\delta \le (1-\lambda)\sqrt\rho$, the test implies \texttt{SafeForever}. Hence \texttt{TermSound}, and a fortiori \texttt{TermSoundR}, hold.
+\end{theorem}
+\begin{proof}
+The test gives $I(x; \text{entry constants})$ (see after the definition) and $G$. By Lemma~\ref{lem:inv}, $I$ holds at every $F^n x$ with the same constants, and $G$ does not depend on $n$. Lemma~\ref{lem:helix} gives $\neg\Crash(F^n x)$ for all $n$. This is Theorem~\ref{thm:term} with the certified end set $C = \{x : \exists\,\text{consts}.\ I(x;\text{consts}) \wedge G(\text{consts})\}$.
+\end{proof}
+
+\paragraph{Why the turn centre may move.} The horizontal position and heading are neutral modes: nothing in the escape law pulls the circle's centre back. Under a persistent disturbance (model mismatch, Earth rotation) the centre can creep indefinitely, so a fixed-annulus invariant would be false. The funnel lets it creep, at most $s$ metres per metre climbed (Lemma~\ref{lem:inv}). Tall obstacles therefore only need extra lateral clearance in proportion to their height above the entry altitude. The Rust gate's straight-climb check already widens its corridor by 2\,\% of distance for the same reason.
+
+\section{What remains, and where the risk is}
+
+\begin{itemize}
+\item \textbf{Proved here, model-independent.} Theorem~\ref{thm:term} and Lemmas~\ref{lem:hullbox}, \ref{lem:robust}, \ref{lem:inv} and~\ref{lem:helix}, plus the finite certificate. These are tracker steps 0--2, and Lean work is underway on \texttt{eric/termsound-geo}.
+\item \textbf{Model-specific (the ladder).} H2 (contraction), H3 (residual), H4 (bounds on $D$), H5 (ceiling, band). Rung 1 (\texttt{eric/termsound-rung1}) proves H2 and H4 for a point mass. Each later rung proves H3 against the next model up, ending with \texttt{JsbExact} on \texttt{Float}. That last step needs contracts for the C maths library.
+\item \textbf{Main risk: the budget inequality} $\delta \le (1-\lambda)\sqrt\rho$. The residual between the simplified and the real model must fit inside the contraction margin. A larger $\rho$ (looser settling) makes it easier to fit, but larger $\rho$ worsens $\delta_r$, $\kappa$ and $\gamma$ in H4, which costs clearance. This trade-off decides how conservative the result is, and it must be measured at each rung before anything is proved.
+\item \textbf{Conservatism.} Relative to today's end tests, the extra clearance is $\delta_r + e'$ plus the funnel slope $s = \kappa/\gamma$. Illustratively, with $\gamma = 3$\,m/s and $\kappa = 0.05$\,m/s, $s = 1/60$: an obstacle 60\,m outside the circle must merely be 1\,m lower than the entry altitude. The other cost is settling time to reach $\|\xi\|_Q\le\sqrt\rho$. The acceptance test is tracker \#30's re-run of the boundary-regimes slices.
+\end{itemize}
+
+\section{Lessons from PR \#25 (\texttt{city\_safe} against the old spec)}
+
+\begin{enumerate}
+\item \textbf{Abstract the gate, prove once.} \#24 and \#25 proved the gatekeeper induction generically, never looking inside the escape law or the proposal layer. Every later change (resume, hold, parallel rounds, speedups, the end-test fixes) kept the proof unchanged. The end-set work keeps this split: Theorem~\ref{thm:term} is generic, and the end sets plug in.
+\item \textbf{Exact, conservative runtime tests with a one-time soundness proof.} \texttt{clearAt} used integer arithmetic with outward rounding and an axis-aligned keep-out, proved sound once (\texttt{clear\_sound}) and sped up by \texttt{@[csimp]} without touching the proof. The funnel certificate and the $\|\xi\|_Q \le \sqrt\rho$ check follow the same pattern.
+\item \textbf{State assumptions over what the code can actually produce.} \#25's \texttt{TermSound} ranged over arbitrary controller values and was false (fabricated histories). Certify-by-construction removes free inputs from the end test entirely.
+\item \textbf{No special cases at the boundary of the model.} ``Off the map is safe'' was a shortcut that became a real crash. Define $\Solid$ everywhere (continued terrain) and never special-case it in tests.
+\item \textbf{Heuristic extrapolation is not a certificate.} The zoom-climb ray fit passed tests and was unsound. Every end test must be membership in a set with a proof, not a fit to recent history.
+\item \textbf{The restricted assumption is false for today's helix test too.} Even restricted to rollout-produced controllers (\texttt{TermSoundR}), the current end test fails. The falsifier found 9 counterexamples out of 2{,}193 passing cases on the Lean gate, all helix endings, mostly from slow starts (22--27\,m/s). The 4\,s window catches the climbing half of a slow oscillation, and the circle later descends into terrain or a building 12--188\,s on. This is the failure the sublevel test $\|\xi\|_Q \le \sqrt\rho$ (H2--H4) excludes. The end test must certify convergence to the climb trim, not observe a climbing segment.
+\item \textbf{Faithfulness is checkable component by component.} The bit-identical law, end-test and plant comparisons (\texttt{gatefaith}) are the template for keeping the Rust and Lean end tests in lockstep when the certified tests land.
+\end{enumerate}
+
+\end{document}
