@@ -7,6 +7,7 @@ lean_lib Vibecheck
 lean_lib App
 lean_lib Tools
 lean_lib Jsb
+lean_lib Ci
 
 /-- SDL3 install prefix; `make` passes `-K sdl=$(brew --prefix sdl3)`. -/
 def sdlPrefix : String := (get_config? sdl).getD "/opt/homebrew/opt/sdl3"
@@ -49,4 +50,10 @@ lean_exe contprobe where
   root := `Tools.ContProbe
 
 lean_exe envconf where
-  root := `Tools.EnvConf
+  root := `Tools.EnvConfMain
+
+lean_exe cigen where
+  root := `Tools.CiGen
+
+lean_exe ciscore where
+  root := `Tools.Score
