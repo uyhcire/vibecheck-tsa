@@ -210,6 +210,48 @@ The adversary judges T as a set of full model states. If T admits states with in
 history fields, those states are in scope. A T meant to be proved should constrain them, as the baseline box
 does.
 
+#### The falsifier (second stage, same seeds of T)
+
+The seeded attack above runs the full 640-tick test on every candidate, which limits it to a few hundred in-T
+candidates per seed. It missed real counterexamples that a larger attack found (wildcard's 1.746 iteration). So
+every run, after the seeded attack, also runs a structural falsifier per law (`falsify` in `Tools/Score.lean`):
+
+- **Screening.** 30 000 candidate draws (3 000 with `--quick`), each tested for 64 ticks. Any unsafe substep
+  in those 64 ticks is a genuine counterexample, because the full test fails at the same tick. Every 16th
+  screened candidate also gets the full 640-tick test, which catches `no-climb`.
+- **Generators**, cycled after one pass over the seeds:
+  - lowest height: every seed once at the lowest h still in T;
+  - perturbation at 0.02, 0.05, 0.2, 0.5 or 1 × scale;
+  - boundary bisection along a random direction;
+  - coordinate extremes: one field (any perturbable field, memory included) pushed to the boundary of T,
+    in either sign;
+  - the same at the lowest height in T. This targets the first-substep dip: altitude integration is
+    Adams-Bashforth 3 over (vz, pvz, pvz2), so a state at the bottom edge of an h-dependent T whose history
+    fields say vz was higher a moment ago still descends in its first substep. A T of the form h ≥ c + H(state)
+    needs a small margin for this, or a tight history guard.
+  - altitude jumps: a seed moved to a uniform height between clearance and 1.5 × the seeds' top, with every other
+    field unchanged;
+  - one-tick images, as in mode 4.
+- **Hill-climbing.** The 24 candidates closest to each envelope limit (α, load, speed, height) are pushed
+  further toward that limit by small random moves. Moves that leave T are pulled back to its boundary by
+  bisection. Each limit gets 40 steps.
+
+The falsifier is deterministic: splitmix64 from seed 0xF00D + law index, the same for every run. Its
+counterexamples are labelled `falsG` (generator G: 99 lowest height, 0 perturbation, 1 random boundary, 2
+coordinate extreme, 3 extreme at lowest height, 4 altitude jump, 5 image), `falsG-full` (no-climb found by the
+full test) and `hillK` (limit K: 0 α, 1 load, 2 speed, 3 height).
+
+`ciscore --verify-ce FILE N` re-tests the first N rows of a counterexample file with the full T test,
+independently of how they were found, and reports whether each is in T and fails.
+
+**Altitude jumps leave acceleration fields stale, and that is intended.** Moving a state in h, as mode 1, the
+falsifier's lowest-height and altitude-jump generators do, keeps `au`, `ah` and the history fields. These are
+legitimate states. But the load factor computed from those fields no longer matches the lift at the new
+density. Going down from 1000 m to 5 m raises the load factor on the next substep by about the density ratio
+(about 10 %), plus a little from ground effect. So a T that bounds the measured load factor must bound it scaled
+by density (for example n/σ(h)), with margin for the pitch rate the state already has, or bound α and V
+directly.
+
 ## 5. Rules for competitors (the ratchet)
 
 - **R1. Fixed files.** These may not change in a competing branch: `Ci/Interface.lean`, `Ci/Rules.lean`,
@@ -265,7 +307,9 @@ lake build cigen && .lake/build/bin/cigen gen Ci/data/bench.csv 250   # regenera
 
 The program prints a human summary followed by one JSON line, also written to `ci-out/<sub>/score.json`. Its
 exit code is 0 iff the score is valid. Per-state results are in `ci-out/<sub>/states.csv`, with the rejection
-reason, e.g. `load@tick11`. A full run takes about 45–52 s on the development laptop (Apple silicon).
+reason, e.g. `load@tick11`. A full official run takes about 5–6 minutes on the development laptop (Apple silicon)
+for a one-law submission: the benchmark takes seconds to half a minute, the eight-seed attack about 4 minutes, and
+the falsifier about 1 minute per law.
 
 ## 7. Reference scores (scoreboard commit)
 
@@ -290,6 +334,10 @@ Both references use the current law (`Jsb/Escape.lean`: full throttle, attitude 
 |---|---|---|---|---|---|---|---|---|---|---|
 | box | yes | 1.369 | 0.486 | 0.065 | 1 | 0.745 | 11.75 | 23.5 | 174 / 224 | 1302 + 64 long, 0 (also 0 with seeds 3 and 7) |
 | interior | yes | 1.376 | 0.487 | 0.081 | 1 | 0.745 | 11.25 | 28.0 | 22 / 175 | 1227 + 64 long, 0 (also 0 with seeds 3, 7 and 11) |
+
+With the falsifier (§4.1), `box` stays valid (worst margin 0.02, 0 counterexamples). `interior` becomes invalid:
+337 counterexamples, almost all `alpha`. Its T accepts any elevator memory in [−1, 1], and with the memory at
+full nose-up the rate-limited law overshoots α within a few ticks.
 
 - **Every rejection is the law's own envelope violation**, not a failure to reach T: 373 load-factor and 13 α
   violations.

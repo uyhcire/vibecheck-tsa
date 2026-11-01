@@ -7,3 +7,4 @@ date | commit | headline | P Q R B | coverage | median h* | median ticks to T | 
 2026-10-31 | coordinator | 1.369 / 1.376 | R now measured at h* | box / interior rescored after the R fix
 2026-10-31 | coordinator | 1.369 / 1.376 | climb clause bounded at 2500 m, h ≤ 6000 m | baselines unchanged
 2026-11-01 | coordinator | box 1.369 | P weighted by coverage; 8 official adversary seeds; h* bisection; external Mathlib proofs | box unchanged
+2026-11-01 | referee-adv | box 1.369 / interior invalid | structural falsifier added to every run | interior's T admits elevator memory +1 (α overshoot); box unchanged
