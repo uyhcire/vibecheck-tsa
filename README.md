@@ -15,6 +15,8 @@ Controls: `UP`/`DOWN` pitch, `W`/`S` throttle, `SPACE` brake, `F` filter on/off,
 
 Joystick: plug in a HOTAS (tested: Thrustmaster T.Flight HOTAS One, base switch on **PC**) before or after launch. Stick pitches, the lever is the throttle, the trigger brakes; the keyboard keeps working. Other sticks: `VC_JOY_PITCH=<axis> VC_JOY_THR=<axis> make run` (SDL axis numbers). X-Plane setup for the same stick: [`hardware/hotas-one/`](hardware/hotas-one/).
 
+JSBSim flying X-Plane: [`sidecar/`](sidecar/) runs a JSBSim model from the HOTAS and drives X-Plane 12 as the display.
+
 ## What is proved
 
 `Vibecheck/Safety.lean`:
