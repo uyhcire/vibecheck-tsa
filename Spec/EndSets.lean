@@ -1,7 +1,7 @@
 import Spec.CitySafetyChecks
 
 /-!
-# End sets: helix and ray tube clearance (`Geo`), independent of the aircraft model
+# End sets: helix and ray funnel clearance (`Geo`), independent of the aircraft model
 
 Bounds on a reported position `p` (`Helix.Conf`, `Ray.Conf`) plus map clearance (`Helix.Geo`, `Ray.Geo`) give an
 axis box `[p ± e]` with nothing solid in it; with `AirframeWithin e s` that rules out the spec's `Crash M s`.
@@ -154,69 +154,92 @@ def dist2 (cx cy : Rat) (q : Pt) : Rat := (q.x - cx) * (q.x - cx) + (q.y - cy) *
 def InAnnulus (cx cy lo hi : Rat) (q : Pt) : Prop :=
   (lo ≤ 0 ∨ lo * lo ≤ dist2 cx cy q) ∧ dist2 cx cy q ≤ hi * hi
 
-/-- A climbing-helix tube: centre `(cx, cy)`, radius `r`, radial slack `δ`, entry altitude `z0` (m). -/
+/-- A climbing-helix funnel: centre `(cx, cy)`, radius `r`, radial slack `δ` at entry, widening `s` m per metre
+climbed (the centre's drift), entry altitude `z0` and release altitude `zTop` (m), above which nothing is solid. -/
 structure Helix where
   cx : Rat
   cy : Rat
   r : Rat
   δ : Rat
+  s : Rat
   z0 : Rat
+  zTop : Rat
   deriving DecidableEq, Repr
 
-/-- **The helix tube's `Dyn` bounds** on a reported position `p`: horizontal distance to the centre in
-`[r - δ, r + δ]`, altitude at least `z0`. -/
+/-- Radial slack at altitude `z`: `δ + s (z - z0)`. -/
+def Helix.slack (H : Helix) (z : Rat) : Rat := H.δ + H.s * (z - H.z0)
+
+/-- **The helix funnel's `Dyn` bounds** on a reported position `p`: at or above `zTop`, or at or above `z0` with
+horizontal distance to the centre within `r ± slack p.z`. -/
 def Helix.Conf (H : Helix) (p : Pt) : Prop :=
-  InAnnulus H.cx H.cy (H.r - H.δ) (H.r + H.δ) p ∧ H.z0 ≤ p.z
+  H.zTop ≤ p.z ∨ (H.z0 ≤ p.z ∧ InAnnulus H.cx H.cy (H.r - H.slack p.z) (H.r + H.slack p.z) p)
 
-/-- **The helix tube's `Geo`**: solid points at horizontal distance `[r - δ - e', r + δ + e']` from the centre lie
-below `z0 - e`; `e'` must cover the box's half-diagonal (`2 e² ≤ e'²`). -/
+/-- **The helix funnel's `Geo`**: every solid point is below `zTop - e`, and below `z0 - e` if its horizontal
+distance to the centre is within `r ± (slack (q.z + e) + e')`; `e'` covers the box's half-diagonal. -/
 def Helix.Geo (M : CityMap) (H : Helix) (e e' : Rat) : Prop :=
-  ∀ q, Solid M q → InAnnulus H.cx H.cy (H.r - H.δ - e') (H.r + H.δ + e') q → q.z < H.z0 - e
+  ∀ q, Solid M q → q.z < H.zTop - e ∧
+    (InAnnulus H.cx H.cy (H.r - H.slack (q.z + e) - e') (H.r + H.slack (q.z + e) + e') q → q.z < H.z0 - e)
 
-/-- **Helix clearance (G)**: in the helix tube with `Geo`, the box `[p ± e]` around the reported position holds
+theorem Helix.slack_mono {H : Helix} (hs : 0 ≤ H.s) {z z' : Rat} (h : z ≤ z') : H.slack z ≤ H.slack z' := by
+  have := Rat.mul_le_mul_of_nonneg_left (show z - H.z0 ≤ z' - H.z0 by grind) hs
+  simp only [Helix.slack]; grind
+
+/-- **Helix clearance (G)**: in the helix funnel with `Geo`, the box `[p ± e]` around the reported position holds
 nothing solid. -/
-theorem Helix.clear {M : CityMap} {H : Helix} {e e' : Rat} (hr : 0 ≤ H.r + H.δ) (he' : 0 ≤ e')
+theorem Helix.clear {M : CityMap} {H : Helix} {e e' : Rat} (hr : 0 ≤ H.r + H.δ) (hs : 0 ≤ H.s) (he' : 0 ≤ e')
     (he : 2 * e * e ≤ e' * e') {p : Pt} (hp : H.Conf p) (hg : H.Geo M e e') : ∀ q, InBox e p q → ¬ Solid M q := by
-  intro q hq hs
-  obtain ⟨⟨hlo, hhi⟩, hz⟩ := hp
-  have hv := box_horiz he hq
+  intro q hq hsol
   have hqz : p.z - e ≤ q.z := hq.2.2.2.2.1
-  suffices hin : InAnnulus H.cx H.cy (H.r - H.δ - e') (H.r + H.δ + e') q by have := hg q hs hin; grind
+  obtain ⟨htop, hlow⟩ := hg q hsol
+  rcases hp with hp | ⟨hz, hlo, hhi⟩
+  · grind
+  have hv := box_horiz he hq
+  have hw : H.slack p.z ≤ H.slack (q.z + e) := Helix.slack_mono hs (by grind)
+  have hw0 : H.δ ≤ H.slack p.z := by
+    have := Rat.mul_nonneg hs (show 0 ≤ p.z - H.z0 by grind); simp only [Helix.slack]; grind
+  suffices hin : InAnnulus H.cx H.cy (H.r - H.slack (q.z + e) - e') (H.r + H.slack (q.z + e) + e') q by
+    have := hlow hin; grind
   refine ⟨?_, ?_⟩
-  · by_cases h0 : H.r - H.δ - e' ≤ 0
+  · by_cases h0 : H.r - H.slack (q.z + e) - e' ≤ 0
     · exact .inl h0
     · refine .inr (Rat.not_lt.mp fun hlt => ?_)
-      have hk : 0 ≤ H.r - H.δ - e' := by grind
-      have hw : (q.x - H.cx) * (q.x - H.cx) + (q.y - H.cy) * (q.y - H.cy) < (H.r - H.δ - e') * (H.r - H.δ - e') :=
-        hlt
+      have hk : 0 ≤ H.r - H.slack (q.z + e) - e' := by grind
+      have hwq : (q.x - H.cx) * (q.x - H.cx) + (q.y - H.cy) * (q.y - H.cy) <
+          (H.r - H.slack (q.z + e) - e') * (H.r - H.slack (q.z + e) - e') := hlt
       have hv' : (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y) ≤ e' * e' := by grind
-      have t := tri_lt hk he' hw hv'
+      have t := tri_lt hk he' hwq hv'
+      have m := sq_le_sq (show 0 ≤ H.r - H.slack (q.z + e) - e' + e' by grind)
+        (show H.r - H.slack (q.z + e) - e' + e' ≤ H.r - H.slack p.z by grind)
       rcases hlo with hlo | hlo
       · grind
       · simp only [dist2] at hlo; grind
-  · have t := tri_le hr he' hhi hv
+  · have t := tri_le (show 0 ≤ H.r + H.slack p.z by grind) he' hhi hv
+    have m := sq_le_sq (show 0 ≤ H.r + H.slack p.z + e' by grind)
+      (show H.r + H.slack p.z + e' ≤ H.r + H.slack (q.z + e) + e' by grind)
     simp only [dist2] at t ⊢; grind
 
-/-- **Helix tube, spec crash**: with the airframe within `e` of the reported CG, a CG in the helix tube and the
-tube's `Geo`, the state is not a `Crash`. -/
-theorem Helix.not_crash {M : CityMap} {H : Helix} {e e' : Rat} (hr : 0 ≤ H.r + H.δ) (he' : 0 ≤ e')
-    (he : 2 * e * e ≤ e' * e') {s : State Float} {c : Pt} (hc : reportedCG s = some c) (hconf : H.Conf c)
-    (ha : AirframeWithin e s) (hg : H.Geo M e e') : ¬ Crash M s :=
-  not_crash_of_clear (ha c hc) (H.clear hr he' he hconf hg)
+/-- **Helix funnel, spec crash**: with the airframe within `e` of the reported CG, a CG in the helix funnel and the
+funnel's `Geo`, the state is not a `Crash`. -/
+theorem Helix.not_crash {M : CityMap} {H : Helix} {e e' : Rat} (hr : 0 ≤ H.r + H.δ) (hs : 0 ≤ H.s) (he' : 0 ≤ e')
+    (he : 2 * e * e ≤ e' * e') {st : State Float} {c : Pt} (hc : reportedCG st = some c) (hconf : H.Conf c)
+    (ha : AirframeWithin e st) (hg : H.Geo M e e') : ¬ Crash M st :=
+  not_crash_of_clear (ha c hc) (H.clear hr hs he' he hconf hg)
 
 /-! ## The ray tube -/
 
-/-- A climbing-ray tube: start `(px, py)`, direction `(a, b)` (any nonzero rational vector; its length is the unit of
-along-track and lateral distance, so a unit vector gives metres), lateral bound `w` and climb `g` per unit of
-along-track distance, both in those units, and entry altitude `z0` (m). -/
+/-- A climbing-ray funnel: start `(px, py)`, direction `(a, b)` (any nonzero rational vector; its length is the unit
+of along-track and lateral distance, so a unit vector gives metres), lateral bound `w` at entry widening `s` per metre
+climbed, climb `g` (m) per unit of along-track distance, entry altitude `z0` and release altitude `zTop` (m). -/
 structure Ray where
   px : Rat
   py : Rat
   a : Rat
   b : Rat
   w : Rat
+  s : Rat
   z0 : Rat
   g : Rat
+  zTop : Rat
   deriving DecidableEq, Repr
 
 /-- Along-track distance of `q` from the start, in units of the direction's length. -/
@@ -225,10 +248,14 @@ def Ray.along (R : Ray) (q : Pt) : Rat := (q.x - R.px) * R.a + (q.y - R.py) * R.
 /-- Signed lateral offset of `q` from the line, in units of the direction's length (positive to the left). -/
 def Ray.lateral (R : Ray) (q : Pt) : Rat := (q.y - R.py) * R.a - (q.x - R.px) * R.b
 
-/-- **The ray tube's `Dyn` bounds** on a reported position `p`: lateral offset at most `w`, along-track distance at
-least 0, altitude at least `z0 + g · along`. -/
+/-- Lateral bound at altitude `z`: `w + s (z - z0)`. -/
+def Ray.halfWidth (R : Ray) (z : Rat) : Rat := R.w + R.s * (z - R.z0)
+
+/-- **The ray funnel's `Dyn` bounds** on a reported position `p`: at or above `zTop`, or lateral offset within
+`halfWidth p.z`, along-track distance at least 0 and altitude at least `z0 + g · along`. -/
 def Ray.Conf (R : Ray) (p : Pt) : Prop :=
-  -R.w ≤ R.lateral p ∧ R.lateral p ≤ R.w ∧ 0 ≤ R.along p ∧ R.z0 + R.g * R.along p ≤ p.z
+  R.zTop ≤ p.z ∨
+    (-R.halfWidth p.z ≤ R.lateral p ∧ R.lateral p ≤ R.halfWidth p.z ∧ 0 ≤ R.along p ∧ R.z0 + R.g * R.along p ≤ p.z)
 
 /-- How far, in along-track and lateral units, a box of half-size `e` reaches: `e (|a| + |b|)`. -/
 def Ray.reach (R : Ray) (e : Rat) : Rat := e * (absR R.a + absR R.b)
@@ -236,11 +263,16 @@ def Ray.reach (R : Ray) (e : Rat) : Rat := e * (absR R.a + absR R.b)
 /-- The corridor floor at along-track distance `t` for boxes of half-size `e`: solids there must stay below it. -/
 def Ray.floorAt (R : Ray) (e t : Rat) : Rat := R.z0 + R.g * max 0 (t - R.reach e) - e
 
-/-- **The ray tube's `Geo`**: every solid point within `w + reach` laterally of the line and at least `-reach` along
-it lies below the corridor floor at its along-track distance. -/
+/-- **The ray funnel's `Geo`**: every solid point is below `zTop - e`, and below the corridor floor at its along-track
+distance if it is within `halfWidth (q.z + e) + reach` laterally and at least `-reach` along. -/
 def Ray.Geo (M : CityMap) (R : Ray) (e : Rat) : Prop :=
-  ∀ q, Solid M q → -(R.w + R.reach e) ≤ R.lateral q → R.lateral q ≤ R.w + R.reach e → -R.reach e ≤ R.along q →
-    q.z < R.floorAt e (R.along q)
+  ∀ q, Solid M q → q.z < R.zTop - e ∧
+    (-(R.halfWidth (q.z + e) + R.reach e) ≤ R.lateral q → R.lateral q ≤ R.halfWidth (q.z + e) + R.reach e →
+      -R.reach e ≤ R.along q → q.z < R.floorAt e (R.along q))
+
+theorem Ray.halfWidth_mono {R : Ray} (hs : 0 ≤ R.s) {z z' : Rat} (h : z ≤ z') : R.halfWidth z ≤ R.halfWidth z' := by
+  have := Rat.mul_le_mul_of_nonneg_left (show z - R.z0 ≤ z' - R.z0 by grind) hs
+  simp only [Ray.halfWidth]; grind
 
 /-- Moving by at most `e` per axis changes along-track distance and lateral offset by at most `reach e`. -/
 theorem Ray.shift {R : Ray} {e : Rat} {p q : Pt} (hq : InBox e p q) :
@@ -256,15 +288,18 @@ theorem Ray.shift {R : Ray} {e : Rat} {p q : Pt} (hq : InBox e p q) :
   simp only [Ray.along, Ray.lateral, Ray.reach]
   refine ⟨?_, ?_, ?_, ?_⟩ <;> grind
 
-/-- **Ray clearance (G)**: in the ray tube with `Geo` and a non-negative climb, the box `[p ± e]` around the reported
-position holds nothing solid. -/
-theorem Ray.clear {M : CityMap} {R : Ray} {e : Rat} (hg0 : 0 ≤ R.g) {p : Pt} (hp : R.Conf p) (hg : R.Geo M e) :
-    ∀ q, InBox e p q → ¬ Solid M q := by
-  intro q hq hs
-  obtain ⟨hl1, hl2, ha0, hz⟩ := hp
-  obtain ⟨s1, s2, s3, s4⟩ := Ray.shift (R := R) hq
+/-- **Ray clearance (G)**: in the ray funnel with `Geo`, a non-negative climb and widening, the box `[p ± e]` around
+the reported position holds nothing solid. -/
+theorem Ray.clear {M : CityMap} {R : Ray} {e : Rat} (hg0 : 0 ≤ R.g) (hs : 0 ≤ R.s) {p : Pt} (hp : R.Conf p)
+    (hg : R.Geo M e) : ∀ q, InBox e p q → ¬ Solid M q := by
+  intro q hq hsol
   have hqz : p.z - e ≤ q.z := hq.2.2.2.2.1
-  have hlt := hg q hs (by grind) (by grind) (by grind)
+  obtain ⟨htop, hlow⟩ := hg q hsol
+  rcases hp with hp | ⟨hl1, hl2, ha0, hz⟩
+  · grind
+  obtain ⟨s1, s2, s3, s4⟩ := Ray.shift (R := R) hq
+  have hw : R.halfWidth p.z ≤ R.halfWidth (q.z + e) := Ray.halfWidth_mono hs (by grind)
+  have hlt := hlow (by grind) (by grind) (by grind)
   have hm : max 0 (R.along q - R.reach e) ≤ R.along p := by
     rcases (Rat.le_total : (0 : Rat) ≤ R.along q - R.reach e ∨ _) with h | h
     · rw [Rat.max_def]; split <;> grind
@@ -273,10 +308,10 @@ theorem Ray.clear {M : CityMap} {R : Ray} {e : Rat} (hg0 : 0 ≤ R.g) {p : Pt} (
   simp only [Ray.floorAt] at hlt
   grind
 
-/-- **Ray tube, spec crash**: with the airframe within `e` of the reported CG, a CG in the ray tube and the tube's
-`Geo`, the state is not a `Crash`. -/
-theorem Ray.not_crash {M : CityMap} {R : Ray} {e : Rat} (hg0 : 0 ≤ R.g) {s : State Float} {c : Pt}
-    (hc : reportedCG s = some c) (hconf : R.Conf c) (ha : AirframeWithin e s) (hg : R.Geo M e) : ¬ Crash M s :=
-  not_crash_of_clear (ha c hc) (R.clear hg0 hconf hg)
+/-- **Ray funnel, spec crash**: with the airframe within `e` of the reported CG, a CG in the ray funnel and the
+funnel's `Geo`, the state is not a `Crash`. -/
+theorem Ray.not_crash {M : CityMap} {R : Ray} {e : Rat} (hg0 : 0 ≤ R.g) (hs : 0 ≤ R.s) {st : State Float} {c : Pt}
+    (hc : reportedCG st = some c) (hconf : R.Conf c) (ha : AirframeWithin e st) (hg : R.Geo M e) : ¬ Crash M st :=
+  not_crash_of_clear (ha c hc) (R.clear hg0 hs hconf hg)
 
 end CitySafety.EndSets

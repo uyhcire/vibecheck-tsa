@@ -29,38 +29,39 @@ theorem not_crashH_of_clear {h : Rat} {pl : Plane} {c : Rat × Rat × Rat} (hc :
   rintro ⟨dx, dy, dz, h1, h2, h3, h4, h5, h6, hs⟩
   exact hclr ⟨x + dx, y + dy, z + dz⟩ (by simp only [InBox, toPt]; grind) (spec_solid_of_solid hs)
 
-theorem Helix.not_crashH {H : Helix} {h e' : Rat} (hr : 0 ≤ H.r + H.δ) (he' : 0 ≤ e') (he : 2 * h * h ≤ e' * e')
+theorem Helix.not_crashH {H : Helix} {h e' : Rat} (hr : 0 ≤ H.r + H.δ) (hs : 0 ≤ H.s) (he' : 0 ≤ e')
+    (he : 2 * h * h ≤ e' * e')
     {pl : Plane} {c : Rat × Rat × Rat} (hc : exactPos pl = some c) (hconf : H.Conf (toPt c))
     (hg : H.Geo cityMap h e') : ¬ CrashH h pl :=
-  not_crashH_of_clear hc (H.clear hr he' he hconf hg)
+  not_crashH_of_clear hc (H.clear hr hs he' he hconf hg)
 
-theorem Ray.not_crashH {R : Ray} {h : Rat} (hg0 : 0 ≤ R.g) {pl : Plane} {c : Rat × Rat × Rat}
+theorem Ray.not_crashH {R : Ray} {h : Rat} (hg0 : 0 ≤ R.g) (hs : 0 ≤ R.s) {pl : Plane} {c : Rat × Rat × Rat}
     (hc : exactPos pl = some c) (hconf : R.Conf (toPt c)) (hg : R.Geo cityMap h) : ¬ CrashH h pl :=
-  not_crashH_of_clear hc (R.clear hg0 hconf hg)
+  not_crashH_of_clear hc (R.clear hg0 hs hconf hg)
 
 /-- The helix tubes as city-gate end sets; `Dyn` and its invariance are supplied by the model. -/
 def helixEndSet (h e' : Rat) (he' : 0 ≤ e') (he : 2 * h * h ≤ e' * e') (Dyn : Helix → Ctl × Plane → Prop)
     (hconf : ∀ H x, Dyn H x → ∃ c, exactPos x.2 = some c ∧ H.Conf (toPt c))
     (hinv : ∀ H x, Dyn H x → Dyn H (cityGate.fly x)) : EndSet cityGate (CrashH h) Helix where
   Dyn := Dyn
-  Geo H _ := 0 ≤ H.r + H.δ ∧ H.Geo cityMap h e'
+  Geo H _ := 0 ≤ H.r + H.δ ∧ 0 ≤ H.s ∧ H.Geo cityMap h e'
   dyn_inv := hinv
   geo_inv _ _ _ g := g
   clear H x hd hg := by
     obtain ⟨c, hc, hcf⟩ := hconf H x hd
-    exact Helix.not_crashH hg.1 he' he hc hcf hg.2
+    exact Helix.not_crashH hg.1 hg.2.1 he' he hc hcf hg.2.2
 
 /-- The ray tubes as city-gate end sets; `Dyn` and its invariance are supplied by the model. -/
 def rayEndSet (h : Rat) (Dyn : Ray → Ctl × Plane → Prop)
     (hconf : ∀ R x, Dyn R x → ∃ c, exactPos x.2 = some c ∧ R.Conf (toPt c))
     (hinv : ∀ R x, Dyn R x → Dyn R (cityGate.fly x)) : EndSet cityGate (CrashH h) Ray where
   Dyn := Dyn
-  Geo R _ := 0 ≤ R.g ∧ R.Geo cityMap h
+  Geo R _ := 0 ≤ R.g ∧ 0 ≤ R.s ∧ R.Geo cityMap h
   dyn_inv := hinv
   geo_inv _ _ _ g := g
   clear R x hd hg := by
     obtain ⟨c, hc, hcf⟩ := hconf R x hd
-    exact Ray.not_crashH hg.1 hc hcf hg.2
+    exact Ray.not_crashH hg.1 hg.2.1 hc hcf hg.2.2
 
 theorem cityGate_spec_safe_of_endSet {h : Rat} (hh : h ≤ 17 / 2) {Θ : Type} (E : EndSet cityGate (CrashH h) Θ)
     (hterm : ∀ x, Origin cityGate GInit x → ∀ n, cityGate.term (cityGate.flyN n x) = true → E.Mem (cityGate.flyN n x))

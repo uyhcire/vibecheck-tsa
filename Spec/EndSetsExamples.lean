@@ -19,23 +19,32 @@ def hill : CityMap := ⟨150, 100, 4, fun i j => if i = 3 ∧ j = 3 then 300 els
 /-! ## Helices: one clear, one blocked -/
 
 /-- Circling the tower at 40 ± 5 m, from 60 m up. -/
-def helixClear : Helix := ⟨0, 0, 40, 5, 60⟩
+def helixClear : Helix := ⟨0, 0, 40, 5, 0, 60, 600⟩
 
 /-- Circling at 80 ± 5 m, through the wall and over the peak's square. -/
-def helixBlocked : Helix := ⟨0, 0, 80, 5, 60⟩
+def helixBlocked : Helix := ⟨0, 0, 80, 5, 0, 60, 600⟩
 
-example : helixClear.geoB hill 6 9 = true := by decide +kernel
-example : helixBlocked.geoB hill 6 9 = false := by decide +kernel
+example : helixClear.geoB hill 6 9 500 = true := by decide +kernel
+example : helixBlocked.geoB hill 6 9 500 = false := by decide +kernel
 
-theorem helixClear_geo : helixClear.Geo hill 6 9 := Helix.geo_of_geoB (by decide +kernel)
+/-- `helixClear` as a funnel widening 1 m per 100 m climbed: still clear. -/
+def funnelClear : Helix := { helixClear with s := 1 / 100 }
+
+/-- Widening 1 m per 20 m climbed: the funnel reaches the tower before the tower's top. -/
+def funnelBlocked : Helix := { helixClear with s := 1 / 20 }
+
+example : funnelClear.geoB hill 6 9 500 = true := by decide +kernel
+example : funnelBlocked.geoB hill 6 9 500 = false := by decide +kernel
+
+theorem helixClear_geo : helixClear.Geo hill 6 9 := Helix.geo_of_geoB (top := 500) (by decide +kernel)
 
 /-! ## Rays: one clear, one blocked -/
 
 /-- East from 100 m south of the tower, 5 m wide, climbing 1 in 2 from 60 m. -/
-def rayClear : Ray := ⟨0, -100, 1, 0, 5, 60, 1 / 2⟩
+def rayClear : Ray := ⟨0, -100, 1, 0, 5, 0, 60, 1 / 2, 600⟩
 
 /-- North from the same point, straight into the tower. -/
-def rayBlocked : Ray := ⟨0, -100, 0, 1, 5, 60, 1 / 2⟩
+def rayBlocked : Ray := ⟨0, -100, 0, 1, 5, 0, 60, 1 / 2, 600⟩
 
 example : TopOK hill 500 = true := by decide +kernel
 example : rayClear.geoB hill 6 500 = true := by decide +kernel
@@ -46,17 +55,18 @@ theorem rayClear_geo : rayClear.Geo hill 6 := Ray.geo_of_geoB (top := 500) (by d
 /-! ## The hypotheses are satisfiable -/
 
 example : helixClear.Conf ⟨40, 0, 60⟩ := by
-  simp only [Helix.Conf, InAnnulus, dist2, helixClear]; decide +kernel
+  simp only [Helix.Conf, Helix.slack, InAnnulus, dist2, helixClear]; decide +kernel
 
 example : rayClear.Conf ⟨100, -100, 110⟩ := by
-  simp only [Ray.Conf, Ray.lateral, Ray.along, rayClear]; decide +kernel
+  simp only [Ray.Conf, Ray.halfWidth, Ray.lateral, Ray.along, rayClear]; decide +kernel
 
 example : ∀ q, InBox 6 ⟨40, 0, 60⟩ q → ¬ Solid hill q :=
-  Helix.clear (by decide +kernel) (by decide +kernel) (by decide +kernel)
-    (by simp only [Helix.Conf, InAnnulus, dist2, helixClear]; decide +kernel) helixClear_geo
+  Helix.clear (by decide +kernel) (by decide +kernel) (by decide +kernel) (by decide +kernel)
+    (by simp only [Helix.Conf, Helix.slack, InAnnulus, dist2, helixClear]; decide +kernel) helixClear_geo
 
 example : ∀ q, InBox 6 ⟨100, -100, 110⟩ q → ¬ Solid hill q :=
-  Ray.clear (by decide +kernel) (by simp only [Ray.Conf, Ray.lateral, Ray.along, rayClear]; decide +kernel) rayClear_geo
+  Ray.clear (by decide +kernel) (by decide +kernel)
+    (by simp only [Ray.Conf, Ray.halfWidth, Ray.lateral, Ray.along, rayClear]; decide +kernel) rayClear_geo
 
 /-! ## Randomised checks of the clearance lemmas; the blocked tubes show the sampling can find solid points -/
 
@@ -68,12 +78,14 @@ def uniform (s : Nat) (lo hi : Rat) : Rat := lo + (hi - lo) * ((s / 2 ^ 32 % 100
 
 /-- `Helix.Conf`, decided. -/
 def helixConfB (H : Helix) (p : Pt) : Bool :=
-  decide ((H.r - H.δ ≤ 0 ∨ (H.r - H.δ) * (H.r - H.δ) ≤ dist2 H.cx H.cy p) ∧
-    dist2 H.cx H.cy p ≤ (H.r + H.δ) * (H.r + H.δ) ∧ H.z0 ≤ p.z)
+  let w := H.slack p.z
+  decide (H.zTop ≤ p.z ∨ (H.z0 ≤ p.z ∧ (H.r - w ≤ 0 ∨ (H.r - w) * (H.r - w) ≤ dist2 H.cx H.cy p) ∧
+    dist2 H.cx H.cy p ≤ (H.r + w) * (H.r + w)))
 
 /-- `Ray.Conf`, decided. -/
 def rayConfB (R : Ray) (p : Pt) : Bool :=
-  decide (-R.w ≤ R.lateral p ∧ R.lateral p ≤ R.w ∧ 0 ≤ R.along p ∧ R.z0 + R.g * R.along p ≤ p.z)
+  decide (R.zTop ≤ p.z ∨ (-R.halfWidth p.z ≤ R.lateral p ∧ R.lateral p ≤ R.halfWidth p.z ∧ 0 ≤ R.along p ∧
+    R.z0 + R.g * R.along p ≤ p.z))
 
 /-- (positions kept by `conf`, solid points found in their boxes of half-size `e`) over `n` samples. -/
 def sampleHits (M : CityMap) (conf : Pt → Bool) (x0 x1 y0 y1 z0 z1 e : Rat) (n : Nat) : Nat × Nat := Id.run do
@@ -96,6 +108,8 @@ def sampleHits (M : CityMap) (conf : Pt → Bool) (x0 x1 y0 y1 z0 z1 e : Rat) (n
 #guard (sampleHits hill (helixConfB helixClear) (-45) 45 (-45) 45 60 70 6 3000).2 == 0
 #guard (sampleHits hill (helixConfB helixClear) (-45) 45 (-45) 45 60 70 6 3000).1 > 500
 #guard (sampleHits hill (helixConfB helixBlocked) (-85) 85 (-85) 85 60 70 6 3000).2 > 0
+#guard (sampleHits hill (helixConfB funnelClear) (-50) 50 (-50) 50 60 600 6 3000).2 == 0
+#guard (sampleHits hill (helixConfB funnelBlocked) (-30) 30 (-30) 30 400 510 6 6000).2 > 0
 #guard (sampleHits hill (rayConfB rayClear) 0 2000 (-105) (-95) 60 1100 6 3000).2 == 0
 #guard (sampleHits hill (rayConfB rayClear) 0 2000 (-105) (-95) 60 1100 6 3000).1 > 500
 #guard (sampleHits hill (rayConfB rayBlocked) (-5) 5 (-100) 300 60 300 6 3000).2 > 0
@@ -104,23 +118,23 @@ def sampleHits (M : CityMap) (conf : Pt → Bool) (x0 x1 y0 y1 z0 z1 e : Rat) (n
 
 /-- A position below the tube's entry altitude is not in the helix tube. -/
 example : ¬ helixClear.Conf ⟨40, 0, 59⟩ := by
-  simp only [Helix.Conf, InAnnulus, dist2, helixClear]; decide +kernel
+  simp only [Helix.Conf, Helix.slack, InAnnulus, dist2, helixClear]; decide +kernel
 
 /-- A position off the corridor is not in the ray tube. -/
 example : ¬ rayClear.Conf ⟨100, -90, 200⟩ := by
-  simp only [Ray.Conf, Ray.lateral, Ray.along, rayClear]; decide +kernel
+  simp only [Ray.Conf, Ray.halfWidth, Ray.lateral, Ray.along, rayClear]; decide +kernel
 
 /-- The blocked helix's `Geo` is false: a wall point in its annulus is above `z0 - e`. -/
 example : ¬ helixBlocked.Geo hill 6 9 := fun h => by
-  have := h ⟨75, 0, 99⟩ (Or.inr ⟨wall, by simp [hill], by decide +kernel⟩)
-    (by simp only [InAnnulus, dist2, helixBlocked]; decide +kernel)
+  have := (h ⟨75, 0, 99⟩ (Or.inr ⟨wall, by simp [hill], by decide +kernel⟩)).2
+    (by simp only [Helix.slack, InAnnulus, dist2, helixBlocked]; decide +kernel)
   revert this; decide +kernel
 
 /-- The blocked ray's `Geo` is false: a tower point on its line is above the floor. -/
 example : ¬ rayBlocked.Geo hill 6 := fun h => by
-  have := h ⟨0, 0, 400⟩ (Or.inr ⟨tower, by simp [hill], by decide +kernel⟩)
-    (by simp only [Ray.lateral, Ray.reach, absR, rayBlocked]; decide +kernel)
-    (by simp only [Ray.lateral, Ray.reach, absR, rayBlocked]; decide +kernel)
+  have := (h ⟨0, 0, 400⟩ (Or.inr ⟨tower, by simp [hill], by decide +kernel⟩)).2
+    (by simp only [Ray.halfWidth, Ray.lateral, Ray.reach, absR, rayBlocked]; decide +kernel)
+    (by simp only [Ray.halfWidth, Ray.lateral, Ray.reach, absR, rayBlocked]; decide +kernel)
     (by simp only [Ray.along, Ray.reach, absR, rayBlocked]; decide +kernel)
   revert this; simp only [Ray.floorAt, Ray.along, Ray.reach, absR, rayBlocked]; decide +kernel
 

@@ -177,40 +177,97 @@ theorem not_inAnnulus {cx cy lo hi x0 x1 y0 y1 : Rat} (h : offAnnulus cx cy lo h
   simp only [dist2] at ha1 ha2
   grind
 
+/-! ## A bound on everything solid -/
+
+/-- `top` bounds every grid height and every building top. -/
+def TopOK (M : CityMap) (top : Rat) : Bool :=
+  (List.range M.n).all (fun i => (List.range M.n).all fun j => decide (M.height i j ≤ top)) &&
+  M.boxes.all fun b => decide (b.z1 ≤ top)
+
+theorem topOK_le {M : CityMap} {top : Rat} (h : TopOK M top = true) (hn : 2 ≤ M.n) {q : Pt} (hs : Solid M q) :
+    q.z ≤ top := by
+  simp only [TopOK, Bool.and_eq_true, List.all_eq_true, List.mem_range, decide_eq_true_eq] at h
+  obtain ⟨hh, hb⟩ := h
+  rcases hs with ht | ⟨b, hbm, hc⟩
+  · have := terrain_le_sqMax hn q.x q.y
+    have hi : clampIdx M (cellOf M q.x) + 1 < M.n := by simp only [clampIdx]; omega
+    have hj : clampIdx M (cellOf M q.y) + 1 < M.n := by simp only [clampIdx]; omega
+    have h1 := hh _ (by omega) _ (by omega)
+    have h2 := hh _ hi _ (show clampIdx M (cellOf M q.y) < M.n by omega)
+    have h3 := hh _ (show clampIdx M (cellOf M q.x) < M.n by omega) _ hj
+    have h4 := hh _ hi _ hj
+    simp only [sqMax] at this
+    grind
+  · have := hb b hbm; simp only [Box.Contains] at hc; grind
+
 /-! ## The helix check -/
 
-/-- **Helix `Geo`, decided**: every building either tops out below `z0 - e` or misses the widened annulus, and so
-does every grid square (clamped beyond the edge) within its bounding square. -/
-def Helix.geoB (M : CityMap) (H : Helix) (e e' : Rat) : Bool :=
-  let lo := H.r - H.δ - e'
-  let hi := H.r + H.δ + e'
-  let zf := H.z0 - e
-  decide (2 ≤ M.n) && decide (0 < M.spacing) && decide (0 ≤ hi) &&
-  M.boxes.all (fun b => decide (b.z1 < zf) || offAnnulus H.cx H.cy lo hi b.x0 b.x1 b.y0 b.y1) &&
-  allSquares M (H.cx - hi) (H.cx + hi) (H.cy - hi) (H.cy + hi) fun kx ky =>
-    decide (sqMax M (clampIdx M kx) (clampIdx M ky) < zf) ||
-    offAnnulus H.cx H.cy lo hi (edge M kx) (edge M (kx + 1)) (edge M ky) (edge M (ky + 1))
+theorem inAnnulus_mono {cx cy lo hi lo' hi' : Rat} {q : Pt} (hlo : lo' ≤ lo) (hhi : hi ≤ hi') (h0 : 0 ≤ hi)
+    (h : InAnnulus cx cy lo hi q) : InAnnulus cx cy lo' hi' q := by
+  obtain ⟨h1, h2⟩ := h
+  refine ⟨?_, Rat.le_trans h2 (sq_le_sq h0 hhi)⟩
+  by_cases h' : lo' ≤ 0
+  · exact .inl h'
+  · rcases h1 with h1 | h1
+    · grind
+    · exact .inr (Rat.le_trans (sq_le_sq (by grind) hlo) h1)
 
-theorem Helix.geo_of_geoB {M : CityMap} {H : Helix} {e e' : Rat} (h : H.geoB M e e' = true) : H.Geo M e e' := by
+/-- The helix funnel's annulus for solids up to altitude `z`, widened by `e'`. -/
+def Helix.ring (H : Helix) (e e' z : Rat) : Rat × Rat := (H.r - H.slack (z + e) - e', H.r + H.slack (z + e) + e')
+
+/-- **Helix `Geo`, decided** given a bound `top` on all solids, below `zTop - e`: every building, and every grid square
+(clamped beyond the edge) within the widest annulus's bounding square, either tops out below `z0 - e` or misses the
+annulus at its top. -/
+def Helix.geoB (M : CityMap) (H : Helix) (e e' top : Rat) : Bool :=
+  let zf := H.z0 - e
+  let hi := (H.ring e e' top).2
+  decide (2 ≤ M.n) && decide (0 < M.spacing) && decide (0 ≤ H.r + H.δ + e') && decide (0 ≤ H.s) && TopOK M top &&
+  decide (top < H.zTop - e) &&
+  M.boxes.all (fun b => decide (b.z1 < zf) ||
+    offAnnulus H.cx H.cy (H.ring e e' b.z1).1 (H.ring e e' b.z1).2 b.x0 b.x1 b.y0 b.y1) &&
+  allSquares M (H.cx - hi) (H.cx + hi) (H.cy - hi) (H.cy + hi) fun kx ky =>
+    let ztop := sqMax M (clampIdx M kx) (clampIdx M ky)
+    decide (ztop < zf) ||
+    offAnnulus H.cx H.cy (H.ring e e' ztop).1 (H.ring e e' ztop).2 (edge M kx) (edge M (kx + 1)) (edge M ky)
+      (edge M (ky + 1))
+
+theorem Helix.geo_of_geoB {M : CityMap} {H : Helix} {e e' top : Rat} (h : H.geoB M e e' top = true) :
+    H.Geo M e e' := by
   simp only [Helix.geoB, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, Bool.or_eq_true] at h
-  obtain ⟨⟨⟨⟨hn, hs⟩, hhi⟩, hb⟩, hsq⟩ := h
-  intro q hsol ha
+  obtain ⟨⟨⟨⟨⟨⟨⟨hn, hs⟩, hr⟩, hs0⟩, htop⟩, hZ⟩, hb⟩, hsq⟩ := h
+  intro q hsol
+  have hqt := topOK_le htop hn hsol
+  refine ⟨by grind, fun ha => ?_⟩
+  apply Classical.byContradiction
+  intro hlow
+  have hz : H.z0 - e ≤ q.z := by grind
+  have hw0 : H.δ ≤ H.slack (q.z + e) := by
+    have := Rat.mul_nonneg hs0 (show 0 ≤ q.z + e - H.z0 by grind); simp only [Helix.slack]; grind
+  -- the annulus only widens with height
+  have widen : ∀ z, q.z ≤ z → InAnnulus H.cx H.cy (H.ring e e' z).1 (H.ring e e' z).2 q := fun z hzz =>
+    inAnnulus_mono (by have := Helix.slack_mono hs0 (show q.z + e ≤ z + e by grind); simp only [Helix.ring]; grind)
+      (by have := Helix.slack_mono hs0 (show q.z + e ≤ z + e by grind); simp only [Helix.ring]; grind)
+      (by grind) ha
   rcases hsol with ht | ⟨b, hbm, hc⟩
-  · have hxy := ha.2
+  · have hxy := (widen top hqt).2
     simp only [dist2] at hxy
+    have hhi : 0 ≤ (H.ring e e' top).2 := by
+      have := Helix.slack_mono hs0 (show q.z + e ≤ top + e by grind); simp only [Helix.ring]; grind
     have s1 := sq_nonneg (q.x - H.cx)
     have s2 := sq_nonneg (q.y - H.cy)
     have bx := abs_le_of_sq_le hhi (show (q.x - H.cx) * (q.x - H.cx) ≤ _ by grind)
     have by' := abs_le_of_sq_le hhi (show (q.y - H.cy) * (q.y - H.cy) ≤ _ by grind)
     have hc := allSquares_at hs hsq (x := q.x) (y := q.y) (by grind) (by grind) (by grind) (by grind)
+    have hter := terrain_le_sqMax hn q.x q.y
     simp only [Bool.or_eq_true, decide_eq_true_eq] at hc
     rcases hc with hc | hc
-    · have := terrain_le_sqMax hn q.x q.y; grind
-    · exact absurd ha (not_inAnnulus hc (edge_le hs _) (le_edge_succ hs _) (edge_le hs _) (le_edge_succ hs _))
+    · grind
+    · exact not_inAnnulus hc (edge_le hs _) (le_edge_succ hs _) (edge_le hs _) (le_edge_succ hs _)
+        (widen _ (Rat.le_trans ht hter))
   · simp only [Box.Contains] at hc
     rcases hb b hbm with hb | hb
     · grind
-    · exact absurd ha (not_inAnnulus hb (by grind) (by grind) (by grind) (by grind))
+    · exact not_inAnnulus hb (by grind) (by grind) (by grind) (by grind) (widen _ (by grind))
 
 /-! ## The ray check -/
 
@@ -245,11 +302,10 @@ def Ray.latMin (R : Ray) (x0 x1 y0 y1 : Rat) : Rat := linMin R.py R.a y0 y1 - li
 /-- The greatest lateral offset over the rectangle. -/
 def Ray.latMax (R : Ray) (x0 x1 y0 y1 : Rat) : Rat := linMax R.py R.a y0 y1 - linMin R.px R.b x0 x1
 
-/-- Solids up to `ztop` over the rectangle `[x0, x1] × [y0, y1]` are clear of the corridor short of along-track
-distance `T`: the rectangle misses it laterally, lies behind it, lies beyond `T`, or tops out below the floor at
-the rectangle's nearest along-track distance. -/
-def Ray.rectOK (R : Ray) (e T x0 x1 y0 y1 ztop : Rat) : Bool :=
-  let W := R.w + R.reach e
+/-- Solids up to `ztop` over the rectangle `[x0, x1] × [y0, y1]` are clear of the corridor of half-width `W` short of
+along-track distance `T`: the rectangle misses it laterally, lies behind it or beyond `T`, or tops out below the floor
+at its nearest along-track distance. -/
+def Ray.rectOK (R : Ray) (e T W x0 x1 y0 y1 ztop : Rat) : Bool :=
   decide (R.latMax x0 x1 y0 y1 < -W) || decide (W < R.latMin x0 x1 y0 y1) ||
   decide (R.alongMax x0 x1 y0 y1 < -R.reach e) || decide (T ≤ R.alongMin x0 x1 y0 y1) ||
   decide (ztop < R.floorAt e (R.alongMin x0 x1 y0 y1))
@@ -257,34 +313,34 @@ def Ray.rectOK (R : Ray) (e T x0 x1 y0 y1 ztop : Rat) : Bool :=
 /-- Along-track distance from which the corridor floor is above `top` (needs `0 < g`). -/
 def Ray.horizon (R : Ray) (e top : Rat) : Rat := R.reach e + (top + e - R.z0 + 1) / R.g
 
-/-- `top` bounds every grid height and every building top. -/
-def TopOK (M : CityMap) (top : Rat) : Bool :=
-  (List.range M.n).all (fun i => (List.range M.n).all fun j => decide (M.height i j ≤ top)) &&
-  M.boxes.all fun b => decide (b.z1 ≤ top)
+/-- The corridor's half-width for solids up to altitude `z`. -/
+def Ray.corridor (R : Ray) (e z : Rat) : Rat := R.halfWidth (z + e) + R.reach e
 
-/-- **Ray `Geo`, decided** given a bound `top` on all solids: every building and every grid square (clamped beyond
-the edge) in the bounding box of the corridor up to `Ray.horizon` passes `Ray.rectOK`; past the horizon the floor is
-above `top`. -/
+/-- **Ray `Geo`, decided** given a bound `top` on all solids, below `zTop - e`: every building and every grid square
+(clamped beyond the edge) in the bounding box of the corridor up to `Ray.horizon` passes `Ray.rectOK` at its top;
+past the horizon the floor is above `top`. -/
 def Ray.geoB (M : CityMap) (R : Ray) (e top : Rat) : Bool :=
-  let W := R.w + R.reach e
+  let W := R.corridor e top
   let T := R.horizon e top
   let D := R.a * R.a + R.b * R.b
   let L := max (R.reach e) T
   let bx := (L * absR R.a + W * absR R.b) / D
   let by' := (L * absR R.b + W * absR R.a) / D
-  decide (2 ≤ M.n) && decide (0 < M.spacing) && decide (0 < R.g) && decide (0 < D) && TopOK M top &&
-  M.boxes.all (fun b => R.rectOK e T b.x0 b.x1 b.y0 b.y1 b.z1) &&
+  decide (2 ≤ M.n) && decide (0 < M.spacing) && decide (0 < R.g) && decide (0 ≤ R.s) && decide (0 < D) &&
+  TopOK M top && decide (top < R.zTop - e) &&
+  M.boxes.all (fun b => R.rectOK e T (R.corridor e b.z1) b.x0 b.x1 b.y0 b.y1 b.z1) &&
   allSquares M (R.px - bx) (R.px + bx) (R.py - by') (R.py + by') fun kx ky =>
-    R.rectOK e T (edge M kx) (edge M (kx + 1)) (edge M ky) (edge M (ky + 1)) (sqMax M (clampIdx M kx) (clampIdx M ky))
+    let ztop := sqMax M (clampIdx M kx) (clampIdx M ky)
+    R.rectOK e T (R.corridor e ztop) (edge M kx) (edge M (kx + 1)) (edge M ky) (edge M (ky + 1)) ztop
 
 theorem Ray.floorAt_mono {R : Ray} {e t t' : Rat} (hg : 0 ≤ R.g) (h : t ≤ t') : R.floorAt e t ≤ R.floorAt e t' := by
   have hm : max 0 (t - R.reach e) ≤ max 0 (t' - R.reach e) := by grind
   have := Rat.mul_le_mul_of_nonneg_left hm hg
   simp only [Ray.floorAt]; grind
 
-theorem Ray.rectOK_sound {R : Ray} {e T x0 x1 y0 y1 ztop : Rat} (hg : 0 ≤ R.g) (h : R.rectOK e T x0 x1 y0 y1 ztop = true)
-    {q : Pt} (hx0 : x0 ≤ q.x) (hx1 : q.x ≤ x1) (hy0 : y0 ≤ q.y) (hy1 : q.y ≤ y1) (hz : q.z ≤ ztop)
-    (hl1 : -(R.w + R.reach e) ≤ R.lateral q) (hl2 : R.lateral q ≤ R.w + R.reach e) (ha : -R.reach e ≤ R.along q)
+theorem Ray.rectOK_sound {R : Ray} {e T W x0 x1 y0 y1 ztop : Rat} (hg : 0 ≤ R.g)
+    (h : R.rectOK e T W x0 x1 y0 y1 ztop = true) {q : Pt} (hx0 : x0 ≤ q.x) (hx1 : q.x ≤ x1) (hy0 : y0 ≤ q.y)
+    (hy1 : q.y ≤ y1) (hz : q.z ≤ ztop) (hl1 : -W ≤ R.lateral q) (hl2 : R.lateral q ≤ W) (ha : -R.reach e ≤ R.along q)
     (hT : R.along q < T) : q.z < R.floorAt e (R.along q) := by
   have ax := lin_bounds (p := R.px) (a := R.a) hx0 hx1
   have ay := lin_bounds (p := R.py) (a := R.b) hy0 hy1
@@ -302,31 +358,20 @@ theorem Ray.rectOK_sound {R : Ray} {e T x0 x1 y0 y1 ztop : Rat} (hg : 0 ≤ R.g)
   · grind
   · have := Ray.floorAt_mono (e := e) hg hmin; grind
 
-theorem topOK_le {M : CityMap} {top : Rat} (h : TopOK M top = true) (hn : 2 ≤ M.n) {q : Pt} (hs : Solid M q) :
-    q.z ≤ top := by
-  simp only [TopOK, Bool.and_eq_true, List.all_eq_true, List.mem_range, decide_eq_true_eq] at h
-  obtain ⟨hh, hb⟩ := h
-  rcases hs with ht | ⟨b, hbm, hc⟩
-  · have := terrain_le_sqMax hn q.x q.y
-    have hi : clampIdx M (cellOf M q.x) + 1 < M.n := by simp only [clampIdx]; omega
-    have hj : clampIdx M (cellOf M q.y) + 1 < M.n := by simp only [clampIdx]; omega
-    have h1 := hh _ (by omega) _ (by omega)
-    have h2 := hh _ hi _ (show clampIdx M (cellOf M q.y) < M.n by omega)
-    have h3 := hh _ (show clampIdx M (cellOf M q.x) < M.n by omega) _ hj
-    have h4 := hh _ hi _ hj
-    simp only [sqMax] at this
-    grind
-  · have := hb b hbm; simp only [Box.Contains] at hc; grind
+theorem Ray.corridor_mono {R : Ray} {e z z' : Rat} (hs : 0 ≤ R.s) (h : z ≤ z') : R.corridor e z ≤ R.corridor e z' := by
+  have := Ray.halfWidth_mono hs (show z + e ≤ z' + e by grind); simp only [Ray.corridor]; grind
 
 theorem Ray.geo_of_geoB {M : CityMap} {R : Ray} {e top : Rat} (h : R.geoB M e top = true) : R.Geo M e := by
   simp only [Ray.geoB, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨hn, hs⟩, hg⟩, hD⟩, htop⟩, hb⟩, hsq⟩ := h
-  intro q hsol hl1 hl2 ha
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hn, hs⟩, hg⟩, hs0⟩, hD⟩, htop⟩, hZ⟩, hb⟩, hsq⟩ := h
+  intro q hsol
+  have hq := topOK_le htop hn hsol
+  refine ⟨by grind, fun hl1 hl2 ha => ?_⟩
   have hg0 : 0 ≤ R.g := Rat.le_of_lt hg
+  have hW : ∀ z, q.z ≤ z → -R.corridor e z ≤ R.lateral q ∧ R.lateral q ≤ R.corridor e z := fun z hzz => by
+    have := Ray.corridor_mono (e := e) hs0 hzz; simp only [Ray.corridor] at this ⊢; constructor <;> grind
   by_cases hT : R.horizon e top ≤ R.along q
-  · -- past the horizon the floor is above every solid
-    have hq := topOK_le htop hn hsol
-    have hcan : R.g * ((top + e - R.z0 + 1) / R.g) = top + e - R.z0 + 1 := by
+  · have hcan : R.g * ((top + e - R.z0 + 1) / R.g) = top + e - R.z0 + 1 := by
       rw [Rat.mul_comm]; exact div_mul_cancel' hg
     have hm : (top + e - R.z0 + 1) / R.g ≤ max 0 (R.along q - R.reach e) := by
       simp only [Ray.horizon] at hT; grind
@@ -334,32 +379,35 @@ theorem Ray.geo_of_geoB {M : CityMap} {R : Ray} {e top : Rat} (h : R.geoB M e to
     simp only [Ray.floorAt]; grind
   · have hT' : R.along q < R.horizon e top := Rat.not_le.mp hT
     rcases hsol with ht | ⟨b, hbm, hc⟩
-    · -- the corridor short of the horizon lies in the bounding box, so its squares were checked
+    · have hter := terrain_le_sqMax hn q.x q.y
+      obtain ⟨hl1', hl2'⟩ := hW top hq
       generalize hL : max (R.reach e) (R.horizon e top) = L at hsq
       have hLa : -L ≤ R.along q ∧ R.along q ≤ L := by
         have := absR_nonneg R.a; have := absR_nonneg R.b
         constructor <;> grind
       have ma := mul_abs_bound R.a hLa.1 hLa.2
       have mb := mul_abs_bound R.b hLa.1 hLa.2
-      have la := mul_abs_bound R.a hl1 hl2
-      have lb := mul_abs_bound R.b hl1 hl2
+      have la := mul_abs_bound R.a hl1' hl2'
+      have lb := mul_abs_bound R.b hl1' hl2'
       have ex : (R.a * R.a + R.b * R.b) * (q.x - R.px) = R.along q * R.a - R.lateral q * R.b := by
         simp only [Ray.along, Ray.lateral]; grind
       have ey : (R.a * R.a + R.b * R.b) * (q.y - R.py) = R.along q * R.b + R.lateral q * R.a := by
         simp only [Ray.along, Ray.lateral]; grind
-      have dx := div_mul_cancel' (a := L * absR R.a + (R.w + R.reach e) * absR R.b) hD
-      have dy := div_mul_cancel' (a := L * absR R.b + (R.w + R.reach e) * absR R.a) hD
-      generalize (L * absR R.a + (R.w + R.reach e) * absR R.b) / (R.a * R.a + R.b * R.b) = bx at hsq dx
-      generalize (L * absR R.b + (R.w + R.reach e) * absR R.a) / (R.a * R.a + R.b * R.b) = by' at hsq dy
+      have dx := div_mul_cancel' (a := L * absR R.a + R.corridor e top * absR R.b) hD
+      have dy := div_mul_cancel' (a := L * absR R.b + R.corridor e top * absR R.a) hD
+      generalize (L * absR R.a + R.corridor e top * absR R.b) / (R.a * R.a + R.b * R.b) = bx at hsq dx
+      generalize (L * absR R.b + R.corridor e top * absR R.a) / (R.a * R.a + R.b * R.b) = by' at hsq dy
       have bx1 : q.x - R.px ≤ bx := Rat.le_of_mul_le_mul_left (c := R.a * R.a + R.b * R.b) (by grind) hD
       have bx2 : -bx ≤ q.x - R.px := Rat.le_of_mul_le_mul_left (c := R.a * R.a + R.b * R.b) (by grind) hD
       have by1 : q.y - R.py ≤ by' := Rat.le_of_mul_le_mul_left (c := R.a * R.a + R.b * R.b) (by grind) hD
       have by2 : -by' ≤ q.y - R.py := Rat.le_of_mul_le_mul_left (c := R.a * R.a + R.b * R.b) (by grind) hD
       have hc := allSquares_at hs hsq (x := q.x) (y := q.y) (by grind) (by grind) (by grind) (by grind)
-      have := terrain_le_sqMax hn q.x q.y
-      exact Ray.rectOK_sound hg0 hc (edge_le hs _) (le_edge_succ hs _) (edge_le hs _) (le_edge_succ hs _)
-        (by grind) hl1 hl2 ha hT'
+      have hzc : q.z ≤ sqMax M (clampIdx M (cellOf M q.x)) (clampIdx M (cellOf M q.y)) := Rat.le_trans ht hter
+      obtain ⟨w1, w2⟩ := hW _ hzc
+      exact Ray.rectOK_sound hg0 hc (edge_le hs _) (le_edge_succ hs _) (edge_le hs _) (le_edge_succ hs _) hzc w1 w2
+        ha hT'
     · simp only [Box.Contains] at hc
-      exact Ray.rectOK_sound hg0 (hb b hbm) (by grind) (by grind) (by grind) (by grind) (by grind) hl1 hl2 ha hT'
+      obtain ⟨w1, w2⟩ := hW b.z1 (by grind)
+      exact Ray.rectOK_sound hg0 (hb b hbm) (by grind) (by grind) (by grind) (by grind) (by grind) w1 w2 ha hT'
 
 end CitySafety.EndSets
