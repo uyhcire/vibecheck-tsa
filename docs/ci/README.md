@@ -143,7 +143,8 @@ The headline components:
 - **Q** (coverage × generosity) = mean over all benchmark states of `10 / (10 + (h* − clearance))`, counting 0
   when a state is not accepted. Lower h\* means the filter can intervene later.
 - **R** (short rollouts, i.e. a large certified interior) = mean over all states of `16 / (16 + ticks to T at
-  the stored altitude)`, counting 0 when not accepted.
+  h*)` (at the stored altitude when no lower height is accepted), counting 0 when not accepted. Measuring at
+  h* rather than at the stored ~1000 m stops a T such as "h ≥ 900 m" from scoring R ≈ 1 for free.
 - **B** (budget) = min(1, 640 / (horizon × laws)).
 - **P** = 1 when every law's T is proved (§2.2), else 0.
 
@@ -279,8 +280,8 @@ Both references use the current law (`Jsb/Escape.lean`: full throttle, attitude 
 
 | | valid | headline | Q | R | B | coverage | median h\* (m) | p90 h\* (m) | ticks to T, median / max | T tests, counterexamples |
 |---|---|---|---|---|---|---|---|---|---|---|
-| box | yes | 1.373 | 0.486 | 0.076 | 1 | 0.745 | 11.75 | 23.5 | 174 / 224 | 1302 + 64 long, 0 (also 0 with seeds 3 and 7) |
-| interior | yes | 1.500 | 0.487 | 0.391 | 1 | 0.745 | 11.25 | 28.0 | 22 / 175 | 1227 + 64 long, 0 (also 0 with seeds 3, 7 and 11) |
+| box | yes | 1.369 | 0.486 | 0.065 | 1 | 0.745 | 11.75 | 23.5 | 174 / 224 | 1302 + 64 long, 0 (also 0 with seeds 3 and 7) |
+| interior | yes | 1.376 | 0.487 | 0.081 | 1 | 0.745 | 11.25 | 28.0 | 22 / 175 | 1227 + 64 long, 0 (also 0 with seeds 3, 7 and 11) |
 
 - **Every rejection is the law's own envelope violation**, not a failure to reach T: 373 load-factor and 13 α
   violations.

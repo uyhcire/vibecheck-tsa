@@ -350,7 +350,9 @@ def main (args : List String) : IO UInt32 := do
   let hst := acc.map fun r => r.hstar.getD (F r.e.c.s.h.raw)
   let gen (r : StateRes) : Float :=
     if !r.accepted then 0 else 10 / (10 + max 0 ((r.hstar.getD (F r.e.c.s.h.raw)) - F clearance))
-  let shortR (r : StateRes) : Float := if r.accepted then 16 / (16 + FN r.ticks) else 0
+  -- Measured at h*, not the stored ~1000 m altitude, where a T like "h ≥ 900 m" would be reached at once.
+  let shortR (r : StateRes) : Float :=
+    if r.accepted then 16 / (16 + FN (if r.hstar.isSome then r.ticksH else r.ticks)) else 0
   let Q := mean (res.map gen)
   let R := mean (res.map shortR)
   let ticksHi := acc.map (FN ·.ticks)
