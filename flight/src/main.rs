@@ -1596,6 +1596,8 @@ async fn main() {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
+    cityflight::p1x::parse_args(&args);
+    #[cfg(feature = "jsb")]
     if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
         if f == "exact-rollout-lean" {

@@ -27,6 +27,7 @@ pub enum Kind {
     Exact,
     Fitted { margin: f64 },
     Gate,
+    P1x,
 }
 
 pub fn kind() -> Option<Kind> {
@@ -35,6 +36,7 @@ pub fn kind() -> Option<Kind> {
         2 => Some(Kind::Fitted { margin: 0.0 }),
         3 => Some(Kind::Fitted { margin: 0.25 }),
         4 => Some(Kind::Gate),
+        5 => Some(Kind::P1x),
         _ => None,
     }
 }
@@ -45,6 +47,7 @@ pub fn parse(name: &str) -> u8 {
         "fitted" => 2,
         "fitted25" => 3,
         "exact-rollout" => 4,
+        "p1-exact" => 5,
         _ => 0,
     }
 }
