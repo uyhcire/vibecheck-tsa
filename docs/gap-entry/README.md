@@ -1,7 +1,7 @@
 # Entering the Tower gap from open air
 
 The Tower gap scenario (`flight/README.md`, `--scenario 5`) spawns inside the gap because the gate filter
-(`--env gate`) verifies no escape on the approach: a pilot flying up the street from open air is taken over
+(`--safety-filter exact-rollout`) verifies no escape on the approach: a pilot flying up the street from open air is taken over
 before reaching it. This page settles whether that is physics or the filter's conservatism. It is
 conservatism, entirely: every state on the approach is proven safe by the gate's own street escape, and what
 rejects them is the 16 s rollout horizon. A 24 s horizon for the street escape alone (`--street-horizon 24`)
@@ -25,9 +25,10 @@ taller than the aircraft's height (103 m at `y = −460`, 153 to 160 m at −300
   profile, which is on the map, so it is no higher) and the aircraft is climbing. Sound because nothing exists
   above that height: the body sphere reaches 4.5 m below the centre and the banked wing about 4.3 m, so no
   contact is possible at any later time while the aircraft stays at or above that height, and a c172 can hold
-  its altitude there (it is still climbing at full power when the flight stops). The one assumption left is
-  the plant's own: JsbExact burns fuel, so "forever" means for the fuel endurance, the same caveat as every
-  terminal set of the gate. No helix or ray extrapolation is used: the climbing helix the program ends in is
+  its altitude there (it is still climbing at full power when the flight stops). Fuel: the spec's plant
+  (`CitySafety.specStep`, #31) freezes fuel, so holding altitude is possible forever there; the witnesses
+  here are flown on `libcityjsb` (`cityjsb_step`), which burns fuel as the gate's rollouts do, so they are not
+  bit-exact replays on the spec's plant (the difference is the mass of the fuel burnt in about 400 s). No helix or ray extrapolation is used: the climbing helix the program ends in is
   flown out, frame by frame, all the way to that height (about 400 s).
 - **Proven unsafe**: none can exist on this slice, since every state is proven safe. (`regimes::outer_bound`
   was run at every state anyway and proves nothing: the street is open ahead.)
@@ -102,21 +103,23 @@ rollout is the same exact, every-frame-checked flight ending in the same helix, 
   street escape's capture swings the airframe within 4 m of that wall, so there the 4 m margin binds (205 of
   the 272 are proven safe at contact by the same escape; 67, mostly 6 m east and 3° toward the east wall,
   touch it). The other 23 need a 24.5 to 26.5 s horizon.
-- **In flight, the budget binds too.** The gate's per-tick budget (2200 JSBSim frames) fits a 16 s rollout but
-  not a 24 s one after another escape has been tried in the same tick, so on the approach the hand-over from
-  the left-turn witness (open air) to the street escape is starved and the gate commits to the left turn at
-  −485, turning away from the gap. `--budget 4400` (two full street rollouts) removes that: flying in with
-  the sticks released from `y = −700`, the first takeover is at `y = 334`, 22 s in, past both gaps, when the
-  fly-by-wire's slow drift has carried the aircraft 7.6 m west of the centreline (filter off, the same drift
-  hits the west wall at 23.8 s). Cost: per-tick JSBSim frames on that flight median 1792, p99 2944, max 3952
-  (about 12, 20 and 26 ms at 6.7 µs per frame), against a 20 ms tick, so the GUI needs `--time-cap 0` to keep
-  the flight deterministic. Luis's #23 (parallel checks) runs the escapes concurrently, which takes the sum of
-  rollouts off the critical path.
-- **Safety**: `crashes --scenario 5` (50 hostile and 50 kamikaze pilots from the Tower gap spawn, plus the
+- **In flight.** On main the GUI checks every escape to its full horizon in parallel (#23, `CHECK_THREADS`),
+  so the longer street rollout is never cut short. Flying in with the sticks released from `y = −700`, the
+  first takeover is at `y = 334`, 22 s in, past both gaps, when the fly-by-wire's slow drift has carried the
+  aircraft 7.6 m west of the centreline (filter off, the same drift puts the wing into the west wall at
+  23.8 s). With the budgeted sequential check (`--check-threads 0`, the default of the headless `crashes` and
+  `adversary`), the 2200-frame budget also binds: after the left-turn witness of open air fails, the street
+  escape's 24 s rollout no longer fits in the tick, and the gate commits to the left turn at `−485`.
+  `--budget 4400` removes that. Cost on the demo flight, all escapes summed (`gapentry trace`, one check
+  thread): median 1472 JSBSim frames per tick, p99 4172, max 6464; the deployed gate on the same flight:
+  median 1152, p99 12868 (its takeover flies the gate's left turn, where every escape is checked).
+- **Safety** (measured on the pre-#23 base, `d29b484`, budgeted sequential checks): `crashes --scenario 5` (50 hostile and 50 kamikaze pilots from the Tower gap spawn, plus the
   showcase pilot), with `--street-horizon 24 --budget 4400`: **0 / 100 crashes**, showcase no crash, 30.9% of
-  ticks committed (deployed gate: 31.3%), 0 ticks committed with no witness. `crashes` on 40 hostile-pilot episodes plus the 5 kamikaze scenarios, same flags: **0 / 40** and **0 / 5**,
+  ticks committed (deployed gate: 31.3%), 0 ticks committed with no witness.
+  `crashes` on 40 hostile-pilot episodes plus the 5 kamikaze scenarios, same flags: **0 / 40** and **0 / 5**,
   all from verified starts, 29.8% of ticks committed (fewer episodes than the usual 200 because the machine was
-  heavily shared; at load 110 to 150 the 100 Tower gap flights took 36 min). `adversary` with the same flags, 6 verified starts (the usual run uses 200): **0 crashes in 252** gap-guided
+  heavily shared; at load 110 to 150 the 100 Tower gap flights took 36 min).
+  `adversary` with the same flags, 6 verified starts (the usual run uses 200): **0 crashes in 252** gap-guided
   flights.
   Per-tick cost in those runs: median 896 to 960 JSBSim frames, p99 4400 (the raised budget), thread CPU median
   9 to 10 ms, p99 45 ms on the loaded machine.
@@ -124,28 +127,25 @@ rollout is the same exact, every-frame-checked flight ending in the same helix, 
 ## GUI demos (run from `flight/`)
 
 The same start, open air on the centreline at `y = −700`, flown with the sticks released (the fly-by-wire holds
-flight path and bank). These run on this branch; on main since 7c2b512 the filter flag is
-`--safety-filter exact-rollout` in place of `--env gate`. `--time-cap 0` keeps the gate's checks from being cut
-short by the wall clock, so the GUI flies the frames measured headless (`gapentry demo -700 40`,
-`gapentry trace`).
+flight path and bank). Measured headless with full-horizon checks (`gapentry demo -700 40 --check-threads 1`,
+`gapentry trace`), which give the GUI's verdicts.
 
-The deployed gate takes over within 5 s (from `y ≈ −550`; from −485 on nothing verifies) and its witness is the
-left 40° turn, which takes the aircraft out of the street (26 takeovers, 701 of 2000 ticks committed):
+The deployed gate takes over at `y = −485` (4.7 s), where nothing verifies any more, and flies its left 40°
+witness out of the street and round over the blocks to the west (5 takeovers, 360 of 2000 ticks committed):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -120.00,-700.00,94.40,45.00,0.000,90.000,0.000,0.70 --cinematic --cam 0 --paths --label "gap entry: deployed gate (16 s horizon)"
+cargo run --release --features jsb -- --safety-filter exact-rollout --start -120.00,-700.00,94.40,45.00,0.000,90.000,0.000,0.70 --cinematic --cam 0 --paths --label "gap entry: deployed gate (16 s horizon)"
 ```
 
-The prototype lets the aircraft fly in untouched, through both gaps; the first takeover is at `y = 334` (22.0 s),
-where the fly-by-wire's slow drift has carried it 7.6 m west of the centreline (18 takeovers, 72 of 2000 ticks
-committed, all from there on):
+With the prototype the aircraft flies in untouched, through both gaps; the one takeover is at `y = 334`
+(22.0 s), where the drift has carried it 7.6 m west of the centreline (115 of 2000 ticks committed):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --street-horizon 24 --budget 4400 --start -120.00,-700.00,94.40,45.00,0.000,90.000,0.000,0.70 --cinematic --cam 0 --paths --label "gap entry: street escape horizon 24 s"
+cargo run --release --features jsb -- --safety-filter exact-rollout --street-horizon 24 --start -120.00,-700.00,94.40,45.00,0.000,90.000,0.000,0.70 --cinematic --cam 0 --paths --label "gap entry: street escape horizon 24 s"
 ```
 
-With the filter off (`--off`) the same drift puts the wing into the west wall at 23.8 s, so that takeover is a
-real one. Press `B` to see the street escape's verified path (green) during the approach.
+Add `--off` to see the drift put the wing into the west wall at 23.8 s. Press `B` to see the street escape's
+verified path during the approach.
 
 ## Reproduce
 
@@ -155,8 +155,8 @@ From `flight/` (after `(cd .. && lake build libcityjsb)`):
 cargo run --release --no-default-features --features jsb --bin gapentry -- verdict      # the verdict map, every 5 m
 cargo run --release --no-default-features --features jsb --bin gapentry -- witness -480 # one proven-safe flight
 cargo run --release --no-default-features --features jsb --bin gapentry -- grid         # acceptance off the centreline
-cargo run --release --no-default-features --features jsb --bin gapentry -- demo -700 40 # the GUI demos, headless
-cargo run --release --no-default-features --features jsb --bin gapentry -- trace -700 30 24 4400  # each takeover and why
+cargo run --release --no-default-features --features jsb --bin gapentry -- demo -700 40 --check-threads 1  # the GUI demos, headless
+cargo run --release --no-default-features --features jsb --bin gapentry -- trace -700 30 24 2200 --check-threads 1  # each takeover and why
 ```
 
 `--threads N` (default 3) for `verdict` and `grid`.

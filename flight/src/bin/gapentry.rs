@@ -78,7 +78,10 @@ fn main() {
     let what = args.first().map_or("survey", |s| s.as_str());
     let world = World::new(1337);
     JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
-    ENV_FILTER.store(parse("gate"), std::sync::atomic::Ordering::Relaxed);
+    ENV_FILTER.store(parse("exact-rollout"), std::sync::atomic::Ordering::Relaxed);
+    if let Some(n) = args.iter().position(|a| a == "--check-threads").and_then(|i| args.get(i + 1)?.parse().ok()) {
+        CHECK_THREADS.store(n, std::sync::atomic::Ordering::Relaxed);
+    }
     let threads: usize = args.iter().position(|a| a == "--threads").and_then(|i| args.get(i + 1)?.parse().ok()).unwrap_or(3);
     match what {
         "survey" => {
@@ -131,7 +134,7 @@ fn main() {
             let secs: f64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(40.0);
             let s0 = start(&world, y0);
             println!("--start {}", start_arg(&s0));
-            for (name, sh, b, on) in [("gate", HORIZON, BUDGET_FRAMES, true), ("gate --street-horizon 24 --budget 4400", 24.0, 4400, true), ("off", HORIZON, BUDGET_FRAMES, false)] {
+            for (name, sh, b, on) in [("gate", HORIZON, BUDGET_FRAMES, true), ("gate --street-horizon 24", 24.0, 4400, true), ("off", HORIZON, BUDGET_FRAMES, false)] {
                 set_street_horizon(sh);
                 BUDGET.store(b, std::sync::atomic::Ordering::Relaxed);
                 let r = demo_run(&world, &s0, on, secs);
