@@ -33,6 +33,15 @@ structure Quat (α : Type) where
   q3 : α
   deriving Inhabited
 
+@[inline] def V3.join (a b : V3 α) : V3 α := ⟨Scalar.join a.x b.x, Scalar.join a.y b.y, Scalar.join a.z b.z⟩
+instance : Join α (V3 α) := ⟨V3.join⟩
+instance : Join α (M33 α) := ⟨fun a b =>
+  ⟨Scalar.join a.a11 b.a11, Scalar.join a.a12 b.a12, Scalar.join a.a13 b.a13, Scalar.join a.a21 b.a21,
+   Scalar.join a.a22 b.a22, Scalar.join a.a23 b.a23, Scalar.join a.a31 b.a31, Scalar.join a.a32 b.a32,
+   Scalar.join a.a33 b.a33⟩⟩
+instance : Join α (Quat α) :=
+  ⟨fun a b => ⟨Scalar.join a.q0 b.q0, Scalar.join a.q1 b.q1, Scalar.join a.q2 b.q2, Scalar.join a.q3 b.q3⟩⟩
+
 namespace V3
 @[inline] def zero : V3 α := ⟨S.zero, S.zero, S.zero⟩
 @[inline] def add (a b : V3 α) : V3 α := ⟨a.x + b.x, a.y + b.y, a.z + b.z⟩
@@ -47,7 +56,7 @@ namespace V3
 /-- `Magnitude(idx1, idx2)` for indices 2, 3. -/
 @[inline] def magYZ (v : V3 α) : α := S.sqrt (mac v.y v.y (v.z * v.z))
 /-- `FGColumnVector3::operator/(scalar)`. -/
-@[inline] def sdiv (v : V3 α) (s : α) : V3 α := if S.ne s S.zero then smul (S.one / s) v else zero
+@[inline] def sdiv (v : V3 α) (s : α) : V3 α := sif S.ne s S.zero then smul (S.one / s) v else zero
 end V3
 
 namespace M33
@@ -76,15 +85,12 @@ def mul (a b : M33 α) : M33 α :=
 /-- `FGMatrix33::GetEuler`: (phi, theta, psi). -/
 def euler (m : M33 α) : V3 α :=
   let halfPi : α := lit (0.5 * 3.141592653589793)
-  let (tht, lock) :=
-    if S.le m.a13 (lit (-1.0)) then (halfPi, true)
-    else if S.le S.one m.a13 then (-halfPi, true)
-    else (S.asin (-m.a13), false)
-  let phi := if lock then S.atan2 (-m.a32) m.a22 else S.atan2 m.a23 m.a33
-  let psi := if lock then S.zero else
+  let locked (tht : α) : V3 α := ⟨S.atan2 (-m.a32) m.a22, tht, S.zero⟩
+  sif S.le m.a13 (lit (-1.0)) then locked halfPi
+  else sif S.le S.one m.a13 then locked (-halfPi)
+  else
     let p := S.atan2 m.a12 m.a11
-    if S.lt p S.zero then p + lit (2 * 3.141592653589793) else p
-  ⟨phi, tht, psi⟩
+    ⟨S.atan2 m.a23 m.a33, S.asin (-m.a13), S.ite (S.lt p S.zero) (p + lit (2 * 3.141592653589793)) p⟩
 
 /-- `FGMatrix33::GetQuaternion`. -/
 def toQuat (m : M33 α) : Quat α :=
@@ -92,22 +98,25 @@ def toQuat (m : M33 α) : Quat α :=
   let t1 := S.one + m.a11 - m.a22 - m.a33
   let t2 := S.one - m.a11 + m.a22 - m.a33
   let t3 := S.one - m.a11 - m.a22 + m.a33
-  let i1 := if S.gt t1 t0 then 1 else 0
-  let tm := if i1 == 1 then t1 else t0
-  let i2 := if S.gt t2 tm then 2 else i1
-  let tm := if i2 == 2 then t2 else tm
-  let idx := if S.gt t3 tm then 3 else i2
+  let c1 := S.gt t1 t0
+  let tm := S.ite c1 t1 t0
+  let c2 := S.gt t2 tm
+  let tm := S.ite c2 t2 tm
+  let c3 := S.gt t3 tm
   let h : α := lit 0.5
   let qq : α := lit 0.25
-  match idx with
-  | 0 => let q0 := h * S.sqrt t0
-         ⟨q0, qq * (m.a23 - m.a32) / q0, qq * (m.a31 - m.a13) / q0, qq * (m.a12 - m.a21) / q0⟩
-  | 1 => let q1 := h * S.sqrt t1
-         ⟨qq * (m.a23 - m.a32) / q1, q1, qq * (m.a12 + m.a21) / q1, qq * (m.a31 + m.a13) / q1⟩
-  | 2 => let q2 := h * S.sqrt t2
-         ⟨qq * (m.a31 - m.a13) / q2, qq * (m.a12 + m.a21) / q2, q2, qq * (m.a23 + m.a32) / q2⟩
-  | _ => let q3 := h * S.sqrt t3
-         ⟨qq * (m.a12 - m.a21) / q3, qq * (m.a13 + m.a31) / q3, qq * (m.a23 + m.a32) / q3, q3⟩
+  sif c3 then
+    let q3 := h * S.sqrt t3
+    ⟨qq * (m.a12 - m.a21) / q3, qq * (m.a13 + m.a31) / q3, qq * (m.a23 + m.a32) / q3, q3⟩
+  else sif c2 then
+    let q2 := h * S.sqrt t2
+    ⟨qq * (m.a31 - m.a13) / q2, qq * (m.a12 + m.a21) / q2, q2, qq * (m.a23 + m.a32) / q2⟩
+  else sif c1 then
+    let q1 := h * S.sqrt t1
+    ⟨qq * (m.a23 - m.a32) / q1, q1, qq * (m.a12 + m.a21) / q1, qq * (m.a31 + m.a13) / q1⟩
+  else
+    let q0 := h * S.sqrt t0
+    ⟨q0, qq * (m.a23 - m.a32) / q0, qq * (m.a31 - m.a13) / q0, qq * (m.a12 - m.a21) / q0⟩
 end M33
 
 namespace Quat
@@ -118,7 +127,7 @@ namespace Quat
 /-- `FGQuaternion::Normalize`. -/
 def normalize (q : Quat α) : Quat α :=
   let n := S.sqrt (sqrMag q)
-  if S.eq n S.zero || S.lt (S.abs (n - S.one)) (lit 1e-10) then q
+  sif S.cor (S.eq n S.zero) (S.lt (S.abs (n - S.one)) (lit 1e-10)) then q
   else let r := S.one / n; ⟨q.q0 * r, q.q1 * r, q.q2 * r, q.q3 * r⟩
 
 /-- `FGQuaternion::GetQDot`. -/

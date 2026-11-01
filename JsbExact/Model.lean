@@ -25,7 +25,7 @@ structure GearState (α : Type) where
   mT : M33 α
   deriving Inhabited
 
-structure State (α : Type) where
+structure State (α : Type) [Scalar α] where
   q : Quat α
   qdot : Quat α
   pqri : V3 α
@@ -43,9 +43,9 @@ structure State (α : Type) where
   tank0 : α
   tank1 : α
   tmap : α
-  running : Bool
+  running : Scalar.Cond α
   fuelflow : α
-  starved : Bool
+  starved : Scalar.Cond α
   rpm : α
   act : V3 α
   lastcg : V3 α
@@ -123,9 +123,9 @@ def locDerive (r : V3 α) : Loc α :=
   let radius := r.mag
   let rxy := sqrt (mac r.x r.x (r.y * r.y))
   let (sinLon, cosLon, lon) :=
-    if eq rxy zero then (zero, one, zero) else (r.y / rxy, r.x / rxy, atan2 r.y r.x)
+    sif eq rxy zero then (zero, one, zero) else (r.y / rxy, r.x / rxy, atan2 r.y r.x)
   let (lat, gLat, gAlt, sinLat, cosLat) :=
-    if eq radius zero then (zero, zero, -a, zero, one) else
+    sif eq radius zero then (zero, zero, -a, zero, one) else
     let lat := atan2 r.z rxy
     let s0 := abs r.z
     let zc := ec * s0
@@ -179,32 +179,32 @@ def stdTemperature (alt : α) : α :=
   let gpa := geopot alt
   let fade : α := lit Gen.fadeAlt
   let tg : α := lit Gen.tgrad
-  let t := if ge gpa zero then
+  let t := sif ge gpa zero then
       let t := Gen.tab_stdTemp.get1 gpa
-      if le gpa fade then nmac tg gpa t else t
+      sif le gpa fade then nmac tg gpa t else t
     else mac gpa (lit Gen.lapse[0]!) (Gen.tab_stdTemp.get1 (zero : α))
   let t := t + lit Gen.tbias
-  if le gpa fade then mac tg fade t else t
+  sif le gpa fade then mac tg fade t else t
 
-/-- Layer index and base altitude of `FGStandardAtmosphere::GetPressure`'s search. -/
-def pressLayer (gpa : α) (b : Nat) (base : α) : (fuel : Nat) → Nat × α
-  | 0 => (b, base)
+/-- Lapse rate, base pressure and base altitude of the layer `FGStandardAtmosphere::GetPressure` finds. -/
+def pressLayer (gpa : α) (b : Nat) (base : α) : (fuel : Nat) → α × α × α
+  | 0 => layer b base
   | fuel + 1 =>
     if b < Gen.tab_stdTemp.rows - 2 then
       let test : α := lit Gen.tab_stdTemp.data[2 * (b + 2)]!
-      if lt gpa test then (b, base) else pressLayer gpa (b + 1) test fuel
-    else (b, base)
+      sif lt gpa test then layer b base else pressLayer gpa (b + 1) test fuel
+    else layer b base
+where
+  layer (b : Nat) (base : α) : α × α × α := (lit Gen.lapse[b]!, lit Gen.pressBreak[b]!, base)
 
 def stdPressure (alt : α) : α :=
   let gpa := geopot alt
-  let (b, base) := pressLayer gpa 0 (lit Gen.tab_stdTemp.data[2]!) Gen.tab_stdTemp.rows
+  let (lmb, pb, base) := pressLayer gpa 0 (lit Gen.tab_stdTemp.data[2]!) Gen.tab_stdTemp.rows
   let tmb := stdTemperature (geomet base)
   let dh := gpa - base
-  let lmb : α := lit Gen.lapse[b]!
-  let pb : α := lit Gen.pressBreak[b]!
   let g0 : α := lit Gen.g0
   let rdry : α := lit Gen.Rdry
-  if ne lmb zero then pb * pow (tmb / mac lmb dh tmb) (g0 / (rdry * lmb))
+  sif ne lmb zero then pb * pow (tmb / mac lmb dh tmb) (g0 / (rdry * lmb))
   else pb * exp (-g0 * dh / (rdry * tmb))
 
 structure Atmo (α : Type) where
@@ -217,9 +217,9 @@ structure Atmo (α : Type) where
 def atmosphere (alt : α) : Atmo α :=
   let t := stdTemperature alt
   let p := stdPressure alt
-  let t := if lt t (lit 1.8) then lit 1.8 else t
+  let t := S.ite (lt t (lit 1.8)) (lit 1.8) t
   let pmin : α := lit (1e-15 * 0.0208854342)
-  let p := if lt p pmin then pmin else p
+  let p := S.ite (lt p pmin) pmin p
   let reng : α := lit Gen.Reng
   { t, p, rho := p / (reng * t), a := sqrt (lit Gen.SHRatio * reng * t) }
 
@@ -230,8 +230,8 @@ def pitot (mach p : α) : α :=
   let b := sh / (sh - one)
   let c := lit 2.0 * b
   let d := one / (sh - one)
-  if lt mach zero then p
-  else if lt mach one then p * pow (mac (a * mach) mach one) b
+  sif lt mach zero then p
+  else sif lt mach one then p * pow (mac (a * mach) mach one) b
   else
     let coeff := pow (lit 0.5 * (sh + one)) b * pow ((sh + one) / (sh - one)) d
     p * coeff * pow mach c / pow (msc (c * mach) mach one) d
@@ -243,7 +243,7 @@ def pitot (mach p : α) : α :=
 
 /-- Zero-centred `aerosurface_scale` (`FGGain`). -/
 @[inline] def surfScale (x : α) (inMin inMax outMin outMax gain : Float) : α :=
-  let o := if eq x zero then zero else if gt x zero then x / lit inMax * lit outMax else x / lit inMin * lit outMin
+  let o := sif eq x zero then zero else sif gt x zero then x / lit inMax * lit outMax else x / lit inMin * lit outMin
   o * lit gain
 
 /-! ### FGMassBalance -/
@@ -275,7 +275,7 @@ def pmInertia (cg : V3 α) (m : α) (r : V3 α) : M33 α :=
 /-- `FGTank::Drain`. -/
 @[inline] def tankDrain (i : Nat) (c used : α) : α :=
   let unusable : α := lit (tankCfg i)[7]!
-  if ge (c - used) unusable then c - used else if gt c unusable then unusable else c
+  sif ge (c - used) unusable then c - used else S.ite (gt c unusable) unusable c
 
 structure Mass (α : Type) where
   mass : α
@@ -324,16 +324,16 @@ def massBalance (prevCg : V3 α) (t0 t1 : α) : Mass α :=
 
 /-! ### FGPiston and FGPropeller -/
 
-structure EngineOut (α : Type) where
+structure EngineOut (α : Type) [Scalar α] where
   tmap : α
-  running : Bool
+  running : Scalar.Cond α
   fuelflow : α
   hp : α
   power : α
   mdotAir : α
 
 /-- `FGPiston::Calculate` up to the thruster call (unboosted, magnetos both, starter off). -/
-def piston (pressure totalPressure temperature thr mix rpm tmap0 fuelflow0 dt : α) (running0 starved : Bool) :
+def piston (pressure totalPressure temperature thr mix rpm tmap0 fuelflow0 dt : α) (running0 starved : Scalar.Cond α) :
     EngineOut α :=
   let psftopa : α := lit Gen.psftopa
   let pAmb := pressure * psftopa
@@ -344,23 +344,22 @@ def piston (pressure totalPressure temperature thr mix rpm tmap0 fuelflow0 dt : 
   let idle : α := lit Gen.IdleRPM
   let spark := Gen.Magnetos != 0.0
   let fuel := gt fuelflow0 zero
-  let running := if running0 then
-      !(!spark || !fuel) && !(lt rpm (idle * lit 0.8))
-    else spark && fuel && gt rpm (idle * lit 0.8) || running0
+  let running := cand (cand (cbool spark) fuel)
+    (cor (cand running0 (cnot (lt rpm (idle * lit 0.8)))) (cand (cnot running0) (gt rpm (idle * lit 0.8))))
   let zt := (one - thr) * (one - thr) * lit Gen.Z_throttle
-  let ze := if gt mps zero then lit Gen.PeakMPS / mps else lit 999999.0
+  let ze := sif gt mps zero then lit Gen.PeakMPS / mps else lit 999999.0
   let coef := ze / (ze + lit Gen.Z_airbox + zt)
   let dmap := nmac pRam coef tmap0
   let lag : α := lit Gen.MPLag
-  let dmap := if gt lag dt then dmap * (dt / lag) else dmap
+  let dmap := sif gt lag dt then dmap * (dt / lag) else dmap
   let tmap := tmap0 - dmap
   let ve : α := lit Gen.VE
   let pmep := (tmap - pAmb) * ve
   let map := tmap
   let cr : α := lit Gen.CompressionRatio
   let gamma : α := lit 1.3
-  let mratio := if lt map one then cr else pAmb / map
-  let mratio := if gt mratio cr then cr else mratio
+  let mratio := sif lt map one then cr else pAmb / map
+  let mratio := S.ite (gt mratio cr) cr mratio
   let veff := (gamma - one) / gamma + (cr - mratio) / (gamma * (cr - one))
   let rAir : α := lit Gen.R_air
   let swept := lit Gen.dispSI * (rpm / lit 60.0) / lit 2.0
@@ -370,10 +369,10 @@ def piston (pressure totalPressure temperature thr mix rpm tmap0 fuelflow0 dt : 
   let equiv := thi * lit 101325.0 / pAmb
   let mdotFuel := mdotAir * equiv / lit 14.7
   let ffr := mdotFuel * lit 2.2046
-  let (mdotFuel, ffr) := if starved then (zero, zero) else (mdotFuel, ffr)
+  let (mdotFuel, ffr) := sif starved then (zero, zero) else (mdotFuel, ffr)
   let pph := ffr * lit 3600.0
   let sf : α := lit Gen.SFHP
-  let (ihp, fmep) := if running then
+  let (ihp, fmep) := sif running then
       let me := Gen.tab_mixEff.get1 (mdotFuel / mdotAir)
       let fmep := msc (-(lit Gen.FMEPDynamic) * mps) (lit Gen.fttom) (lit Gen.FMEPStatic)
       let power : α := if Gen.Magnetos != 3.0 then one * lit Gen.SparkFailDrop else one
@@ -381,9 +380,9 @@ def piston (pressure totalPressure temperature thr mix rpm tmap0 fuelflow0 dt : 
     else (-sf, zero)
   let pumping := (pmep + fmep) * lit Gen.dispSI * rpm / (lit Gen.Cycles * lit 22371.0)
   let hp := ihp + pumping - zero
-  let running := running && !(lt ihp (lit 0.125))
+  let running := cand running (cnot (lt ihp (lit 0.125)))
   let power := hp * lit Gen.hptoftlbssec
-  let power := if le rpm (lit 0.1) then max power zero else power
+  let power := sif le rpm (lit 0.1) then max power zero else power
   { tmap, running, fuelflow := ffr, hp, power, mdotAir }
 
 structure PropOut (α : Type) where
@@ -406,19 +405,19 @@ def propeller (cg act0 aeroUVW aeroPQR pqri : V3 α) (rho sound power rpm dt : �
   let area := lit 0.25 * dia * dia * pi
   let vtip := rps * dia * pi
   let tipMach := sqrt (mac vtip vtip (vel * vel)) / sound
-  let j := if gt rps (lit 0.01) then vel / (dia * rps) else vel / dia
+  let j := sif gt rps (lit 0.01) then vel / (dia * rps) else vel / dia
   let cpReq := Gen.tab_cPower.get1 j * lit Gen.CpFactor * Gen.tab_CpMach.get1 tipMach
-  let lrps := if lt rps (lit 0.01) then lit 0.01 else rps
+  let lrps := S.ite (lt rps (lit 0.01)) (lit 0.01) rps
   let powerReq := cpReq * lrps * lrps * lrps * lit Gen.D5 * rho
   let pAvail := power - powerReq
   let ct := Gen.tab_cThrust.get1 j * lit Gen.CtFactor * Gen.tab_CtMach.get1 tipMach
   let thrust := ct * rps * rps * lit Gen.D4 * rho
   let v2 := mac vel (abs vel) (lit 2.0 * thrust / (rho * area))
-  let vind := if gt v2 zero then lit 0.5 * (-vel + sqrt v2) else lit 0.5 * (-vel - sqrt (-v2))
+  let vind := sif gt v2 zero then lit 0.5 * (-vel + sqrt v2) else lit 0.5 * (-vel - sqrt (-v2))
   let sense : α := lit Gen.Sense
-  let act := if gt (lit Gen.PFactor : α) (lit 0.0001) then
+  let act := if Gen.PFactor > 0.0001 then
       let tv := lv.magYZ
-      if gt tv (lit 0.0001) then
+      sif gt tv (lit 0.0001) then
         let angle := atan2 tv (vel + vind)
         let factor := sense * lit Gen.PFactor * angle / tv
         { act0 with y := mac factor lv.z loc.y, z := mac factor lv.y loc.z }
@@ -428,9 +427,9 @@ def propeller (cg act0 aeroUVW aeroPQR pqri : V3 α) (rho sound power rpm dt : �
   let torque : V3 α := ⟨-sense * power / max (lit 0.01) omega, zero, zero⟩
   let ixx : α := lit Gen.propIxx
   let vh : V3 α := ⟨ixx * omega * sense * lit Gen.SenseMult, zero, zero⟩
-  let excess := if gt omega (lit 0.01) then pAvail / omega else pAvail / one
+  let excess := sif gt omega (lit 0.01) then pAvail / omega else pAvail / one
   let rpm' := mac (excess / ixx / (lit 2.0 * pi)) dt rps * lit 60.0
-  let rpm' := if lt rpm' zero then zero else rpm'
+  let rpm' := S.ite (lt rpm' zero) zero rpm'
   { thrust, rpm := rpm', act, vmn := V3.add (V3.cross pqri (mT.mulV vh)) (mT.mulV torque), vind }
 
 
@@ -445,6 +444,11 @@ structure Mult (α : Type) where
   gear : Nat
   slot : Nat
   deriving Inhabited
+
+/-- `gear` and `slot` are taken from the first argument: both sides of a join have the same constraint list. -/
+instance : Join α (Mult α) := ⟨fun a b =>
+  { a with fj := V3.join a.fj b.fj, lever := V3.join a.lever b.lever, min := Scalar.join a.min b.min,
+           max := Scalar.join a.max b.max, value := Scalar.join a.value b.value }⟩
 
 structure GearCtx (α : Type) where
   cg : V3 α
@@ -481,10 +485,10 @@ def gearForces (gi : Nat) (c : GearCtx α) (g : GearState α) : GearState α × 
   let normalZ := (c.tec2l.mulV normal).z
   let lgearProj := -(mTGear.T.mulV groundNormal).z
   let (wow, compress, displ) :=
-    if lt height zero then
+    if mode (lt height zero) then
       if bogey then
         if Gen.isSolid != 0.0 then
-          let cl := if gt lgearProj zero then height * normalZ / lgearProj else zero
+          let cl := sif gt lgearProj zero then height * normalZ / lgearProj else zero
           (true, cl, mTGear.mulV ⟨zero, zero, -cl⟩)
         else (false, zero, V3.zero)
       else
@@ -498,28 +502,29 @@ def gearForces (gi : Nat) (c : GearCtx α) (g : GearState α) : GearState α × 
     let roll := mTGear.mulV ⟨cosS g.steer, sinS g.steer, zero⟩
     let side := V3.cross groundNormal roll
     let roll := V3.sub roll (V3.smul (V3.dot roll groundNormal) groundNormal)
-    let normz (v : V3 α) : V3 α := let m := v.mag; if ne m zero then V3.smul (one / m) v else v
+    let normz (v : V3 α) : V3 α := let m := v.mag; sif ne m zero then V3.smul (one / m) v else v
     let roll := normz roll
     let side := normz side
     let mT := M33.mk' roll.x side.x groundNormal.x roll.y side.y groundNormal.y roll.z side.z groundNormal.z
     let gwv := mT.T.mulV bodyWhlVel
-    let cspeed := if eq c.dt zero then zero else
+    let cspeed := sif eq c.dt zero then zero else
       let cs := -gwv.z
       let cs := if bogey then cs / lgearProj else cs
       let maxcs := compress / c.dt
-      if gt (abs cs) maxcs then sign cs * maxcs else cs
+      sif gt (abs cs) maxcs then sign cs * maxcs else cs
     let kS : α := lit cfg[4]!
     let spring := -compress * kS
     let damp :=
-      if ge cspeed zero then
+      sif ge cspeed zero then
         if cfg[7]! == 0.0 then -cspeed * lit cfg[5]! else -cspeed * cspeed * lit cfg[5]!
       else
         if cfg[8]! == 0.0 then -cspeed * lit cfg[6]! else cspeed * cspeed * lit cfg[6]!
     let strut := min (spring + damp) zero
-    let strut := if gt strut (lit Gen.maximumForce) then lit Gen.maximumForce else strut
+    let strut := S.ite (gt strut (lit Gen.maximumForce)) (lit Gen.maximumForce) strut
     let fz := if bogey then strut / (mTGear.T.mulV groundNormal).z else -strut
     let magXY := sqrt (mac gwv.x gwv.x (gwv.y * gwv.y))
-    let slip := if bogey && gt magXY (lit 1e-3) then -atan2 gwv.y (abs gwv.x) * lit Gen.radtodeg else g.slip
+    let slip := if bogey then sif gt magXY (lit 1e-3) then -atan2 gwv.y (abs gwv.x) * lit Gen.radtodeg else g.slip
+      else g.slip
     let sFC : α := lit cfg[9]!
     let rFC : α := lit cfg[11]!
     let grp := cfg[14]!
@@ -528,7 +533,7 @@ def gearForces (gi : Nat) (c : GearCtx α) (g : GearState α) : GearState α × 
     let stiff := lit cfg[16]! * slip
     let fcoeff := lit cfg[18]! * sin (lit cfg[17]! * atan (nmac (lit cfg[19]!) (stiff - atan stiff) stiff)) * sFF
     let (g', mults) :=
-      if !bogey && gt magXY (lit 1e-3) then
+      if !bogey && mode (gt magXY (lit 1e-3)) then
         let vd : V3 α := { gwv with z := zero }
         let vd := normz vd
         let mn := -abs (sFF * lit cfg[10]! * fz)
@@ -566,7 +571,7 @@ def frictionSweeps (a : Array α) (rhs : Array α) (n : Nat) (ms : Array (Mult �
       let v := constrain ms[i]!.min (l0 + dl) ms[i]!.max
       ms := ms.modify i ({ · with value := v })
       norm := norm + abs (v - l0)
-    if lt norm (lit 1e-5) then ms else frictionSweeps a rhs n ms fuel
+    pure (sif lt norm (lit 1e-5) then ms else frictionSweeps a rhs n ms fuel)
 
 /-- `FGAccelerations::CalculateFrictionForces`: friction force and moment, and the solved multipliers. -/
 def friction (ms : Array (Mult α)) (mass : α) (jinv : M33 α) (uvwdot pqrdot uvw pqr : V3 α) (tec2b : M33 α) (dt : α) :
@@ -583,8 +588,8 @@ def friction (ms : Array (Mult α)) (mass : α) (jinv : M33 α) (uvwdot pqrdot u
       a := a.set! (i * n + j) a[j * n + i]!
     for j in [i:n] do
       a := a.set! (i * n + j) (V3.dot ms[j]!.fj (V3.add v1 (V3.cross v2 ms[j]!.lever)))
-  let vdot := if gt dt zero then V3.add uvwdot (V3.sdiv (V3.sub uvw (tec2b.mulV V3.zero)) dt) else uvwdot
-  let wdot := if gt dt zero then V3.add pqrdot (V3.sdiv (V3.sub pqr (tec2b.mulV V3.zero)) dt) else pqrdot
+  let vdot := sif gt dt zero then V3.add uvwdot (V3.sdiv (V3.sub uvw (tec2b.mulV V3.zero)) dt) else uvwdot
+  let wdot := sif gt dt zero then V3.add pqrdot (V3.sdiv (V3.sub pqr (tec2b.mulV V3.zero)) dt) else pqrdot
   let mut rhs : Array α := Array.replicate n zero
   for i in [0:n] do
     let d := a[i * n + i]!
@@ -665,9 +670,9 @@ def step (s : State α) (u : Input α) : State α × Diag α :=
   let vt2 := mUW + v2
   let vt := sqrt vt2
   let (alpha, beta, adot) :=
-    if gt vt (lit 0.001) then
+    sif gt vt (lit 0.001) then
       let beta := atan2 aeroUVW.y (sqrt mUW)
-      if ge mUW (lit 1e-6) then
+      sif ge mUW (lit 1e-6) then
         (atan2 aeroUVW.z aeroUVW.x, beta, msc aeroUVW.x s.uvwdot.z (aeroUVW.z * s.uvwdot.x) / mUW)
       else (zero, beta, zero)
     else (zero, zero, zero)
@@ -689,19 +694,19 @@ def step (s : State α) (u : Input α) : State α × Diag α :=
   let unus1 : α := lit Gen.tank1[7]!
   let has0 := gt s.tank0 unus0
   let has1 := gt s.tank1 unus1
-  let nfeed : Nat := (if has0 then 1 else 0) + (if has1 then 1 else 0)
-  let starved := nfeed == 0
-  let perTank := eng.fuelflow * dt / lit (Float.ofNat nfeed)
-  let tank0 := if !starved && has0 then tankDrain 0 s.tank0 perTank else s.tank0
-  let tank1 := if !starved && has1 then tankDrain 1 s.tank1 perTank else s.tank1
+  let starved := cnot (cor has0 has1)
+  -- Divided by the number of feeding tanks; unused when none feeds.
+  let perTank := sif cand has0 has1 then eng.fuelflow * dt / lit 2.0 else eng.fuelflow * dt / lit 1.0
+  let tank0 := sif cand (cnot starved) has0 then tankDrain 0 s.tank0 perTank else s.tank0
+  let tank1 := sif cand (cnot starved) has1 then tankDrain 1 s.tank1 perTank else s.tank1
   let fb := mT_fb pr.thrust
   let mprop := V3.add pr.vmn (V3.cross (structToBody mb.cg pr.act) fb)
   let fprop := V3.add V3.zero fb
   let mprop := V3.add V3.zero mprop
   -- FGAerodynamics
   let twovel := lit 2.0 * vt
-  let (bi2vel, ci2vel) := if ne twovel zero then (lit Gen.bw / twovel, lit Gen.cbar / twovel) else (zero, zero)
-  let stall := if gt alpha (lit Gen.hystmax) then one else if lt alpha (lit Gen.hystmin) then zero else s.stall
+  let (bi2vel, ci2vel) := sif ne twovel zero then (lit Gen.bw / twovel, lit Gen.cbar / twovel) else (zero, zero)
+  let stall := sif gt alpha (lit Gen.hystmax) then one else S.ite (lt alpha (lit Gen.hystmin)) zero s.stall
   let ai : Gen.AeroIn α := {
     adot, ailL := da, alpha, beta, bi2vel, bw := lit Gen.bw, cbar := lit Gen.cbar, ci2vel, elev := de,
     flapDeg := zero, hbMac := hmac, magBeta := abs beta, magElev := abs de, pAero := aeroPQR.x,
