@@ -178,6 +178,12 @@ impl LeanGate {
         self.wall_ms.push((w0.elapsed().as_secs_f64() * 1e3) as f32);
         self.cpu_ms.push(((crate::envfilter::thread_cpu() - c0) * 1e3) as f32);
         self.proc_ms.push(((proc_cpu() - p0) * 1e3) as f32);
+        // `CITYGATE_STATS=1`: every 250 ticks, the wall time per tick (ms) over them, on stderr.
+        if self.wall_ms.len() % 250 == 0 && std::env::var_os("CITYGATE_STATS").is_some() {
+            let mut w = self.wall_ms[self.wall_ms.len() - 250..].to_vec();
+            w.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            eprintln!("citygate ticks {}: wall ms median {:.2} p99 {:.2} max {:.2}", self.wall_ms.len(), w[125], w[247], w[249]);
+        }
     }
 
     fn frame(&mut self, s: [f64; 4], filter_on: bool) {
