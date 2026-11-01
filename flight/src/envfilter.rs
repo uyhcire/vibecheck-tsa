@@ -241,6 +241,13 @@ pub struct Law {
     next_try: f64,
     captured: bool,
     pub p: LawP,
+    /// Turn direction and bank of the terminal turn: `ESCAPES[esc]` unless overridden (`with_turn`, used
+    /// by the boundary-regime search for escapes outside the library).
+    pub tdir: f64,
+    pub tbank: f64,
+    /// Diagnostics: frames on which the elevator law's load-factor cap (`nmax`) or its α cap (`amax`) bound.
+    pub lim_n: u32,
+    pub lim_a: u32,
 }
 
 impl Law {
@@ -250,12 +257,18 @@ impl Law {
 
     pub fn with(esc: usize, p: LawP) -> Law {
         let ia = if p.kind == LawKind::Lawfirst { lf::E_I0 } else { 0.0 };
-        Law { esc, t: 0.0, ia, ib: 0.0, iphi: 0.0, psi_ref: f64::NAN, axis: f64::NAN, side: 0.0, next_try: 0.0, captured: false, p }
+        let e = ESCAPES[esc];
+        Law { esc, t: 0.0, ia, ib: 0.0, iphi: 0.0, psi_ref: f64::NAN, axis: f64::NAN, side: 0.0, next_try: 0.0, captured: false, p, tdir: e.dir, tbank: e.bank, lim_n: 0, lim_a: 0 }
+    }
+
+    /// A non-street escape with its terminal turn overridden: `dir` (JSBSim sign, 0 = straight) and `bank` (rad).
+    pub fn with_turn(esc: usize, p: LawP, dir: f64, bank: f64) -> Law {
+        Law { tdir: dir, tbank: bank, ..Law::with(esc, p) }
     }
 
     /// Turn direction of the terminal set this escape is heading for (JSBSim sign; 0 = a straight climb).
     pub fn dir(&self) -> f64 {
-        if self.esc == STREET { self.side } else { ESCAPES[self.esc].dir }
+        if self.esc == STREET { self.side } else { self.tdir }
     }
 
     /// Street escape: capture the nearest street axis from the starting track (once, so a check and the
@@ -315,7 +328,7 @@ impl Law {
         let v = o.vt.max(10.0);
         let g = (-o.vned[2]).atan2(gh);
         let (sphi, cphi) = o.phi.sin_cos();
-        let esc = ESCAPES[self.esc];
+        let esc = Esc { name: ESCAPES[self.esc].name, dir: self.tdir, bank: self.tbank };
         let e = if self.p.kind == LawKind::Lawfirst { self.elev_lawfirst(o, v, g, cphi, self.p.v_ref[self.esc]) } else { self.elev_cegis(o, v, g, cphi, self.p.v_ref[self.esc]) };
         let p = &self.p;
         // Lateral: wings level through the pull-up, then a coordinated climbing turn (or a heading hold).
@@ -369,6 +382,12 @@ impl Law {
         let ncmd = if cphi < 0.35 { p.nmin } else { (n_long / cphi).clamp(p.nmin, p.nmax) };
         let rv2 = rho_of(o.h) * v * v;
         let acmd = (p.a0 + p.ka0 * ncmd / rv2).min(p.amax);
+        if cphi >= 0.35 && n_long / cphi >= p.nmax {
+            self.lim_n += 1;
+        }
+        if acmd == p.amax {
+            self.lim_a += 1;
+        }
         let n_ach = (acmd - p.a0) * rv2 / p.ka0;
         let qcmd = G0 * (n_ach - g.cos() * cphi) / v;
         let sc = if p.vs > 0.0 { (p.vs / v).powi(2).min(1.0) } else { 1.0 };
@@ -444,6 +463,46 @@ pub struct Roll {
     pub min_clear: f64,
     /// Time at which the verdict was reached (s).
     pub t: f64,
+    /// Diagnostics: the state at the verdict, the last terminal test's failure, the law's limit counters
+    /// (`Law::lim_n`, `Law::lim_a`), the lowest airspeed and the highest load factor seen.
+    pub end: State,
+    pub why: Option<TermFail>,
+    pub lim: [u32; 2],
+    pub v_min: f64,
+    pub nz_max: f64,
+}
+
+/// Why a terminal test failed (diagnostics only; the verdict is the same either way).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TermFail {
+    /// The escape has not started its terminal phase (still pulling up).
+    NotTurning,
+    /// Climb rate below `VZ_MIN` somewhere in the settling window.
+    Unsettled,
+    /// Track rate, radius or centre not steady across the two halves.
+    Wobble,
+    /// The straight escape's climb gradient is too shallow for a ray.
+    Shallow,
+    /// A raw cell of this height at `(x, y)` blocks the climbing ray (straight) or the helix annulus (turns).
+    RayBlocked { x: f64, y: f64, h: f64 },
+    HelixBlocked { x: f64, y: f64, h: f64 },
+    /// The helix annulus leaves the map.
+    HelixOffMap,
+}
+
+/// Rollout settings: the clearance every path sample needs, the terminal sets' vertical margin, the horizon (s),
+/// and a prefix of piecewise-constant fly-by-wire commands `(seconds, load factor, bank target rad, point-mass
+/// sign)` flown before the escape law starts. `RollCfg::FILTER` is what the filters use.
+#[derive(Clone, Copy, Debug)]
+pub struct RollCfg<'a> {
+    pub margin: f64,
+    pub term_margin: f64,
+    pub horizon: f64,
+    pub prefix: &'a [(f64, f64, f64)],
+}
+
+impl RollCfg<'static> {
+    pub const FILTER: RollCfg<'static> = RollCfg { margin: MARGIN, term_margin: MARGIN, horizon: HORIZON, prefix: &[] };
 }
 
 impl Roll {
@@ -479,14 +538,36 @@ pub fn rollout(world: &World, p: &JsbPlant, esc: usize, max_frames: usize) -> Ro
 }
 
 /// `rollout` with an explicit law, stopping with `Outcome::Budget` at the wall-clock `deadline` if given.
-pub fn rollout_law(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>) -> Roll {
+pub fn rollout_law(world: &World, p: &JsbPlant, law: Law, max_frames: usize, deadline: Option<std::time::Instant>) -> Roll {
+    rollout_cfg(world, p, law, max_frames, deadline, &RollCfg::FILTER)
+}
+
+/// `rollout_law` with explicit settings (`RollCfg`); with `RollCfg::FILTER` it is exactly the filters' check.
+pub fn rollout_cfg(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>, cfg: &RollCfg) -> Roll {
     let esc = law.esc;
     let mut q = p.fork();
-    law.capture(&q.obs);
-    let n_max = ((HORIZON / DT_JSB).round() as usize).min(max_frames);
+    let n_max = ((cfg.horizon / DT_JSB).round() as usize).min(max_frames);
+    let n_pre: Vec<usize> = cfg.prefix.iter().scan(0usize, |acc, seg| { *acc += (seg.0 / DT_JSB).round() as usize; Some(*acc) }).collect();
+    let k_law = n_pre.last().copied().unwrap_or(0);
+    if k_law == 0 {
+        law.capture(&q.obs);
+    }
     let mut hist: Vec<Hist> = Vec::with_capacity(n_max / SAMPLE + 2);
-    let mut r = Roll { esc, outcome: Outcome::Horizon, frames: 0, path: Vec::with_capacity(n_max / SAMPLE + 2), tail: Vec::new(), min_clear: f64::INFINITY, t: 0.0 };
-    if esc == STREET && law.axis.is_nan() {
+    let mut r = Roll {
+        esc,
+        outcome: Outcome::Horizon,
+        frames: 0,
+        path: Vec::with_capacity(n_max / SAMPLE + 2),
+        tail: Vec::new(),
+        min_clear: f64::INFINITY,
+        t: 0.0,
+        end: q.state(),
+        why: None,
+        lim: [0; 2],
+        v_min: q.obs.vt,
+        nz_max: q.obs.nz,
+    };
+    if esc == STREET && law.axis.is_nan() && k_law == 0 {
         return r;
     }
     let mut psi_prev = f64::NAN;
@@ -498,7 +579,7 @@ pub fn rollout_law(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize,
         }
         let c = world.airframe_clearance(&s, 50.0);
         r.min_clear = r.min_clear.min(c);
-        if c <= MARGIN {
+        if c <= cfg.margin {
             return Some(Outcome::Hit);
         }
         let o = &q.obs;
@@ -514,32 +595,60 @@ pub fn rollout_law(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize,
         r.outcome = out;
         return r;
     }
-    let k_term = (T_TERM / DT_JSB).round() as usize;
+    let k_term = (T_TERM / DT_JSB).round() as usize + k_law;
+    let mut seg = 0;
+    let finish = |mut r: Roll, q: &JsbPlant, law: &Law, out: Outcome| -> Roll {
+        r.outcome = out;
+        r.end = q.state();
+        r.lim = [law.lim_n, law.lim_a];
+        r
+    };
     for k in 1..=n_max {
-        law.step(world, &mut q);
+        if k <= k_law {
+            while k > n_pre[seg] {
+                seg += 1;
+            }
+            let (_, n, phi_t) = cfg.prefix[seg];
+            let phi = q.state()[PHI];
+            q.frame(&[n, (3.0 * (phi_t - phi)).clamp(-1.0, 1.0), 1.0]);
+            if k == k_law {
+                law.capture(&q.obs);
+            }
+        } else {
+            if esc == STREET && law.axis.is_nan() {
+                return finish(r, &q, &law, Outcome::Horizon);
+            }
+            law.step(world, &mut q);
+        }
         r.frames = k;
+        r.v_min = r.v_min.min(q.obs.vt);
+        r.nz_max = r.nz_max.max(q.obs.nz);
         let t = k as f64 * DT_JSB;
         r.t = t;
         if k % SAMPLE == 0 {
             if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
-                r.outcome = Outcome::Budget;
-                return r;
+                return finish(r, &q, &law, Outcome::Budget);
             }
             if let Some(out) = push(&q, t, &mut hist, &mut r) {
-                r.outcome = out;
-                return r;
+                return finish(r, &q, &law, out);
             }
-            if k >= k_term && k % TERM_EVERY == 0 && law.turning() {
-                if let Some(tail) = terminal(world, law.dir(), &hist) {
-                    r.tail = tail;
-                    r.outcome = Outcome::Ok;
-                    return r;
+            if k >= k_term && k % TERM_EVERY == 0 {
+                if !law.turning() {
+                    r.why = Some(TermFail::NotTurning);
+                } else {
+                    match terminal(world, law.dir(), &hist, cfg.term_margin) {
+                        Ok(tail) => {
+                            r.tail = tail;
+                            return finish(r, &q, &law, Outcome::Ok);
+                        }
+                        Err(w) => r.why = Some(w),
+                    }
                 }
             }
         }
     }
-    r.outcome = if n_max < (HORIZON / DT_JSB).round() as usize { Outcome::Budget } else { Outcome::Horizon };
-    r
+    let out = if n_max < (cfg.horizon / DT_JSB).round() as usize { Outcome::Budget } else { Outcome::Horizon };
+    finish(r, &q, &law, out)
 }
 
 struct Seg {
@@ -564,30 +673,30 @@ fn seg(h: &[Hist]) -> Seg {
 
 /// Terminal test on the rollout so far: `Some(continuation points)` if the escape has settled into its
 /// terminal set and that set is clear.
-fn terminal(world: &World, dir: f64, hist: &[Hist]) -> Option<Vec<[f64; 3]>> {
+fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
     if hist.len() < 2 * HALF + 1 {
-        return None;
+        return Err(TermFail::Unsettled);
     }
     let n = hist.len();
     let a = seg(&hist[n - 2 * HALF - 1..n - HALF]);
     let b = seg(&hist[n - HALF - 1..]);
     if a.vz_min.min(b.vz_min) < VZ_MIN {
-        return None;
+        return Err(TermFail::Unsettled);
     }
     let e = b.end;
     let top = top(world);
     if dir == 0.0 {
         // Straight: settled heading, then a climbing ray at 80% of the slower half's gradient.
         if a.omega.abs().max(b.omega.abs()) > 0.01 {
-            return None;
+            return Err(TermFail::Wobble);
         }
         let grad = 0.8 * (a.vz_mean / a.vh.max(1.0)).min(b.vz_mean / b.vh.max(1.0));
-        ray_clear(world, [e.x, e.y, e.z], e.psi, grad, top)
+        ray_clear_m(world, [e.x, e.y, e.z], e.psi, grad, top, margin)
     } else {
         // Turn: radius and centre from each half; both must agree closely.
         let want = -dir; // a right turn (JSBSim +) turns clockwise, i.e. negative omega here
         if a.omega * want <= 0.02 || b.omega * want <= 0.02 {
-            return None;
+            return Err(TermFail::Wobble);
         }
         let circ = |s: &Seg| {
             let rr = s.vh / s.omega;
@@ -598,13 +707,11 @@ fn terminal(world: &World, dir: f64, hist: &[Hist]) -> Option<Vec<[f64; 3]>> {
         let d_r = (ra - rb).abs();
         let d_c = ((ca[0] - cb[0]).powi(2) + (ca[1] - cb[1]).powi(2)).sqrt();
         if d_r > 0.1 * rb || d_c > 0.1 * rb {
-            return None;
+            return Err(TermFail::Wobble);
         }
         let m = 5.0 + 3.0 * (d_r + d_c);
-        if !helix_clear(world, cb, rb, m, e.z, top) {
-            return None;
-        }
-        Some((0..=72).map(|i| {
+        helix_check(world, cb, rb, m, e.z, top, margin)?;
+        Ok((0..=72).map(|i| {
             let th = i as f64 * PI / 36.0;
             [cb[0] + rb * th.cos(), cb[1] + rb * th.sin(), e.z + b.vz_mean * (i as f64 / 72.0) * 2.0 * PI * rb / b.vh.max(1.0)]
         }).collect())
@@ -614,13 +721,18 @@ fn terminal(world: &World, dir: f64, hist: &[Hist]) -> Option<Vec<[f64; 3]>> {
 /// Every raw cell within the annulus `r ± (m + R_BODY)` around `c` is at least `R_BODY + MARGIN` below `z`
 /// (or `z` is that far above everything on the map).
 pub fn helix_clear(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64) -> bool {
-    let floor = z - R_BODY - MARGIN;
+    helix_check(world, c, r, m, z, top, MARGIN).is_ok()
+}
+
+/// `helix_clear` with the vertical margin `margin` in place of `MARGIN`, saying what blocks the annulus.
+pub fn helix_check(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64, margin: f64) -> Result<(), TermFail> {
+    let floor = z - R_BODY - margin;
     if floor > top {
-        return true;
+        return Ok(());
     }
     let (r0, r1) = ((r - m - R_BODY).max(0.0), r + m + R_BODY);
     if !on_map(c[0] - r1, c[1] - r1) || !on_map(c[0] + r1, c[1] + r1) {
-        return false;
+        return Err(TermFail::HelixOffMap);
     }
     // Cell centres within half a cell diagonal of the annulus.
     let pad = CELL * std::f64::consts::FRAC_1_SQRT_2;
@@ -638,33 +750,39 @@ pub fn helix_clear(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64)
             let dx = -MAP_HALF + (i as f64 + 0.5) * CELL - c[0];
             let d2 = dx * dx + dy * dy;
             if d2 >= lo2 && d2 <= hi2 {
-                return false;
+                return Err(TermFail::HelixBlocked { x: c[0] + dx, y: c[1] + dy, h: row[i] as f64 });
             }
         }
     }
-    true
+    Ok(())
 }
 
 /// A climbing ray from `p` along track `psi` (point-mass convention) at gradient `grad`, inside a corridor
 /// of half-width `R_BODY + 5 m + 2% of the distance`: every raw cell under the corridor stays `R_BODY +
 /// MARGIN` below the ray until the ray is that far above the map's top or leaves the map.
 pub fn ray_clear(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64) -> Option<Vec<[f64; 3]>> {
+    ray_clear_m(world, p, psi, grad, top, MARGIN).ok()
+}
+
+/// `ray_clear` with the vertical margin `margin` in place of `MARGIN`, saying what blocks the ray.
+pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
     if grad < 0.02 {
-        return None;
+        return Err(TermFail::Shallow);
     }
     let (c, s) = (psi.cos(), psi.sin());
     let mut d = 0.0;
     loop {
         let (x, y, z) = (p[0] + d * c, p[1] + d * s, p[2] + d * grad);
-        let floor = z - R_BODY - MARGIN;
+        let floor = z - R_BODY - margin;
         if floor > top || !on_map(x, y) {
-            return Some(vec![p, [x, y, z]]);
+            return Ok(vec![p, [x, y, z]]);
         }
         let w = R_BODY + 5.0 + 0.02 * d;
         let mut l = -w;
         while l <= w {
-            if world.surface(x - l * s, y + l * c) > floor {
-                return None;
+            let h = world.surface(x - l * s, y + l * c);
+            if h > floor {
+                return Err(TermFail::RayBlocked { x: x - l * s, y: y + l * c, h });
             }
             l += 0.5 * CELL;
         }
