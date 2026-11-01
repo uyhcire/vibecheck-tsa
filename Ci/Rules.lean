@@ -14,8 +14,12 @@ def loadMaxX10 : Int := 38
 def vFloor : Int := 27 * 65536
 /-- Height above the flat terrain at h = 0 that every rollout substep must keep, m (raw). -/
 def clearance : Int := 5 * 65536
-/-- Vertical speed that a terminal set must keep at every substep, m/s (raw). -/
+/-- Vertical speed that a terminal set must keep at every substep below `climbTop`, m/s (raw). -/
 def climbVz : Int := 2 * 65536
+/-- Climb-out is complete at 2500 m: below the model's service ceiling (about 3200 m for 2 m/s), above all terrain. -/
+def climbTop : Int := 2500 * 65536
+/-- Upper edge of the model's validity, m (raw): the atmosphere table ends at 7950 m and gravity falls with h. -/
+def hMax : Int := 6000 * 65536
 def budgetTicks : Nat := 640
 
 def alphaOk (s : State) : Bool :=
@@ -32,7 +36,7 @@ def speedOk (s : State) : Bool := vFloor * vFloor ≤ s.vx.raw * s.vx.raw + s.vz
 
 def envOk (s : State) : Bool := alphaOk s && loadOk s && speedOk s && s.stall.raw == 0
 
-def safeOk (s : State) : Bool := envOk s && clearance ≤ s.h.raw
+def safeOk (s : State) : Bool := envOk s && clearance ≤ s.h.raw && s.h.raw ≤ hMax
 
 def sub (u : Input) (s : State) : State := Jsb.step 7 true u s
 
@@ -46,9 +50,9 @@ def subT (u : Input) : Nat → State → Bool → Bool → State × Bool × Bool
   | 0, s, ok, cl => (s, ok, cl)
   | n + 1, s, ok, cl =>
     let s' := sub u s
-    subT u n s' (ok && safeOk s') (cl && climbVz ≤ s'.vz.raw && s.h.raw < s'.h.raw)
+    subT u n s' (ok && safeOk s') (cl && (climbVz ≤ s'.vz.raw && s.h.raw < s'.h.raw || climbTop ≤ s'.h.raw))
 
-/-- `safe`: all 8 substeps pass `safeOk`; `climb`: at each, vz ≥ `climbVz` and h rose. -/
+/-- `safe`: all 8 substeps pass `safeOk`; `climb`: at each, vz ≥ `climbVz` and h rose, or h ≥ `climbTop`. -/
 def tickT (L : Law) (s : State) (m : L.σ) : TickR L.σ :=
   let r := L.step m s
   let (s', ok, cl) := subT (clampInput r.1) 8 s true true

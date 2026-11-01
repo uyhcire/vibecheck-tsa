@@ -40,8 +40,8 @@ The rollout is the model, so it needs no certificate. Two things remain to be ce
 | load factor | body-normal specific force over g: ((au + g)·cos θ − ah·sin θ)/g, from the substep's evaluated world accelerations, with g = 9.80665 | ≤ 3.8. Neglecting Earth rotation and gravity's height dependence changes n by about 3e-4. |
 | airspeed floor | vx² + vz² ≥ V_floor² | 27 m/s, about 1.05 × the 1-g stall speed. Trims converge down to 30 m/s, and α at trim extrapolates to 0.28 near 26 m/s. |
 | stall bit | must stay 0 | |
-| clearance | h ≥ clearance at every substep | 5 m |
-| climbing (inside T) | at every substep: vz ≥ 2 m/s and h rising | |
+| clearance | clearance ≤ h ≤ h_max at every substep | 5 m; h_max = 6000 m, the model's validity (atmosphere table to 7950 m, gravity falls with h) |
+| climbing (inside T) | at every substep: vz ≥ 2 m/s and h rising, or h ≥ climb_top | climb_top = 2500 m: climb-out is complete there. The model's service ceiling (vz < 2 m/s above about 3200 m) makes an unbounded climb clause unprovable; reported by competitor lawfirst. |
 | T test window (adversary) | 640 ticks (40 s), all substeps safe, every tick in the last 160 (10 s) climbing; long tests use 1920 ticks (120 s) | |
 | real-time budget | horizon × number of laws ≤ 640 rollout ticks per check. At about 30 µs per `Fx` tick this is about 19 ms, under a third of the 62.5 ms tick. | |
 
