@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check clean
+.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check clean certify
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -63,3 +63,11 @@ gate-check: gate
 
 clean:
 	lake clean
+
+# Numerical certificates of docs/termsound-proof.tex (straight-climb end set): builds `tsmap`, makes a Python venv
+# with numpy and scipy under .lake/, recomputes the reference climb and prints every certificate (about 10 min).
+TSVENV ?= .lake/tsvenv
+certify:
+	lake build tsmap
+	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy)
+	cd tools/termsound && for s in ref cert nstep probe; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done

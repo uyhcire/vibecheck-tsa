@@ -1,206 +1,321 @@
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
 \usepackage[hidelinks]{hyperref}
 \newtheorem{theorem}{Theorem}
 \newtheorem{lemma}[theorem]{Lemma}
 \newtheorem{definition}[theorem]{Definition}
 \newtheorem{hyp}{Hypothesis}
+\newtheorem{cert}{Certificate}
 \newcommand{\R}{\mathbb{R}}
+\newcommand{\Q}{\mathbb{Q}}
 \newcommand{\Solid}{\mathcal{S}}
 \newcommand{\Top}{\mathrm{top}}
-\newcommand{\hull}{\operatorname{hull}}
 \newcommand{\Crash}{\mathrm{Crash}}
-\title{Certified end sets for the exact-rollout gate:\\ an informal proof of \texttt{TermSoundR}}
-\author{vibecheck-tsa, tracker \#30}
-\date{Draft, 2026-11-01}
+\newcommand{\Conf}{\ensuremath{\mathrm{Conf}}}
+\newcommand{\Geo}{\ensuremath{\mathrm{Geo}}}
+\newcommand{\Dyn}{\ensuremath{\mathrm{Dyn}}}
+\newcommand{\zTop}{z_{\mathrm{top}}}
+\title{Certified end sets for the exact-rollout gate:\\ an informal proof of \texttt{TermSoundR}, and where the straight climb stands}
+\author{vibecheck-tsa, trackers \#30 and \#36}
+\date{Revision of 2026-11-01 (second draft)}
 \begin{document}
 \maketitle
 
 \begin{abstract}
-The Lean exact-rollout gate is proved safe against \texttt{CitySafety.Safe} (PR \#29) under one substantive assumption, \texttt{TermSoundR}: an end-of-escape test that passes on a real rollout implies that continuing the escape never crashes. This note gives an informal proof of \texttt{TermSoundR} for a redesigned end test. The test certifies membership in a \emph{funnel}: a dynamics set (a robust Lyapunov sublevel set around the escape law's settled climb) together with a map-clearance condition that tolerates slow drift. The proof uses \emph{local} end sets (a climbing turn or a straight climb, entered seconds after the escape starts), so the close calls decided by exact rollouts stay provable. The model-specific facts are isolated as explicit hypotheses (H1--H6). Discharging them is the model ladder of tracker \#30 (rungs 1--5). Everything else is proved here.
+The Lean exact-rollout gate is proved safe against \texttt{CitySafety.Safe} (PR \#29) under one substantive assumption, \texttt{TermSoundR}: an end-of-escape test that passes on a real rollout implies that continuing the escape never crashes. This note reduces \texttt{TermSoundR} to \emph{certified end sets}: a dynamics part \Dyn{} (a settled set around the escape law's climb, invariant under the closed loop) and a geometric part \Geo{} (map clearance of a widening funnel). The geometric part, and the reduction, are proved in Lean (PR \#37); Sections~\ref{sec:endsets}--\ref{sec:geo} state them in the form proved there.
+
+Section~\ref{sec:straight} then attacks the dynamics part for the first escape, the \emph{straight climb}, on the real model: \texttt{JsbExact}'s equations with fuel frozen, flown by the real escape law, taken over exact reals. Computed with the real plant code: the trim family over 10--1{,}400\,m, a 32-coordinate chart that drops the neutral modes, the reference climb (trim plus its steady lag), the one-frame and one-second linearisations, and the disturbance budget. \textbf{The contraction certificate is not obtained.} Three findings explain why, each with numbers: (i)~the trim sits exactly on a kink of the frame map (the drag term $0.17\,|\beta|$; the rudder integrator drives $\beta$ to $0$), which a rank-one switched linearisation handles with a large margin; (ii)~the per-frame contraction margin is about $10^{-3}$ (slowest mode $0.137$--$0.175\,\mathrm{s}^{-1}$ at $\Delta t = 1/128$\,s), and no per-frame quadratic norm tried contracts on the whole band (best $\lambda = 1.0145$); (iii)~the one-second map contracts in one quadratic norm on 600--1{,}000\,m ($\lambda_{\mathrm{lin}} \le 0.981$) but not on 10--450\,m ($1.26$), because the linearisation changes between 450 and 600\,m. So \texttt{TermSoundR} for the straight escape remains open; what is proved is the reduction (Theorem~\ref{thm:main}) to explicit hypotheses S1--S4, with the missing certificate and every other gap listed in Section~\ref{sec:gaps}.
 \end{abstract}
 
-\section{Setting}
+\tableofcontents
 
-\paragraph{Plant and closed loop.} A state $x$ comprises the plant state (\texttt{JsbExact}, fuel frozen, PR \#31) and the escape law's state. One JSBSim frame ($\Delta t = 1/128$\,s) of the escape closed loop is a deterministic map $F : x \mapsto x'$. The reported CG position is $P(x) = (P_{xy}(x), z(x)) \in \R^2 \times \R$, as in the spec of PR \#27 (\texttt{report}).
+\section{Setting}\label{sec:setting}
 
-\paragraph{Map.} $\Solid \subseteq \R^3$ is the static solid set: closed building boxes and the region at or below the terrain, with the terrain continued past the map edge. For $p \in \R^2$ let
-\[ \Top(p) \;=\; \max\Bigl(\mathrm{terrain}(p),\ \max\{ z^{\max}_b : p \in \mathrm{xy}(b)\}\Bigr), \]
-so that $(p, h) \in \Solid \Rightarrow h \le \Top(p)$. Let $T^\star = \sup_p \Top(p)$, which is finite because the terrain is clamped at the edge and there are finitely many boxes.
+\paragraph{Plant and closed loop.} A closed-loop state $x = (\ell, p)$ is the escape law's state $\ell$ (\texttt{CityGate.Esc.Law}) and the aircraft $p$ (\texttt{CityGate.Plane}: the \texttt{JsbExact} state, the observation after its last frame, and its map anchor). One JSBSim frame ($\Delta t = 1/128$\,s) of the escape is the gate's \texttt{cityGate.fly}, written $F$: the law reads the observation and sets the surfaces (\texttt{Law.step}), then the plant steps with fuel frozen (\texttt{Plane.step}, PR \#31).
 
-\paragraph{Crash.} With $A(x)$ the airframe points of PR \#27,
-\[ \Crash(x) \iff \hull A(x) \cap \Solid \neq \emptyset . \]
+\paragraph{Exact-real assumption.} Throughout, \texttt{JsbExact}'s \texttt{Float} program is taken to compute its equations exactly over $\R$, with exact maths functions. This gap, and ``\texttt{JsbExact} $=$ JSBSim'', are modelling assumptions; rounding and the C maths library belong to the formal proof (\#30). Numerical certificates below are computed in double precision, and each says how its rounding error is controlled.
 
-\begin{hyp}[H1, airframe extent]\label{h1}
-Every point of $A(x)$ lies within $e$ of $P(x)$ in each horizontal axis and vertically, for every state in the dynamics sets below. This is PR \#29's \texttt{AirframeNear}. In the reals it follows from rotation invariance, because the airframe vectors are fixed in the body frame. For the \texttt{Float}-reported pose it is a small rounding bound.
-\end{hyp}
+\paragraph{Map.} $\Solid \subseteq \Q^3$ is the solid set of \texttt{CitySafety}: closed building boxes and the region at or below the terrain, with the terrain continued past the map edge. Its highest point is
+\[ T^\star \;=\; \max(\text{terrain grid}) \;=\; 4633481/5000 \;=\; 926.6962\ \text{m} \]
+(exact, from \texttt{CityGate/data/terrain.csv}; the highest building top is $458.66$\,m). The terrain is piecewise linear over the grid and continued by clamping, so its supremum is a grid value.
 
-\begin{lemma}[hull box]\label{lem:hullbox}
-Under H1, every $q \in \hull A(x)$ satisfies $|q_x - P_x| \le e$, $|q_y - P_y| \le e$ and $|q_z - z(x)| \le e$. Hence $\|q_{xy} - P_{xy}(x)\| \le \sqrt2\, e =: e'$.
-\end{lemma}
-\begin{proof}
-The axis box $[P \pm e]$ is convex and contains $A(x)$, so it contains the hull.
-\end{proof}
+\paragraph{Crash.} For \texttt{TermSoundR} the crash shape is the gate's \texttt{CrashH h} with $h = 7$: a solid point within 7\,m of the reported position in each axis. Via \texttt{AirframeNear 7} (a hypothesis of PR \#29's theorem) this covers the spec's airframe hull. Write $e = 7$ and $e' = 10$; then $2e^2 = 98 \le 100 = e'^2$, so the horizontal half-diagonal of the $e$-box is at most $e'$.
 
-\section{From certified end sets to \texttt{TermSoundR}}
+\section{End sets and \texttt{TermSoundR}}\label{sec:endsets}
 
-\begin{definition}
-A \emph{certified end set} for an escape law with closed loop $F$ is a set $C$ with
-(i) $C$ forward invariant, $F(C) \subseteq C$; and (ii) $C \cap \Crash = \emptyset$.
-An end test $\mathit{term}$ is \emph{certifying} if $\mathit{term}(x) \Rightarrow x \in C$.
+\begin{definition}[end set, PR \#37 \texttt{GateSafety.EndSet}]
+A family of end sets indexed by $\theta \in \Theta$ is a pair of predicates $\Dyn_\theta$, $\Geo_\theta$ on closed-loop states with
+(i) $\Dyn_\theta(x) \Rightarrow \Dyn_\theta(F x)$; (ii) $\Dyn_\theta(x) \wedge \Geo_\theta(x) \Rightarrow \Geo_\theta(F x)$; (iii) $\Dyn_\theta(x) \wedge \Geo_\theta(x) \Rightarrow \neg\Crash(x)$. Membership is $\exists\theta.\ \Dyn_\theta(x) \wedge \Geo_\theta(x)$.
 \end{definition}
 
-\begin{theorem}\label{thm:term}
-If the end test is certifying for some certified end set, then \texttt{TermSoundR} holds.
+\begin{theorem}[PR \#37, \texttt{EndSet.termSoundR}]\label{thm:term}
+If every state where the end test passes on a real rollout is a member of some end set, then \texttt{TermSoundR} holds.
 \end{theorem}
 \begin{proof}
-Let $\mathit{term}(x)$ hold at some frame of a rollout. Then $x \in C$. By (i) and induction, $F^n(x) \in C$ for all $n$. By (ii), no $F^n(x)$ crashes, which is \texttt{SafeForever}. The restriction to real rollouts (the \texttt{R} in \texttt{TermSoundR}) is not used: certifying tests are sound on every state. This is the point of \emph{certify by construction}. The test reads only the current state and constants it computes itself (centre, radius, entry altitude, $\rho$), so the unrestricted \texttt{TermSound} also holds. That rules out the fabricated-history counterexample by construction.
+Induction on (i) and (ii) gives membership at every later frame; (iii) gives no crash.
 \end{proof}
 
-The rest of the note builds certified end sets of the form $C = D \cap G$: a dynamics part $D$ and a geometric part $G$.
-
-\section{The dynamics part: a robust sublevel set}
-
-Fix an escape law (a climbing turn at bank $\phi^\star$, or a straight climb with heading hold).
-
-\paragraph{Error coordinates.} Let $\xi(x) \in \R^m$ be the deviation of $x$ from the settled climb, in coordinates that omit the neutral modes:
+For the city gate the two families are the helix and the ray funnels below, with $\Geo$ independent of the state (so (ii) is trivial). \texttt{cityGate\_spec\_safe\_of\_tubes} (PR \#37) leaves exactly these hypotheses open, per family:
 \begin{itemize}
-\item for the turn, the horizontal position, the heading and the altitude;
-\item for the straight climb, the along-track position, the lateral offset and the altitude.
+\item \texttt{hconfR} / \texttt{hconfH}: $\Dyn$ places the reported position in the funnel's $\Conf$;
+\item \texttt{hinvR} / \texttt{hinvH}: $\Dyn$ is invariant under $F$;
+\item \texttt{hterm}: a passing end test implies membership.
 \end{itemize}
-$\xi$ also omits the altitude dependence of the trim, as follows. The trim $x^\star(h)$ depends on altitude through air density. Write $\xi(x) = \Pi\bigl(x - x^\star(z(x))\bigr)$.
+Section~\ref{sec:dyn} reduces \texttt{hconfR}, \texttt{hinvR} and \texttt{hterm} for the straight climb to hypotheses S1--S4 on the model; Section~\ref{sec:straight} reports the attempt to discharge them.
 
-\paragraph{The simplified model.} Let $F_S$ be the closed loop of a simplified model (a rung of the ladder), with error map $\xi' = \Phi(\xi, h)$. Let $V(\xi) = \xi^\top Q \xi$ with $Q \succ 0$, and write $\|\xi\|_Q = \sqrt{V(\xi)}$.
+\section{The geometric part (proved in Lean, PR \#37)}\label{sec:geo}
 
-\begin{hyp}[H2, contraction on the simplified model]
-There are $\rho > 0$ and $\lambda \in [0,1)$ with $\|\Phi(\xi, h)\|_Q \le \lambda \|\xi\|_Q$ whenever $\|\xi\|_Q \le \sqrt\rho$, for all altitudes $h$ in the band $[h_{\min}, h_{\max}]$.
-\end{hyp}
+All quantities are rational; distances are compared squared. A reported position is $p = (p_x, p_y, p_z)$ (east, north, up; m).
 
-\begin{hyp}[H3, residual]
-For every state with $\|\xi(x)\|_Q \le \sqrt\rho$ and $z(x)$ in the band, one frame of the real closed loop $F$ differs from the simplified one in error coordinates by at most $\delta$ in $Q$-norm:
-\[ \bigl\|\xi(F(x)) - \Phi(\xi(x), z(x))\bigr\|_Q \le \delta . \]
-This bound includes the trim shift $x^\star(z(x')) - x^\star(z(x))$, which is $O(|\Delta z|)$ and small per frame.
-\end{hyp}
-
-\begin{lemma}[robust invariance]\label{lem:robust}
-Under H2 and H3, if $\delta \le (1-\lambda)\sqrt\rho$, then $D := \{x : \|\xi(x)\|_Q \le \sqrt\rho,\ z(x) \in \text{band}\}$ satisfies $\|\xi(F(x))\|_Q \le \sqrt\rho$ for every $x \in D$.
-\end{lemma}
-\begin{proof}
-By the triangle inequality in the $Q$-norm,
-$\|\xi(F x)\|_Q \le \|\Phi(\xi(x), z(x))\|_Q + \delta \le \lambda \sqrt\rho + (1-\lambda)\sqrt\rho = \sqrt\rho$.
-\end{proof}
-
-The altitude band is handled by H5 and Lemma~\ref{lem:inv}.
-
-\paragraph{Consequences of being in $D$.} On the compact set $\|\xi\|_Q \le \sqrt\rho$, the quantities below are continuous functions of $\xi$ and of the one-frame disturbance, so they come with explicit bounds. Let $Z := T^\star + e + \epsilon$ for a small $\epsilon > 0$.
-
-\begin{hyp}[H4, bounds on $D$]
-For $x \in D$:
-\begin{enumerate}
-\item \textbf{Climb.} $z(Fx) - z(x) \ge \gamma \Delta t$ if $z(x) \le Z + \eta$, and $z(Fx) - z(x) \ge -\eta$ always. Here $\gamma > 0$ and $\eta > 0$.
-\item \textbf{Path.} Turn: the instantaneous turn centre $c(x)$ (the CG displaced by the turn radius toward the inside of the turn) satisfies $\bigl|\|P_{xy}(x) - c(x)\| - r^\star\bigr| \le \delta_r$. Straight climb: no condition beyond 3.
-\item \textbf{Drift.} Turn: $\|c(Fx) - c(x)\| \le \kappa\Delta t$. Straight climb: the CG's horizontal displacement in one frame has a component of at most $\kappa\Delta t$ across, and at most $v_{\max}\Delta t$ along, the held heading.
-\end{enumerate}
-\end{hyp}
-
-\begin{hyp}[H5, the altitude band is invariant]
-$D$'s band $[h_{\min}, h_{\max}]$ contains every altitude the closed loop reaches from $D$. Concretely, $z(x) \le h_{\max} \Rightarrow z(Fx) \le h_{\max}$, because the climb stops at the service ceiling, about 4\,km for the C172 at full throttle and well above $Z \approx 930$\,m. The lower end follows from H4.1 once $h_{\min} \le z_0 - \eta$. Fuel is infinite (\#31).
-\end{hyp}
-
-Write $s := \kappa/\gamma$ (horizontal drift per metre climbed) and $g := \gamma/v_{\max}$ (the guaranteed climb gradient).
-
-\section{The certified end sets}
-
-The constants are fixed at entry: the turn centre $c_0$ or entry point $o$ with held heading $u$ (a unit vector), and the entry altitude $z_0$. They are carried as part of the state; the dynamics does not change them.
-
-\begin{definition}[augmented invariants]
-For the turn,
-\[ I_{\mathrm{helix}}(x; c_0, z_0) :\iff x\in D \;\wedge\; \Bigl( z(x) \ge Z \;\vee\; \bigl(z(x) \ge z_0 \wedge \|c(x) - c_0\| \le s\,(z(x) - z_0)\bigr)\Bigr). \]
-For the straight climb, with along-track $a(x) = (P_{xy}(x)-o)\cdot u$ and lateral $w(x) = |(P_{xy}(x)-o)\times u|$,
-\[ I_{\mathrm{ray}}(x; o, u, z_0) :\iff x\in D \;\wedge\; \Bigl( z(x) \ge Z \;\vee\; \bigl(z(x) - z_0 \ge \max(0, g\,a(x)) \wedge w(x) \le s\,(z(x) - z_0)\bigr)\Bigr). \]
-\end{definition}
-
-At entry, with $c_0 = c(x)$, $o = P_{xy}(x)$ and $z_0 = z(x)$, the second disjunct holds with equalities, so $I$ holds iff $x\in D$.
-
-\begin{lemma}[invariance]\label{lem:inv}
-Under H2--H5 and $\delta \le (1-\lambda)\sqrt\rho$, $I_{\mathrm{helix}}$ and $I_{\mathrm{ray}}$ are forward invariant under $F$, with the constants unchanged.
-\end{lemma}
-\begin{proof}
-$D$ is invariant by Lemma~\ref{lem:robust} and H5. For the disjunction:
-\begin{itemize}
-\item \emph{If $z \ge Z$:} when $z \le Z+\eta$, H4.1 gives $z' \ge z + \gamma\Delta t \ge Z$. When $z > Z + \eta$, it gives $z' \ge z - \eta > Z$. So the first disjunct persists.
-\item \emph{If $z < Z$ (second disjunct):} H4.1 gives $z' - z \ge \gamma\Delta t$.
-  \begin{itemize}
-  \item Turn: $\|c' - c_0\| \le s(z - z_0) + \kappa\Delta t = s(z-z_0) + s\gamma\Delta t \le s(z' - z_0)$, and $z' \ge z \ge z_0$.
-  \item Straight climb: $w' \le w + \kappa\Delta t \le s(z' - z_0)$ by the same computation. $a' \le a + v_{\max}\Delta t$, so $g\,a' \le g\,a + \gamma\Delta t \le (z - z_0) + (z' - z) = z' - z_0$.
-  \end{itemize}
-  If $z' \ge Z$ the first disjunct holds instead. Either way the disjunction holds at $x'$.
-\end{itemize}
-\end{proof}
-
-\begin{definition}[funnel certificates]
-With $e' := \sqrt2\,e$ and $d(p) := \bigl|\|p - c_0\| - r^\star\bigr|$:
+\begin{definition}[ray funnel, \texttt{Spec/EndSets.lean}]\label{def:ray}
+A ray funnel $R$ has a start $(p_x^0, p_y^0)$, a nonzero rational direction $(a, b)$ whose length $\|(a,b)\|$ is the unit of along-track and lateral distance, a lateral bound $w \ge 0$ at entry, a widening $s \ge 0$, a climb $g \ge 0$ per unit along-track, an entry altitude $z_0$ and a release altitude $\zTop$. With $\mathrm{along}(q) = (q_x - p_x^0) a + (q_y - p_y^0) b$, $\mathrm{lat}(q) = (q_y - p_y^0) a - (q_x - p_x^0) b$, $\mathrm{hw}(z) = w + s(z - z_0)$ and $\mathrm{reach} = e(|a| + |b|)$:
 \begin{align*}
-G_{\mathrm{helix}}(c_0, z_0) &:\iff \forall p.\ \Top(p) + e \ge z_0 \;\Rightarrow\; d(p) > \delta_r + e' + s\,(\Top(p) + e - z_0),\\
-G_{\mathrm{ray}}(o, u, z_0) &:\iff \forall p.\ \Top(p) + e \ge z_0 \;\Rightarrow\; w(p) > e' + s\,(\Top(p) + e - z_0) \;\vee\; \Top(p) + e < z_0 + g\,(a(p) - e'),
+\Conf_R(p) &:\iff \zTop \le p_z \;\vee\; \bigl(|\mathrm{lat}(p)| \le \mathrm{hw}(p_z) \wedge 0 \le \mathrm{along}(p) \wedge z_0 + g\,\mathrm{along}(p) \le p_z\bigr),\\
+\Geo_R &:\iff \forall q \in \Solid.\ q_z < \zTop - e \;\wedge\; \Bigl(|\mathrm{lat}(q)| \le \mathrm{hw}(q_z + e) + \mathrm{reach} \wedge \mathrm{along}(q) \ge -\mathrm{reach}\\
+&\hspace{14em} \Rightarrow q_z < z_0 + g \max(0, \mathrm{along}(q) - \mathrm{reach}) - e\Bigr).
 \end{align*}
-where $a(p), w(p)$ are the along-track and lateral coordinates of $p$. In words: anything tall enough to reach the entry altitude stands far enough outside the circle (or beside, or ahead of the climb line), and "far enough" grows with its height at slope $s$.
 \end{definition}
 
-\begin{lemma}[no crash inside the funnel]\label{lem:helix}
-$I_{\mathrm{helix}}(x; c_0, z_0) \wedge G_{\mathrm{helix}}(c_0, z_0) \Rightarrow \neg\Crash(x)$, and likewise for the ray.
+\begin{definition}[helix funnel]\label{def:helix}
+A helix funnel $H$ has centre $c$, radius $r^\circ$, radial slack $\delta \ge 0$ at entry, widening $s$, entry altitude $z_0$ and release altitude $\zTop$; $\mathrm{sl}(z) = \delta + s(z - z_0)$ and $d(q) = \|q_{xy} - c\|$:
+\begin{align*}
+\Conf_H(p) &:\iff \zTop \le p_z \;\vee\; \bigl(z_0 \le p_z \wedge |d(p) - r^\circ| \le \mathrm{sl}(p_z)\bigr),\\
+\Geo_H &:\iff \forall q \in \Solid.\ q_z < \zTop - e \;\wedge\; \bigl(|d(q) - r^\circ| \le \mathrm{sl}(q_z + e) + e' \Rightarrow q_z < z_0 - e\bigr).
+\end{align*}
+\end{definition}
+
+The slack grows with height ($s > 0$) because nothing in the escape laws pulls the aircraft back to a fixed line or circle: the bank and heading holds are open loop in position, so a fixed corridor or annulus is not invariant under persistent model mismatch (rung 1, PR \#38, finding 1). Neither $\Conf$ asks for a non-negative climb rate; that belongs to $\Dyn$'s invariance.
+
+\begin{lemma}[clearance, PR \#37 \texttt{Ray.clear}, \texttt{Helix.clear}]\label{lem:clear}
+If $\Conf_R(p)$, $\Geo_R$, $g \ge 0$ and $s \ge 0$, the box $[p \pm e]$ contains no solid point; likewise for the helix with $r^\circ + \delta \ge 0$, $s \ge 0$, $e' \ge 0$, $2e^2 \le e'^2$. With \texttt{AirframeNear 7} the state is not \texttt{CrashH 7} (\texttt{Ray.not\_crashH}, \texttt{Helix.not\_crashH}).
+\end{lemma}
+\begin{proof}[Proof sketch]
+A box point $q$ has $q_z \ge p_z - e$ and moves along-track and laterally by at most $\mathrm{reach}$ (or horizontally by at most $e'$). If $p_z \ge \zTop$ then $q_z \ge \zTop - e$, which $\Geo$ excludes for solid $q$. Otherwise $q$ is inside the widened corridor at height $q_z + e \ge p_z$, and $q_z \ge p_z - e \ge z_0 + g\max(0, \mathrm{along}(q) - \mathrm{reach}) - e$, which $\Geo$ excludes. The Lean proofs are in \texttt{Spec/EndSets.lean}.
+\end{proof}
+
+\paragraph{Finite check.} $\Geo$ quantifies over $\Solid$, but $\Top$ is piecewise linear on the terrain triangles and there are finitely many boxes, so $\Geo$ reduces to finitely many exact rational comparisons: for each terrain cell (the clamped border cells included) and each box footprint, an upper bound on its height and a lower bound on its distance to the corridor or circle. Upper bounds on heights and lower bounds on distances are conservative, hence sound. The release condition $q_z < \zTop - e$ for all solid $q$ is $\zTop > T^\star + e = 933.6962$\,m; this note uses $\zTop = 934$\,m. The checker is not written yet (gap G8).
+
+\section{The dynamics part: what the model must supply}\label{sec:dyn}
+
+\subsection{Coordinates}
+
+\begin{definition}[chart]\label{def:chart}
+For a held track $\psi_r$ (clockwise from north), the chart maps a closed-loop state to its altitude $h$ (the reported altitude above sea level) and 32 local coordinates $y \in \R^{32}$:
+\begin{enumerate}
+\item attitude: roll $\phi$, pitch $\theta$, and heading minus $\psi_r$ (wrapped);
+\item Earth-relative velocity in track axes (along, right, down);
+\item body inertial rates $(p_i, q_i, r_i)$ (\texttt{pqri});
+\item the Adams--Bashforth histories, in track axes: $v_i - v_{i,h0}$, $v_{i,h0} - v_{i,h1}$ (inertial velocity and its two previous values), $\dot v_i$ and its previous value $a_{i,h0}$;
+\item the body angular acceleration \texttt{pqridot} and body acceleration \texttt{uvwdot} (the latter enters only $\dot\alpha$);
+\item engine rpm and manifold pressure (the lagged \texttt{tmap});
+\item the law's integrators $i_\alpha$, $i_\beta$, $i_\phi$.
+\end{enumerate}
+\end{definition}
+
+The chart drops the horizontal position and the Earth-rotation angle. Rotations of all inertial vectors about the polar axis are an exact symmetry of the equations (gravity is axisymmetric, the plant's ground is a sphere-relative constant, the atmosphere depends on altitude only), so the east position and the Earth angle are exactly neutral. North position (latitude) and heading are not exact symmetries (Coriolis, $J_2$); their effect is a disturbance (Certificate~\ref{cert:dist}). The quaternion's normalisation, \texttt{JsbExact}'s renormalisation only when $|\,\|q\| - 1| \ge 10^{-10}$, and the stored $\dot q$ (a function of $q$ and \texttt{pqri}) are covered there too. The remaining state fields are constant in flight with fuel frozen (mass, CG, tanks, engine flags, gear states with no ground contact) or recomputed every frame (the propeller's \texttt{act}); the law's clock and held track are constant after the pull-up. The law reads only the observation, and the observation is a function of the state (Certificate~\ref{cert:obs}).
+
+\begin{definition}[reference climb, error, settled set]
+The \emph{reference climb} $c(h) \in \R^{32}$ is the chart of the settled straight escape as it passes altitude $h$ (Section~\ref{sec:ref}). The error is $\xi(x) = \Sigma^{-1}(y(x) - c(h(x)))$, with $\Sigma$ the fixed diagonal scaling of \texttt{tools/termsound/trim.py} (\texttt{SCALE}). For $Q \succ 0$ and $r > 0$, $D_r = \{x : \xi(x)^\top Q\, \xi(x) \le r^2,\ h(x) \in [h_{\mathrm{lo}}, h_{\mathrm{hi}}]\}$.
+\end{definition}
+
+Centring on the reference climb rather than on the frozen trim $y^\star(h)$ removes the altitude drift of the trim from the disturbance budget to first order: the climb lags the trim by a fixed offset (rung 1, finding 4), and $c$ includes it.
+
+\subsection{Hypotheses S1--S4}
+
+Fix the straight escape, a held track $\psi_r$, a ray direction at angle $\psi_r + \theta_{\mathrm{ray}}$, and $N \ge 1$ frames.
+
+\begin{hyp}[S1, robust $N$-frame invariance]
+$F^N(D_r) \subseteq D_r$ for states whose altitude stays in the band over the $N$ frames. Write $C^\ast = \bigcup_{k<N} F^k(D_r)$.
+\end{hyp}
+
+\begin{hyp}[S2, per-frame bounds on $C^\ast$]
+There are $\gamma > 0$, $\kappa \ge 0$ and $0 < v_{\min} \le v_{\max}$ such that for $x \in C^\ast$ one frame moves the reported position by $\Delta z \ge \gamma\Delta t$, by at most $\kappa\Delta t$ across the ray direction, and by between $v_{\min}\Delta t$ and $v_{\max}\Delta t$ along it.
+\end{hyp}
+
+\begin{hyp}[S3, above the release altitude]
+From any state of $C^\ast$ with $z \ge \zTop$, the altitude never falls below $\zTop$ under the escape.
+\end{hyp}
+
+\begin{hyp}[S4, airframe]
+\texttt{AirframeNear 7} on $C^\ast$ (assumed globally by PR \#29's theorem; on $C^\ast$ the attitude is near level, see Section~\ref{sec:conserv}).
+\end{hyp}
+
+\begin{lemma}[union of images]\label{lem:union}
+Under S1, $C^\ast$ is forward invariant.
 \end{lemma}
 \begin{proof}
-Suppose $q \in \hull A(x) \cap \Solid$. Then $q_z \le \Top(q_{xy})$, and $q_z \ge z - e$ by Lemma~\ref{lem:hullbox}, so
-\[ z \;\le\; \Top(q_{xy}) + e. \tag{$\ast$} \]
-\begin{itemize}
-\item \emph{If $z \ge Z$:} $(\ast)$ gives $\Top(q_{xy}) \ge T^\star + \epsilon > T^\star$, which is impossible.
-\item \emph{Otherwise, the second disjunct holds:} then $\Top(q_{xy}) + e \ge z \ge z_0$, so the certificate applies at $p = q_{xy}$.
-  \begin{itemize}
-  \item Turn: $d(q_{xy}) \le \bigl|\|P_{xy} - c(x)\| - r^\star\bigr| + \|c(x) - c_0\| + \|q_{xy} - P_{xy}\| \le \delta_r + s(z - z_0) + e' \le \delta_r + e' + s(\Top(q_{xy}) + e - z_0)$ by H4.2 and $(\ast)$. This contradicts $G_{\mathrm{helix}}$.
-  \item Straight climb: $w(q_{xy}) \le w(x) + e' \le e' + s(\Top(q_{xy}) + e - z_0)$, so the first disjunct of $G_{\mathrm{ray}}$ fails. Also $a(q_{xy}) \le a(x) + e'$ and $z - z_0 \ge g\,a(x)$, so $\Top(q_{xy}) + e \ge z \ge z_0 + g\,(a(q_{xy}) - e')$, and the second disjunct fails too.
-  \end{itemize}
-\end{itemize}
+If $x = F^k(y)$ with $y \in D_r$ and $k < N$, then $F x = F^{k+1}(y)$, which is in $C^\ast$ when $k + 1 < N$, and in $F^N(D_r) \subseteq D_r \subseteq C^\ast$ when $k + 1 = N$.
 \end{proof}
 
-\paragraph{Finite certificate.} $\Top$ is piecewise linear on the terrain triangles, so its maximum on a cell is at a vertex. There are finitely many boxes. Outside the grid the terrain is constant along the clamping direction, and points with $\Top(p) + e < z_0$ are irrelevant. So $G$ reduces to finitely many checks:
-\begin{itemize}
-\item each grid cell (including the clamped border cells), using its maximum vertex height as an upper bound for $\Top$ and its nearest point to the circle or line as a lower bound for $d$, $w$ or $a$;
-\item each box's footprint, with its $z^{\max}$.
-\end{itemize}
-Only cells within horizontal distance $r^\star + \delta_r + e' + s\,(T^\star + e - z_0)$ of $c_0$ (or the corresponding wedge for the straight climb) matter. Upper bounds for $\Top$ and lower bounds for distances are conservative, hence sound. Comparing squared distances keeps everything in exact $\mathbb{Q}$. This is the analogue of PR \#25's \texttt{clearAt}/\texttt{clear\_sound}.
+\begin{definition}[ray dynamics set]
+For a ray funnel $R$ with direction $(a, b)$ of length $L$ at angle $\psi_r + \theta_{\mathrm{ray}}$, $w \ge 0$, $s = L\kappa/\gamma$ and $g = \gamma/(L\, v_{\max})$ (both in the funnel's units),
+\[ \Dyn_R(x) :\iff x \in C^\ast \wedge \Conf_R(P(x)), \]
+where $P(x)$ is the reported position.
+\end{definition}
 
-\section{Main result}
+\begin{lemma}[\texttt{hconfR}, \texttt{hinvR}]\label{lem:dyninv}
+$\Dyn_R(x) \Rightarrow \Conf_R(P(x))$ trivially. Under S1--S3, $\Dyn_R(x) \Rightarrow \Dyn_R(F x)$.
+\end{lemma}
+\begin{proof}
+$Fx \in C^\ast$ by Lemma~\ref{lem:union}. Let $p = P(x)$, $p' = P(Fx)$.
+\emph{Case $p_z \ge \zTop$:} if $p_z \le h_{\mathrm{hi}}$, S2 gives $p'_z > p_z \ge \zTop$; above the band S3 applies. \emph{Case $p_z < \zTop$:} by S2 (lengths in the funnel's units are $L$ times metres),
+$|\mathrm{lat}(p')| \le |\mathrm{lat}(p)| + L\kappa\Delta t \le w + s(p_z - z_0) + s\gamma\Delta t \le w + s(p'_z - z_0)$;
+$\mathrm{along}(p') \ge \mathrm{along}(p) + L v_{\min}\Delta t \ge 0$;
+$p'_z - z_0 \ge p_z - z_0 + \gamma\Delta t \ge g\,\mathrm{along}(p) + g L v_{\max}\Delta t \ge g\,\mathrm{along}(p')$. If instead $p'_z \ge \zTop$ the first disjunct holds.
+\end{proof}
 
-\begin{theorem}
-Let the end test be: $\|\xi(x)\|_Q \le \sqrt\rho$, $z(x)$ is in the band, and either $G_{\mathrm{helix}}(c(x), z(x))$ or $G_{\mathrm{ray}}(P_{xy}(x), u, z(x))$ holds. It is evaluated exactly on the decoded state. Under H1--H5 and $\delta \le (1-\lambda)\sqrt\rho$, the test implies \texttt{SafeForever}. Hence \texttt{TermSound}, and a fortiori \texttt{TermSoundR}, hold.
+\begin{theorem}[straight climb, conditional]\label{thm:main}
+Let the straight-climb end test be: the escape is past its pull-up, $\xi(x)^\top Q\,\xi(x) \le r^2$, $h(x) \in [h_{\mathrm{lo}}, h_{\mathrm{hi}}]$, and $\Geo_R$ holds for the funnel with start $P_{xy}(x)$, $z_0 = P_z(x)$, $w = 0$, the rational direction nearest to $\psi_r + \theta_{\mathrm{ray}}$ (its angular error added to $\kappa$ as $v_{\max}$ times the error), and $s$, $g$ as above. Under S1--S4, the test implies membership of the ray end set, so (with the helix family) \texttt{hterm} holds, and \texttt{TermSoundR} follows by \texttt{cityGate\_spec\_safe\_of\_tubes}.
 \end{theorem}
 \begin{proof}
-The test gives $I(x; \text{entry constants})$ (see after the definition) and $G$. By Lemma~\ref{lem:inv}, $I$ holds at every $F^n x$ with the same constants, and $G$ does not depend on $n$. Lemma~\ref{lem:helix} gives $\neg\Crash(F^n x)$ for all $n$. This is Theorem~\ref{thm:term} with the certified end set $C = \{x : \exists\,\text{consts}.\ I(x;\text{consts}) \wedge G(\text{consts})\}$.
+At entry $\mathrm{lat} = \mathrm{along} = 0$ and $p_z = z_0$, so $\Conf_R$ holds, and $x \in D_r \subseteq C^\ast$. Lemma~\ref{lem:dyninv} gives \texttt{hconfR} and \texttt{hinvR}; Lemma~\ref{lem:clear} gives the end set's clearance.
 \end{proof}
 
-\paragraph{Why the turn centre may move.} The horizontal position and heading are neutral modes: nothing in the escape law pulls the circle's centre back. Under a persistent disturbance (model mismatch, Earth rotation) the centre can creep indefinitely, so a fixed-annulus invariant would be false. The funnel lets it creep, at most $s$ metres per metre climbed (Lemma~\ref{lem:inv}). Tall obstacles therefore only need extra lateral clearance in proportion to their height above the entry altitude. The Rust gate's straight-climb check already widens its corridor by 2\,\% of distance for the same reason.
-
-\section{What remains, and where the risk is}
-
+\paragraph{Parametric form, for precomputed street tubes.} Nothing above depends on the map except $\Geo_R$: $\Dyn_R$ is parametrised by the direction $(a, b)$, the start and $z_0$, and the constants $r, Q, \gamma, \kappa, v_{\min}, v_{\max}, \theta_{\mathrm{ray}}$ are properties of the law and plant alone. A per-street tube is therefore the pair ($\Dyn_R$ with the street's axis as $(a,b)$, an offline exact check of $\Geo_R$ for that street's corridor). Two changes make a tube end before the release altitude:
 \begin{itemize}
-\item \textbf{Proved here, model-independent.} Theorem~\ref{thm:term} and Lemmas~\ref{lem:hullbox}, \ref{lem:robust}, \ref{lem:inv} and~\ref{lem:helix}, plus the finite certificate. These are tracker steps 0--2, and Lean work is underway on \texttt{eric/termsound-geo}.
-\item \textbf{Model-specific (the ladder).} H2 (contraction), H3 (residual), H4 (bounds on $D$), H5 (ceiling, band). Rung 1 (\texttt{eric/termsound-rung1}) proves H2 and H4 for a point mass. Each later rung proves H3 against the next model up, ending with \texttt{JsbExact} on \texttt{Float}. That last step needs contracts for the C maths library.
-\item \textbf{Main risk: the budget inequality} $\delta \le (1-\lambda)\sqrt\rho$. The residual between the simplified and the real model must fit inside the contraction margin. A larger $\rho$ (looser settling) makes it easier to fit, but larger $\rho$ worsens $\delta_r$, $\kappa$ and $\gamma$ in H4, which costs clearance. This trade-off decides how conservative the result is, and it must be measured at each rung before anything is proved.
-\item \textbf{Conservatism.} Relative to today's end tests, the extra clearance is $\delta_r + e'$ plus the funnel slope $s = \kappa/\gamma$. Illustratively, with $\gamma = 3$\,m/s and $\kappa = 0.05$\,m/s, $s = 1/60$: an obstacle 60\,m outside the circle must merely be 1\,m lower than the entry altitude. The other cost is settling time to reach $\|\xi\|_Q\le\sqrt\rho$. The acceptance test is tracker \#30's re-run of the boundary-regimes slices.
+\item \textbf{Bounded corridor.} Replace $\Geo_R$'s quantifier by solids with $\mathrm{along}(q) \le t_{\mathrm{h}} + \mathrm{reach}$, and $\Dyn_R$ by $\Dyn_R \wedge \mathrm{along}(P(x)) < t_{\mathrm{h}}$ $\vee$ (handover).
+\item \textbf{Handover to a circling end set.} At along-track $t_{\mathrm h}$ the law must switch, at a fixed point, to the circling escape whose helix funnel $H$ is pre-certified at that spot. The handover condition: every state of $\Dyn_R$ with $\mathrm{along} \in [t_{\mathrm h}, t_{\mathrm h} + L v_{\max}\Delta t)$, flown by the circling law, stays inside a transition corridor that is itself clear (an exact $\Geo$-style check over the transition's reachable positions) and enters $H$'s settled set ($\Dyn_H$, with $\Conf_H$ for the helix's entry constants) within a bounded time, with $\Geo_H$ checked for that helix. Then $\Dyn_{\mathrm{tube}} := (\Dyn_R \wedge \mathrm{along} < t_{\mathrm h}) \vee \mathrm{Trans} \vee \Dyn_H$ is invariant. Neither the transition set nor the helix's $\Dyn_H$ is certified here (gap G7).
 \end{itemize}
 
-\section{Lessons from PR \#25 (\texttt{city\_safe} against the old spec)}
+\section{The straight climb on the real model}\label{sec:straight}
+
+All computations use the real plant and law: \texttt{tools/termsound/TsMap.lean} (the \texttt{tsmap} executable) runs \texttt{CityGate.Esc.Law.step} and \texttt{CityGate.Plane.step} unchanged and only adds the chart, its inverse and a pipe protocol; Python (\texttt{tools/termsound/*.py}, numpy and scipy) does the linear algebra. \textbf{Reproduction: \texttt{make certify}} prints every number in this section (about 10 minutes on 3 cores).
+
+\subsection{The law in its settled regime}
+
+After the pull-up ($t \ge 1.5$\,s and flight-path angle $\ge 0.03$, or $t \ge 6$\,s) the straight escape holds the track $\psi_r$ it had then: bank target $\phi_T = \mathrm{clamp}(K_\psi\,\mathrm{wrap}(\psi_r - \text{track}), \pm 0.15)$ with $K_\psi = 1$, aileron from $\phi_T - \phi$ with integrator $i_\phi$, rudder from $-K_B\beta + K_R(r - g\sin\phi/V) + i_\beta$ with $\dot i_\beta = -K_{I,B}\beta$, full throttle, and the cegis elevator law: commanded flight-path gradient $g_c = \mathrm{clamp}(0.15 + 0.02(V - 35), 0.05, 0.35)$, load factor and $\alpha$ commands with $\alpha \le A_{\max} = 0.24$, and integrator $i_\alpha$ on the $\alpha$ error.
+Two consequences fix the trim's lateral shape. The integrator $i_\beta$ forces $\beta = 0$ in any steady state. A steady straight flight needs a small bank $\phi^\star \ne 0$ against the propeller's asymmetry, and $\phi^\star = K_\psi\,\mathrm{wrap}(\psi_r - \text{track})$, so the steady track is offset from $\psi_r$ by $-\phi^\star$: $\theta_{\mathrm{ray}} = -0.00256$\,rad over the whole band, a cross-track drift of $0.088$\,m/s relative to $\psi_r$. Aligning the ray with the steady track (rather than $\psi_r$) removes this drift from $\kappa$.
+
+\subsection{Trim family and reference climb}\label{sec:ref}
+
+\begin{cert}[observation]\label{cert:obs}
+\texttt{obsOf} (the observation recomputed from the state, \texttt{TsMap.lean}) equals the plant's observation bit for bit on every law-read and position field, over 3{,}000 frames of a real escape (\texttt{tsmap} command \texttt{O}; output ``obs max bit difference 0'').
+\end{cert}
+
+\begin{cert}[trim family]\label{cert:trim}
+For each $h$ in $\{10, 50, 100, \dots, 1400\}$\,m the frozen trim $y^\star(h)$ (the fixed point of $y \mapsto$ chart after one frame from $(h, y)$, the altitude change dropped) is found by Newton's method with a central-difference Jacobian, continued from a settled climb at 612\,m; the residual is below $10^{-8}$ in scaled units at every grid point (\texttt{ref.py}, asserted). Selected values:
+
+\begin{center}
+\begin{tabular}{rrrrrrr}
+\toprule
+$h$ (m) & $V$ (m/s) & climb (m/s) & $\gamma$ (rad) & $\theta$ (rad) & $\alpha$ (rad) & rpm\\
+\midrule
+10 & 34.609 & 4.867 & 0.1411 & 0.2229 & 0.0818 & 2553\\
+300 & 34.558 & 4.824 & 0.1400 & 0.2263 & 0.0862 & 2586\\
+600 & 34.492 & 4.787 & 0.1392 & 0.2297 & 0.0904 & 2621\\
+900 & 34.442 & 4.808 & 0.1401 & 0.2329 & 0.0928 & 2656\\
+1000 & 34.366 & 4.772 & 0.1393 & 0.2332 & 0.0939 & 2662\\
+1400 & 34.009 & 4.592 & 0.1354 & 0.2342 & 0.0988 & 2682\\
+\bottomrule
+\end{tabular}
+\end{center}
+On the whole band: $\phi^\star = 0.0025$--$0.0026$, $|\phi_T| = |\phi^\star| \ll 0.15$, $V \ge 34.0 > 30$ (so the $g_c$ clamp, which binds below 30\,m/s, does not), $\alpha \le 0.099 < A_{\max}$, and the integrators are inside their clamps ($i_\alpha = 0.018$, $i_\beta = -0.035$, $i_\phi = 0.114$ at 612\,m). No saturation is active at the trim. The band starts at 10\,m because the plant's own ground (its gear) is at sea level and its atmosphere is undefined below it.
+\end{cert}
+
+The climb is about 4.8\,m/s at a gradient of 0.14 up to 1{,}400\,m. Rung 1 (PR \#38, finding 3) reports that the $g_c$ clamp binds above about 2{,}500\,m on this climb: the law then commands a climb it cannot sustain and bleeds speed. This note certifies (when S1 is obtained) only up to $h_{\mathrm{hi}} = 1{,}000$\,m, above $\zTop = 934$\,m, and leaves the regime above to S3 (gap G4).
+
+\paragraph{Reference climb.} The reference $c(h)$ is the chart of a real closed-loop climb (smoothed quaternion, see Certificate~\ref{cert:dist}) seeded at 10\,m with $y^\star(10)$ plus the lag measured at 612\,m, flown for 330\,s to 1{,}405\,m, and interpolated linearly in $h$ between frames (37{,}270 frames). Its distance from the frozen trims is at most $0.16$ scaled units (largest in the acceleration histories): the lag. Its residual as a solution, $\|E_h(0)\|$ below, is the altitude-drift disturbance.
+
+\subsection{Linearisation and the kink}
+
+Let $E_h(\xi)$ be the error after one frame from $y = c(h) + \Sigma\xi$, that is $\Sigma^{-1}(y' - c(h'))$; it includes the dependence of the centre on the new altitude.
+
+\begin{cert}[one-frame Jacobians]\label{cert:jac}
+Central differences of $E_h$ with steps $10^{-6}$ in scaled units. Error control: steps of $10^{-4}$, $10^{-5}$, $10^{-6}$, $10^{-7}$ give entries agreeing to $1.5\times10^{-5}$ (truncation, scaling as the step squared) and $4.6\times10^{-5}$ (rounding, scaling as the inverse step) at $10^{-4}$ and $10^{-6}$ against $10^{-5}$, so the $10^{-6}$ Jacobian is accurate to about $5\times10^{-5}$ per entry (\texttt{lin.py}). The spectral radius is $0.99865$ on 10--300\,m, $0.99873$ at 450\,m and $0.99893$ on 600--1{,}000\,m: the slowest mode decays at $0.173$--$0.175\,\mathrm{s}^{-1}$ below 450\,m and $0.137$--$0.138\,\mathrm{s}^{-1}$ above 600\,m. At 600\,m the slowest rates are $0.137$, $0.216$, $0.244$, $0.336 \pm 0.794i$, $0.456$, $0.592 \pm 1.905i$\,s$^{-1}$.
+\end{cert}
+
+\paragraph{The trim is on a kink.} The drag build-up includes $C_{D\beta} = 0.17\,|\beta|$ (\texttt{JsbExact/C172Gen.lean}, \texttt{c\_CDbeta}), and $i_\beta$ drives $\beta$ to exactly $0$, so every settled state sits on the switching surface $\beta = 0$ of a piecewise-smooth frame map. One-sided differences disagree there by up to 4.2 scaled units (in the along-track acceleration, from the cross-track velocity column). The map is continuous and piecewise $C^1$ with two pieces, $\beta > 0$ and $\beta < 0$.
+
+\begin{cert}[the kink is rank one and benign]\label{cert:kink}
+At each altitude of the grid $\{10, 150, 300, 450, 600, 750, 900, 1000\}$\,m, the one-sided Jacobians $A_\pm$ (at $\pm 10^{-3}$\,m/s cross-track velocity, $|\beta| \approx 3\times10^{-5}$, steps $10^{-6}$) differ by a matrix with singular values $4.37$--$4.85$ and then $\le 0.022$: a rank-one jump $u v^\top$, with $v$ essentially $\nabla\beta$ and $u$ in the along-track acceleration, pitch and vertical acceleration rows. The small-gain value $\tfrac12 \sup_{|z|=1} |v^\top(zI - A_0/\mu)^{-1}u/\mu|$, with $A_0 = (A_+ + A_-)/2$, is $0.0146$ at $\mu = 0.9992$ and $0.0135$ at $\mu = 0.9995$ (600\,m; frequency grid of 4{,}000 points). Since it is far below 1, the discrete bounded-real lemma gives a common quadratic Lyapunov function for the convex hull $\{A_0 + t\,u v^\top : |t| \le \tfrac12\}$ at rate $\mu$: the kink alone does not prevent contraction.
+\end{cert}
+
+\begin{lemma}[mean value for piecewise-smooth maps]\label{lem:mv}
+Let $G$ be continuous and piecewise $C^1$ on a convex set $K$, with the pieces separated by finitely many smooth hypersurfaces. Then $\|G(\xi) - G(\zeta)\|_Q \le \sup_{\eta \in K} \|J(\eta)\|_Q\, \|\xi - \zeta\|_Q$, the supremum over points where $G$ is differentiable, for one-sided Jacobians at the surfaces.
+\end{lemma}
+\begin{proof}
+$t \mapsto G(\zeta + t(\xi - \zeta))$ is Lipschitz on $[0,1]$, differentiable except where the segment meets a surface (finitely many points, or the segment lies in a surface, in which case a one-sided Jacobian applies), so it is the integral of its derivative.
+\end{proof}
+
+So S1 with $N = 1$ follows from $\sup_{D_r}\|J\|_Q \cdot r + \delta \le r$, where $\delta$ bounds $\|E_h(0)\|_Q$ plus the disturbances. The supremum must include both pieces at every point.
+
+\subsection{Result: no contracting norm found on the whole band}
+
+\begin{cert}[per-frame norms]\label{cert:frame}
+For $Q$ solving $(A_0/\mu)^\top Q (A_0/\mu) - Q = -W$ at 600\,m, with $\mu \in \{0.999, 0.9992, 0.9995\}$, $W$ the identity with weight $\varepsilon \in \{1, 10^{-2}, 10^{-4}, 10^{-6}, 10^{-8}\}$ on the fast coordinates (Adams--Bashforth histories and accelerations), and $Q$ built either at 600\,m or summed over the grid, the largest $\|A_\pm(h)\|_Q$ over the grid is never below 1. The best, $\varepsilon = 10^{-4}$, $\mu = 0.999$, built at 600\,m ($\mathrm{cond}\,Q = 1.1\times10^{10}$), gives $\|A_\pm\|_Q = 1.0145$ (10\,m), $1.0121$ (300\,m), $1.0111$ (450\,m), $0.99908$ (600\,m), $0.99934$ (750\,m), $1.00001$ (900\,m), $1.00068$ (1{,}000\,m) (\texttt{cert.py}, C2).
+\end{cert}
+
+A per-frame certificate has a margin of $1 - \lambda \lesssim 1.1\times10^{-3}$ to spend; with $\mathrm{cond}\,Q \approx 10^{10}$, the Jacobian's variation over the band (and the finite-difference error, about $5\times10^{-5}$ per entry, amplified by up to $\sqrt{\mathrm{cond}\,Q}$) exceeds it. The two regimes of the slowest mode, below 450\,m and above 600\,m, are not covered by one norm. Lengthening the step helps:
+
+\begin{cert}[one-second map]\label{cert:nstep}
+Let $A_N = A_0(600)^{128}$ and $Q_N$ solve $(A_N/0.92)^\top Q_N (A_N/0.92) - Q_N = -W$ ($\varepsilon = 10^{-4}$). The frozen one-second products have $\|A_\pm(h)^{128}\|_{Q_N}$ of $0.920$/$0.924$ (600\,m), $0.931$/$0.939$ (750), $0.956$/$0.962$ (900), $0.976$/$0.981$ (1{,}000), but $1.201$ (10), $1.220$ (150), $1.241$ (300) and $1.260$ (450\,m) (\texttt{nstep.py}). Sampling the true one-second error map at 600, 900 and 300\,m in 80 directions (40 random in the $Q_N$ metric and their negatives) gives $\max \|E_N(\xi) - E_N(0)\|_{Q_N} / \|\xi\|_{Q_N}$ between $0.64$ and $0.80$ for $\|\xi\|_{Q_N} \le 0.03$ and about $2.0$ at $0.1$ (\texttt{probe.py}, (a)). At $\|\xi\|_{Q_N} = 0.03$ the set allows about $\pm 2.1$\,m/s along-track speed, $\pm 3.1$\,m/s climb rate, $\pm 0.22$\,m/s cross-track speed, $\pm 0.010$\,rad roll and $\pm 0.009$\,rad heading.
+\end{cert}
+
+The sampled ratio at 300\,m ($0.72$) is far below the linear bound there ($1.24$): 80 random directions in 32 dimensions miss the worst direction. This is the reason the document's rules forbid presenting sampled checks as proofs, and it is a warning against the sampled-remainder step proposed for H2: the remainder must be bounded with a covering argument (second-derivative bounds on each piece, or interval enclosures through \texttt{JsbExact}'s set-valued \texttt{Scalar} interface), not by sampling.
+
+\paragraph{What would close S1.} On 600--1{,}000\,m the frozen linear part contracts in $Q_N$ with $\lambda_{\mathrm{lin}} \le 0.981$, leaving a margin of $0.019$ per second to cover (a) the switching inside each second (the true one-second Jacobian is a product of mixed pieces; Certificate~\ref{cert:kink}'s small gain suggests the effect is small, but it is not bounded here), (b) the nonlinear remainder over $D_r$ (needs a covering bound), (c) the altitude change over one second (about 4.8\,m) and (d) the disturbances below. Below 450\,m a second norm is needed, with a handover between the two sets in the overlap, or a norm $Q(h)$ scheduled on altitude with a bound on its change per step. Entries happen low (tens to hundreds of metres), so both regimes are needed.
+
+\begin{cert}[disturbances]\label{cert:dist}
+In the per-frame norm of Certificate~\ref{cert:frame} (\texttt{cert.py}, C3):
+\begin{itemize}
+\item \emph{altitude drift} of the reference climb, $\max_h \|E_h(0)\|_Q$ over a 1\,m grid of 10--1{,}000\,m: $2.76\times10^{-8}$, with neighbouring grid values differing by at most $3.2\times10^{-11}$ (a sampled Lipschitz margin in one dimension);
+\item \emph{heading and latitude}: $\|E_h(0;\psi_r, N) - E_h(0; 0, 0)\|_Q \le 3.16\times10^{-3}$ over headings $\{45^\circ, 90^\circ, 180^\circ, 270^\circ\}$ and north offsets $\{0, \pm 30\}$\,km at 10, 500 and 1{,}000\,m. It is dominated by the Coriolis acceleration ($2\Omega V \approx 5\times10^{-3}$\,m/s$^2$ vertical when flying east at latitude 0), which enters the acceleration coordinates directly. It is the largest disturbance by five orders of magnitude, and it must be handled by building $c$ and $Q$ per heading, or by moving those coordinates' weight out of $Q$;
+\item \emph{quaternion norm}: the plain loop and the loop that rescales the quaternion to unit length before every frame differ by at most $3.4\times10^{-10}$ over 60\,s. The derivatives above are taken on the rescaled loop, whose frame map has no $10^{-10}$ jumps.
+\end{itemize}
+\end{cert}
+
+\subsection{Non-vacuity and conservatism}\label{sec:conserv}
+
+Since $r$ and $Q$ are not certified, the certified test's acceptance cannot be computed yet. As a proxy for the settling cost, \texttt{probe.py}~(b) flies the real straight escape from 150\,m at speeds 25--60\,m/s, flight-path angles $-0.35$ to $0.2$\,rad and banks 0 to 1.1\,rad, and records the first time it is within a box around the reference climb: $|\Delta V| \le 0.5$\,m/s, $|\Delta\,\text{climb}| \le 0.5$\,m/s, $|\Delta\phi|, |\Delta\psi| \le 0.02$\,rad and each integrator within $0.02$. Results: from 35\,m/s, 4.2--11.6\,s; from 25\,m/s, 15.1--26.5\,s; from 45\,m/s, 17.5--19.4\,s; from 60\,m/s, 25.6--27.5\,s. Of the 48 starts, all settle within 60\,s and 14 within 16\,s; the median is 18.6\,s. After entering, every run stayed within about 1.03 times the box for the rest of 60\,s. Against the gate's 16\,s horizon, starts near the climb speed settle in time and slow or fast starts do not. Rung 1's sets ($\pm 0.11$\,m/s speed, $\pm 0.6$\,m/s climb) are tighter than this box, so these times are lower bounds on the entry time into a rung-1-sized set. On the box the attitude stays within $0.03$\,rad of level flight at $\theta \approx 0.23$, where the airframe's extent (half-span 5.5\,m) is inside the 7\,m cube, consistent with S4.
+
+The comparison against today's accepted states (boundary-regimes cases) needs the gate's rollouts with the certified test in place of today's, which needs S1 first (gap G5).
+
+\section{Certificates and reproduction}\label{sec:certs}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Certificate & Code & Margin or status\\
+\midrule
+\ref{cert:obs} observation & \texttt{TsMap.lean} \texttt{O} & exact (0 bits)\\
+\ref{cert:trim} trims & \texttt{ref.py} & residual $< 10^{-8}$; no saturation active\\
+\ref{cert:jac} Jacobians & \texttt{lin.py}, \texttt{cert.py} C1 & entries $\pm 5\times10^{-5}$\\
+\ref{cert:kink} kink & \texttt{cert.py} C1 & small gain $0.0146 \ll 1$\\
+\ref{cert:frame} per-frame norm & \texttt{cert.py} C2 & \textbf{fails}: $\lambda = 1.0145$\\
+\ref{cert:nstep} one-second map & \texttt{nstep.py}, \texttt{probe.py} & $0.981$ on 600--1{,}000\,m; \textbf{fails} below 450\,m\\
+\ref{cert:dist} disturbances & \texttt{cert.py} C3 & heading term dominates\\
+\bottomrule
+\end{tabular}
+\end{center}
+Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py} in \texttt{tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
+
+\section{Gaps}\label{sec:gaps}
 
 \begin{enumerate}
-\item \textbf{Abstract the gate, prove once.} \#24 and \#25 proved the gatekeeper induction generically, never looking inside the escape law or the proposal layer. Every later change (resume, hold, parallel rounds, speedups, the end-test fixes) kept the proof unchanged. The end-set work keeps this split: Theorem~\ref{thm:term} is generic, and the end sets plug in.
-\item \textbf{Exact, conservative runtime tests with a one-time soundness proof.} \texttt{clearAt} used integer arithmetic with outward rounding and an axis-aligned keep-out, proved sound once (\texttt{clear\_sound}) and sped up by \texttt{@[csimp]} without touching the proof. The funnel certificate and the $\|\xi\|_Q \le \sqrt\rho$ check follow the same pattern.
-\item \textbf{State assumptions over what the code can actually produce.} \#25's \texttt{TermSound} ranged over arbitrary controller values and was false (fabricated histories). Certify-by-construction removes free inputs from the end test entirely.
-\item \textbf{No special cases at the boundary of the model.} ``Off the map is safe'' was a shortcut that became a real crash. Define $\Solid$ everywhere (continued terrain) and never special-case it in tests.
-\item \textbf{Heuristic extrapolation is not a certificate.} The zoom-climb ray fit passed tests and was unsound. Every end test must be membership in a set with a proof, not a fit to recent history.
-\item \textbf{The restricted assumption is false for today's helix test too.} Even restricted to rollout-produced controllers (\texttt{TermSoundR}), the current end test fails. The falsifier found 9 counterexamples out of 2{,}193 passing cases on the Lean gate, all helix endings, mostly from slow starts (22--27\,m/s). The 4\,s window catches the climbing half of a slow oscillation, and the circle later descends into terrain or a building 12--188\,s on. This is the failure the sublevel test $\|\xi\|_Q \le \sqrt\rho$ (H2--H4) excludes. The end test must certify convergence to the climb trim, not observe a climbing segment.
-\item \textbf{Faithfulness is checkable component by component.} The bit-identical law, end-test and plant comparisons (\texttt{gatefaith}) are the template for keeping the Rust and Lean end tests in lockstep when the certified tests land.
+\item[G1] \textbf{S1 (contraction) for the straight climb.} Not obtained. Needs a norm per altitude regime (or scheduled), a covering bound on the nonlinear remainder on each side of the kink, and the switching inside the $N$-frame map (Certificates~\ref{cert:frame}, \ref{cert:nstep}).
+\item[G2] \textbf{Heading disturbance.} $3.2\times10^{-3}$ in the per-frame norm, far above the altitude drift; needs per-heading centres or a norm that does not weight the acceleration coordinates (Certificate~\ref{cert:dist}).
+\item[G3] \textbf{S2 constants} $\gamma, \kappa, v_{\min}, v_{\max}$ depend on $r$; without S1 they are not computed. At the trim: climb 4.6--4.9\,m/s, along-track speed about 34\,m/s, cross-track speed 0 relative to the steady track.
+\item[G4] \textbf{S3 above the release altitude.} The climb continues to the $g_c$-clamp regime (about 2{,}500\,m, rung 1) and a ceiling near 3{,}150\,m (falsifier, \#30). Needs either a certified set near the ceiling equilibrium or a terminal level-off in the law; neither is done.
+\item[G5] \textbf{Conservatism} against today's accepted states needs S1; only the settling proxy (Section~\ref{sec:conserv}) is reported.
+\item[G6] \textbf{The 30$^\circ$ and 40$^\circ$ circles} wait for the speed-first law change (\#36 step 0); not attempted.
+\item[G7] \textbf{Tube handover} to a circling end set: condition stated (Section~\ref{sec:dyn}), not proved.
+\item[G8] \textbf{The finite $\Geo$ checker} on the exported map is not written; $T^\star$ is computed exactly.
+\item[G9] \textbf{Modelling assumptions}: exact reals for \texttt{JsbExact}'s \texttt{Float} program, and \texttt{JsbExact} $=$ JSBSim.
+\end{enumerate}
+
+\section{Lessons}
+
+\begin{enumerate}
+\item \textbf{Abstract the gate, prove once.} \#24 and \#25 proved the gatekeeper induction generically; the end-set split keeps that: Theorem~\ref{thm:term} and the funnels are generic, the model supplies $\Dyn$.
+\item \textbf{Exact, conservative runtime tests with a one-time soundness proof} (PR \#25's \texttt{clearAt}): the funnel check and the $\|\xi\|_Q \le r$ check follow the same pattern.
+\item \textbf{State assumptions over what the code can actually produce.} Certify-by-construction removes free inputs from the end test.
+\item \textbf{No special cases at the boundary of the model.} $\Solid$ is defined everywhere (continued terrain).
+\item \textbf{Heuristic extrapolation is not a certificate}, and today's helix test fails \texttt{TermSoundR} (9 of 2{,}193 falsifier cases); the circles also settle into a descent at 33--37\,m/s (\#30 root cause A).
+\item \textbf{Integral action puts the trim on the kinks it integrates away.} Any $|\cdot|$ in the plant of a quantity a law integrator drives to zero ($\beta$ here) makes the settled state a switching point. Linearisation-based arguments must be switched from the start.
+\item \textbf{Per-frame margins are tiny at 128\,Hz.} Contraction per frame is $1 - O(\Delta t)$, so the conditioning of $Q$ and the accuracy of derivatives decide feasibility; multi-frame maps restore an $O(1)$ margin at the cost of switching inside the step.
+\item \textbf{Sampled checks miss worst directions in high dimension} (Certificate~\ref{cert:nstep}: $0.72$ sampled against $1.24$ linear).
 \end{enumerate}
 
 \end{document}
