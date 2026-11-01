@@ -243,6 +243,7 @@ fn main() {
     let episodes: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(200);
     let only: Option<u64> = args.iter().position(|a| a == "--only").and_then(|i| args.get(i + 1)?.parse().ok());
     let secs: f64 = args.iter().position(|a| a == "--secs").and_then(|i| args.get(i + 1)?.parse().ok()).unwrap_or(60.0);
+    cityflight::jsb::parse_fuel_args(&args);
     if !args.iter().any(|a| a == "--pm") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -260,6 +261,7 @@ fn main() {
     }
     if let Some(i) = args.iter().position(|a| a == "--safety-filter") {
         if args.get(i + 1).is_some_and(|s| s == "exact-rollout-lean") {
+            assert!(cityflight::jsb::fuel_freeze_default(), "--fuel-drain does not combine with exact-rollout-lean (the Lean gate always rolls out with fuel freeze)");
             cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let k = cityflight::envfilter::parse(args.get(i + 1).map_or("", |s| s.as_str()));

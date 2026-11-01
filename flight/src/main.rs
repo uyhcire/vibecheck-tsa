@@ -637,6 +637,8 @@ struct App {
     /// Tab pressed: switch to the other map before the next frame.
     switch_map: bool,
     show_paths: bool,
+    /// Wingtip anti-collision strobes (off by default; `--strobes` or key 7).
+    strobes: bool,
     show_help: bool,
     cam_mode: usize,
     invert: bool,
@@ -794,6 +796,9 @@ impl App {
         if is_key_pressed(KeyCode::B) {
             self.show_paths = !self.show_paths;
         }
+        if is_key_pressed(KeyCode::Key7) {
+            self.strobes = !self.strobes;
+        }
         if is_key_pressed(KeyCode::M) {
             self.mismatch = !self.mismatch;
             self.rebuild();
@@ -933,7 +938,8 @@ impl App {
         let (f, l, u) = self.aircraft_axes();
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
         let t = get_time() as f32;
-        let strobe = if (t * 1.1).fract() < 0.05 { 1.0 } else { 0.0 };
+        // Real C172 wingtip strobes: about 66 flashes a minute, about 50 ms each; nav lights stay steady.
+        let strobe = if self.strobes && (t * 1.1).fract() < 0.05 { 1.0 } else { 0.0 };
         let navs = [(vec3(0.1, 5.47, 1.07), [3.0, 0.15, 0.08]), (vec3(0.1, -5.47, 1.07), [0.15, 3.0, 0.6]), (vec3(-5.78, 0.0, 0.36), [2.5, 2.5, 2.5])];
         let mut nav = [[0.0f32; 4]; 3];
         for (k, (q, c)) in navs.iter().enumerate() {
@@ -942,7 +948,7 @@ impl App {
             if self.cam_mode != 1 {
                 photo::glow(ov, oi, w, r, [c[0], c[1], c[2], 1.0], right, up);
                 if k < 2 && strobe > 0.0 {
-                    photo::glow(ov, oi, w, r * 2.5, [60.0, 60.0, 60.0, 1.0], right, up);
+                    photo::glow(ov, oi, w, r * 1.5, [12.0, 12.0, 12.0, 1.0], right, up);
                 }
             }
             nav[k] = [w.x, w.y, w.z, 3.0];
@@ -1503,7 +1509,7 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 25] = [
+        let lines: [(&str, &str); 26] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
@@ -1512,6 +1518,7 @@ impl App {
             ("F", "filter: P1 blend+commit · P2 closed-form · permissive"),
             ("G", "Phase 3 robust margins on / off"),
             ("B", "show escape paths (green valid, red not, yellow committed)"),
+            ("7", "wingtip strobes on/off"),
             ("M", "model mismatch: wind and a weaker, slower aircraft"),
             ("C", "camera: chase · cockpit · orbit · overhead · fly-by"),
             ("1 2 3 4 5", "tower run (Salesforce run) · dive · ridge (Nob Hill) · slow and low · tower gap (grid only)"),
@@ -1674,6 +1681,8 @@ async fn main() {
     let shot = arg("--shot");
     let shot_frames: u32 = arg("--frames").and_then(|s| s.parse().ok()).unwrap_or(90);
     #[cfg(feature = "jsb")]
+    cityflight::jsb::parse_fuel_args(&args);
+    #[cfg(feature = "jsb")]
     if args.iter().any(|a| a == "--jsb") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -1705,6 +1714,8 @@ async fn main() {
     if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
         if f == "exact-rollout-lean" {
+            // The Lean gate rolls out with fuel freeze (CityGate.Plane.step); a burning flown plant would not match it.
+            assert!(cityflight::jsb::fuel_freeze_default(), "--fuel-drain does not combine with exact-rollout-lean (the Lean gate always rolls out with fuel freeze)");
             cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse(&f), std::sync::atomic::Ordering::Relaxed);
@@ -1748,6 +1759,7 @@ async fn main() {
         crash_logged: false,
         switch_map: false,
         show_paths: args.iter().any(|a| a == "--paths"),
+        strobes: args.iter().any(|a| a == "--strobes"),
         show_help: shot.is_none(),
         cam_mode: arg("--cam").and_then(|s| s.parse().ok()).unwrap_or(0),
         invert: false,
