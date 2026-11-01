@@ -49,14 +49,15 @@ theorem cityGate_spec_safe_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb :
     (hR : ReportMatchesObs) : CitySafety.Safe cityMap specFilter :=
   cityGate_spec_safe_pose hT (poseBounded_of hTb) hR
 
-/-- `cityGate_spec_safe_tb` with `ReportMatchesObs` reduced by `reportMatchesObs_of` (`B = 10^14` ft). -/
-theorem cityGate_spec_safe_obs (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded) (hW : NoWowReach)
-    (hB : ReportBounded (10 ^ 14)) (hF : FtConvClose (10 ^ 14)) : CitySafety.Safe cityMap specFilter :=
-  cityGate_spec_safe_tb hT hTb (reportMatchesObs_of hW hB hF)
+/-- **The city gate is safe against the spec**, assuming `TermSoundR` for the 7 m cube and `TbBounded`:
+`ReportMatchesObs` is a theorem now that `exactPos` reads the spec's `report`. -/
+theorem cityGate_spec_safe_of_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded) :
+    CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_tb hT hTb reportMatchesObs
 
 end CityGate.SpecBridge
 
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_native
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_tb
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_pose
-#print axioms CityGate.SpecBridge.cityGate_spec_safe_obs
+#print axioms CityGate.SpecBridge.cityGate_spec_safe_of_tb

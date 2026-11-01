@@ -9,8 +9,7 @@ import CityGate.SafetyR
 #print axioms CityGate.SpecBridge.outputsInRange
 #print axioms CityGate.SpecBridge.airframeNearGate
 #print axioms CityGate.SpecBridge.poseBounded_of
-#print axioms CityGate.SpecBridge.report_step
-#print axioms CityGate.SpecBridge.reportMatchesObs_of
+#print axioms CityGate.SpecBridge.reportMatchesObs
 #print axioms CityGate.SpecBridge.reach_corr
 #print axioms CityGate.SpecBridge.clear_soundH
 #print axioms CityGate.SpecBridge.cityMap_terrain
