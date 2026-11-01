@@ -24,9 +24,14 @@ citygate *citygate_new(double x, double y, double z, double v, double gam, doubl
 int citygate_start_ok(const citygate *g);
 
 // One frame under the pilot's input (JSBSim commands: elevator positive nose down, aileron, rudder in [-1, 1],
-// throttle in [0, 1]); writes CITYGATE_NOUT doubles to out. The gate's candidate checks run on Lean's task
-// manager threads.
+// throttle in [0, 1]); writes CITYGATE_NOUT doubles to out. See citygate_set_parallel for where the candidate
+// checks run.
 void citygate_frame(citygate *g, double elev, double ail, double rud, double thr, double out[CITYGATE_NOUT]);
+
+// How citygate_frame checks candidates: 0 one after another on the calling thread, stopping at the first that
+// verifies; par >= 1 in rounds of 64 frames, up to par candidates at once on Lean's task manager (default 4). The
+// frame computed is the same either way (CityGate.frameOut_fst).
+void citygate_set_parallel(citygate *g, unsigned par);
 
 // Display only: up to max_points points (x, y, z triples) of the held controller's predicted path into xyz;
 // returns the number of points available (which may exceed max_points).

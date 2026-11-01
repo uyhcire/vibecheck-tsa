@@ -1,6 +1,7 @@
 //! The Lean city gate (`CityGate/Ffi.lean`, `c/citygate.h`) as the demo's plant and filter (`--safety-filter exact-rollout-lean`). Every
 //! JSBSim frame goes through `citygate_frame`, which runs `cityGate.frame`, the frame `CityGate.city_safe` is
-//! about (`frameOut_fst`); the gate's candidate checks run in parallel on Lean's task manager. The pilot stays in
+//! about (`frameOut_fst`); the gate's candidate checks run in parallel rounds on Lean's task manager (`CITYGATE_PAR`
+//! = 0: one after another on the calling thread; N: up to N at once, default 4). The pilot stays in
 //! Rust: fly-by-wire demands become surfaces each frame from the gate's own observation (`jsb::fbw_law`), or
 //! raw surfaces pass straight through.
 
@@ -34,6 +35,7 @@ extern "C" {
     fn citygate_restart(g: *mut Raw) -> i32;
     fn citygate_obs(g: *const Raw, out: *mut f64);
     fn citygate_path(g: *const Raw, xyz: *mut f64, max_points: usize) -> usize;
+    fn citygate_set_parallel(g: *mut Raw, par: u32);
     fn citygate_trace(g: *const Raw, out: *mut f64, max: usize) -> usize;
     fn citygate_free(g: *mut Raw);
 }
@@ -110,6 +112,9 @@ impl LeanGate {
     pub fn new(s: &State) -> LeanGate {
         let raw = unsafe { citygate_new(s[X], s[Y], s[Z], s[V], s[GAM], s[PSI], s[PHI], s[N], s[THR]) };
         assert!(!raw.is_null(), "libcityjsb: Lean runtime failed to initialise");
+        if let Some(par) = std::env::var("CITYGATE_PAR").ok().and_then(|v| v.parse().ok()) {
+            unsafe { citygate_set_parallel(raw, par) };
+        }
         let start_ok = unsafe { citygate_start_ok(raw) } != 0;
         let mut g = LeanGate {
             raw,
