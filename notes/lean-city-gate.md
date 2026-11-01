@@ -30,11 +30,11 @@ From an allowed start, whatever surfaces and throttle the pilot gives each JSBSi
 - `crashes OUT N --secs S` shortens episodes.
 - `lake exe citygatespot` is the spot check: the street escape for 8 s is bit-identical to Rust.
 - Candidates are checked one after another, stopping at the first that verifies. `CITYGATE_PAR=N` checks up to N at once in rounds of `CITYGATE_ROUND` frames (default 64); the frame is the same.
-- `crashes` with `--env lean` prints per-tick CPU. `CITYGATE_TRACE=1` writes each episode's per-frame trace (`OUT/<episode>.trace`) for comparing two builds with `cmp`. `CITYGATE_COUNT=1` also prints plant frames per tick (it runs every check twice).
+- `crashes` with `--safety-filter exact-rollout-lean` prints per-tick CPU. `CITYGATE_TRACE=1` writes each episode's per-frame trace (`OUT/<episode>.trace`) for comparing two builds with `cmp`. `CITYGATE_COUNT=1` also prints plant frames per tick (it runs every check twice).
 
 **The Lean gate is not the Rust gate.** Only the Lean one is proved.
 - **Clearance:** a cube in exact arithmetic, checked every frame, including the pilot's frames. Rust uses a sphere plus a wing capsule in floating point, every 8 frames.
-- **Cadence:** checks every 3 frames, and up to 4 candidates per check, each run to the end.
+- **Cadence:** checks every 3 frames, up to 4 candidates per check in order, stopping at the first that verifies.
 - **Rust's default law** is `LAW_CEGIS2`, which is what was ported.
 
 Rust's clearance can't be certified as is. Lean has no theorems about float rounding, and nothing bounds what happens between the 8-frame samples.
