@@ -130,7 +130,7 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   its verified escape. Headless runs stay deterministic unless given `--time-cap`.
 
 ```sh
-cargo run --release --features jsb -- --safety-filter exact-rollout                                    # fly it (B: escapes)
+cargo run --release --features jsb -- --safety-filter exact-rollout                                    # fly it (B: escapes); from the repo root: make fly
 cargo run --release --features jsb -- --safety-filter exact-rollout --episode 59                       # replay an episode
 cargo run --release --features jsb -- --safety-filter exact-rollout --showcase --paths                # Tower gap showcase
 cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/s 100 --safety-filter exact-rollout --scenario 5
