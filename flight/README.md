@@ -173,6 +173,58 @@ same way.
 unlimited budget (`--budget 100000`) commits 29.5% of ticks too: the interventions are what the escapes
 require, not budget starvation.
 
+### P1-exact (`--safety-filter p1-exact`)
+
+`src/p1x.rs` keeps the Phase 1 filter's decision logic (below, "How it works") and swaps its point-mass
+predictor for the gate's exact rollouts: forked `JsbExact` plants, the gate's escape laws, terminal sets and
+4 m airframe clearance (`envfilter::rollout_law`).
+
+- **Time margin.** Each tick it holds the pilot's command on a fork for 0.1, 0.4 and 1 s (one hold, forked at
+  each mark) and tries the escapes after each. At 1 s it leaves the pilot alone; otherwise λ is 0.35, 0.7 or
+  1, decaying at 1/s as in P1.
+- **Commands.** P1 blends in its own command space, load factor, roll rate and throttle, which the plant's
+  fly-by-wire turns into surfaces, as `env_tick` does for the pilot. The escape's side of the blend is its
+  pull-up as such a command (`esc_cmd`): the escape law's load-factor command, wings level, full throttle.
+  After the hold, the escape law flies the surfaces itself, as in the gate.
+- **Commit invariant.** A plan is "hold this command through the fly-by-wire for N frames, then a fresh
+  escape law". It becomes the committed plan only if its rollout on a fork of the plant verified (the
+  blended command for 0.25 s, or the pilot's for 1 s, then an escape). Each tick the plant either adopts a
+  new verified plan and flies its first frames, or keeps flying the committed one frame for frame
+  (`XPlan::fly`). The rollout is bit-exact, so the aircraft flies exactly the frames that verified. The
+  margin search, blending and budget only choose which plan to try.
+- **Real time.** The same 2,200-frame budget per tick as the gate (and the GUI's 15 ms cap). Two cuts make
+  P1 fit: the blend check runs before the margin search, which gets the frames left over and sets λ for the
+  next tick (one tick of latency); and the search starts at the deepest hold whose λ the decay floor already
+  implies. When the pilot is free, the 1 s test may use at most 1,200 frames, leaving 1,000 for the blend
+  check. Escapes are tried last-verified first, and a failed blend check rotates the order (the gate's
+  round robin). Parallel rollouts are not used. `--p1-exact-order margin` restores P1's order (margin search,
+  then blend check).
+- **Off map.** Rollouts inherit the gate's off-map handling (`rollout_law`, `ray_clear`, `helix_clear`),
+  which counts leaving the map as clear and is being fixed separately; the pilot-side hold does not.
+
+Fly it: `cargo run --release --features jsb -- --safety-filter p1-exact` (`B` shows the latest rollout and
+the plan in force); `--episode 0` replays the episode below.
+
+**Results so far (incomplete).** Measured before #23 and the rename, on a machine loaded by other jobs (a
+JSBSim frame cost about 11 µs instead of 6.7, so absolute times are inflated about 1.7×). Not yet measured:
+the gate after #23, the full 200-episode run of P1-exact (stopped at roughly 80% with no crash, to free
+CPU), the `adversary` bin, the shadow-gate lead time (`crashes --lead`) and the threshold sweep
+(`--p1-exact-scale`).
+
+| | P1 point-mass (`--jsb`) | gate before #23 | P1-exact |
+|---|---|---|---|
+| Episodes | 200 + 5 kamikaze | episode 0 + 5 kamikaze | episode 0 |
+| Crashes | 27 / 200, 2 / 5 kamikaze | 0 | 0 |
+| Ticks not free (blend or commit) | 64.0% | 22.1% | 74.8% |
+| Ticks committed | 2.5% | 22.1% (episode 0: 28.0%) | 5.8% (unlimited budget: 6.6%) |
+| Mean \|Δ elevator\|, \|Δ aileron\| per tick, all ticks | .0068, .127 | .032, .050 | .010, .034 |
+| Same, ticks where the filter acts | .0084, .190 | .106, .170 | .012, .041 |
+| First intervention, episode 0 | – | 6.42 s | 3.76 s |
+| Thread CPU per tick, median / p99 / max | 1.4 / 5.9 / 10.2 ms | 11.0 / 27.3 / 32.5 ms | 20.3 / 30.2 / 32.5 ms |
+| JSBSim frames per tick, median / max | – | 960 / 2,200 | 1,824 / 2,200 |
+
+The CPU row for P1-exact is from a run before the reserve and round robin were added (same budget).
+
 ## Controls
 
 | Key | Action |

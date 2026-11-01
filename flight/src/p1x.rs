@@ -1,4 +1,4 @@
-//! P1-exact (`--env p1x`): Phase 1 blend-and-commit (`filter.rs`) predicting with exact JSBSim rollouts; see README.
+//! P1-exact (`--safety-filter p1-exact`): Phase 1 blend-and-commit (`filter.rs`) predicting with exact JSBSim rollouts; see README.
 
 use crate::envfilter::{law_params, rollout_law, thread_cpu, Law, Outcome, Roll, BUDGET, ESCAPES, MARGIN, N_ESC, SAMPLE, TIME_CAP_MS, n_esc};
 use crate::filter::{LAM_DECAY, T_LOOK, T_MARGIN};
@@ -15,20 +15,20 @@ const RESERVE: usize = 1000;
 /// Roll-rate gain of the escape's wings-level command (rad/s per rad of bank).
 const K_ROLL: f64 = 2.5;
 
-/// `--p1x-order margin`: P1's order (margin search, then the blend check) instead of the blend check first.
+/// `--p1-exact-order margin`: P1's order (margin search, then the blend check) instead of the blend check first.
 pub static MARGIN_FIRST: AtomicBool = AtomicBool::new(false);
-/// `--p1x-scale S` multiplies P1's 1 s / 0.4 s / 0.1 s hold times (f64 bits).
+/// `--p1-exact-scale S` multiplies P1's 1 s / 0.4 s / 0.1 s hold times (f64 bits).
 pub static HOLD_SCALE: AtomicU64 = AtomicU64::new(0x3FF0_0000_0000_0000);
 
 pub fn hold_scale() -> f64 {
     f64::from_bits(HOLD_SCALE.load(Ordering::Relaxed))
 }
 
-/// Read `--p1x-order margin` and `--p1x-scale S` from the command line.
+/// Read `--p1-exact-order margin` and `--p1-exact-scale S` from the command line.
 pub fn parse_args(args: &[String]) {
     let arg = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1));
-    MARGIN_FIRST.store(arg("--p1x-order").is_some_and(|o| o == "margin"), Ordering::Relaxed);
-    if let Some(s) = arg("--p1x-scale").and_then(|s| s.parse::<f64>().ok()) {
+    MARGIN_FIRST.store(arg("--p1-exact-order").is_some_and(|o| o == "margin"), Ordering::Relaxed);
+    if let Some(s) = arg("--p1-exact-scale").and_then(|s| s.parse::<f64>().ok()) {
         HOLD_SCALE.store(s.to_bits(), Ordering::Relaxed);
     }
 }

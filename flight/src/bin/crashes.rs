@@ -467,7 +467,7 @@ fn main() {
     }
     let why: Vec<u64> = (0..3).map(|k| res.iter().map(|r| r.3.why[k]).sum()).collect();
     if why.iter().any(|&w| w > 0) {
-        println!("p1x commits: blend check cut by budget {}, failed {}, hold too close {}", why[0], why[1], why[2]);
+        println!("p1-exact commits: blend check cut by budget {}, failed {}, hold too close {}", why[0], why[1], why[2]);
     }
     let active: u64 = res.iter().map(|r| r.3.active_ticks).sum();
     println!("intervention (any): {:.2}% of ticks not free", 100.0 * active as f64 / ticks.max(1) as f64);
