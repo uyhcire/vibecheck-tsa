@@ -1,4 +1,3 @@
-import Vibecheck
+import App.Game
 
-def main : IO Unit :=
-  IO.println s!"Vibecheck (TSA – The Safety Agent) v{Vibecheck.version}: nothing to fly yet."
+def main : IO Unit := App.run

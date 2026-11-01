@@ -1,25 +1,50 @@
 # `make install && make run` must work from a fresh clone (see rules.md).
 SHELL := /bin/bash
 ELAN_HOME ?= $(HOME)/.elan
-export PATH := $(ELAN_HOME)/bin:$(PATH)
+export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 
-.PHONY: install run build clean
+SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
+LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-# Install elan (the Lean toolchain manager) if missing, then build.
-# elan reads lean-toolchain and fetches the pinned Lean version on first use.
+.PHONY: install run build verify proofs test filter-lib filter-test clean
+
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
 	  echo "Installing elan..."; \
 	  curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
 	    | sh -s -- -y --default-toolchain none; \
 	fi
-	lake build
+	@if ! brew list sdl3 >/dev/null 2>&1; then \
+	  if command -v brew >/dev/null 2>&1; then brew install sdl3; \
+	  else echo "SDL3 is required: install Homebrew (https://brew.sh), then rerun make install."; exit 1; fi; \
+	fi
+	lake build $(LAKE_OPTS)
 
 build:
-	lake build
+	lake build $(LAKE_OPTS)
 
-run:
-	lake exe vibecheck
+run: build
+	.lake/build/bin/vibecheck
+
+verify:
+	lake build $(LAKE_OPTS) Vibecheck Envelope
+	lake env lean Tools/Audit.lean
+	lake env lean Tools/EnvelopeAudit.lean
+
+proofs:
+	cd proofs && lake exe cache get && lake build && lake env lean Proofs/Audit.lean
+
+test: build
+	lake build $(LAKE_OPTS) simtest
+	.lake/build/bin/simtest 1 160
+
+filter-lib:
+	lake build $(LAKE_OPTS) libvcfilter libvcfilter_static
+
+# needs .venv with jsbsim (sysid/README.md)
+filter-test: filter-lib
+	.venv/bin/python -I host/conformance.py --leak-ticks 200000
+	.venv/bin/python -I host/lockstep.py --episodes 100
 
 clean:
 	lake clean
