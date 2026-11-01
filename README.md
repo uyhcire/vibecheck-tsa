@@ -13,6 +13,24 @@ make run
 
 Controls: `UP`/`DOWN` pitch, `W`/`S` throttle, `SPACE` brake, `F` filter on/off, `G` show escape path, `T` 2× speed, `R` restart, `P` pause, `H` help, `ESC` quit.
 
+## Running things
+
+Everything is a one-word `make` target; `make help` lists them.
+
+| Target | What it does |
+|---|---|
+| `make fly` / `fly-lean` / `fly-off` | The city flight demo with the exact-rollout gate (Rust), its Lean implementation, or no filter |
+| `make showcase` | Tower gap with the scripted showcase pilot and the cinematic camera |
+| `make crashes` / `crashes-lean` | Headless crash test (N hostile episodes plus the kamikaze scenarios) |
+| `make adversary`, `make harness`, `make regimes` | Gap-guided adversary; point-mass acceptance harness; boundary-regime slices |
+| `make plantcheck` | Plant, state-import and Lean-gate spot checks, plus the 4 spec starts |
+| `make verify` / `make proofs` | Build the Lean proofs and audit their axioms / the Mathlib proofs |
+| `make gate`, `gate-example`, `gate-check`, `export` | libgate for JSBSim hosts; the city as plain files for other simulators |
+| `make pdf` | The informal TermSound proof (`docs/termsound-proof.pdf`) |
+
+Variables: `FILTER` (`exact-rollout`, `exact-rollout-lean`, `exact`, `fitted`, `fitted25`), `ARGS` (extra flags, e.g.
+`make fly ARGS="--episode 59 --paths"`), `N` and `OUT` for the headless runs.
+
 ## What is proved
 
 `Vibecheck/Safety.lean`:
@@ -108,6 +126,8 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 `JsbExact.step` reproduces one `FGFDMExec::Run` (dt = 1/128 s) of JSBSim 1.3.3's `c172p` with identical IEEE doubles: 6-DOF (quaternion attitude in ECI, WGS84 gravity, Earth rotation, Adams-Bashforth integrator histories), the aerodynamics and FCS, the IO-320 engine and fixed-pitch propeller, fuel burn with CG and inertia updates, and the landing gear with JSBSim's friction solver. It is written over a `Scalar` class whose only instance is `Float`, and every data-dependent branch goes through that class (see "Branching" below).
 
 It is offline tooling, not a runtime safety filter, and no theorem depends on it. Intended uses: a target for future interval-based proofs that the model satisfies the envelope filter's one-tick bounds (`Envelope/`), measuring envelope parameters, and a ground-truth lockstep harness.
+
+Fuel freeze: `step s u (fuelFreeze := true)` is JSBSim with `propulsion/fuel_freeze` set (`FGPropulsion::ConsumeFuel` returns at once): the tanks are not drained and the engine's starved flag keeps its value, while the engine still computes its fuel flow. It is off by default, which leaves `step s u` unchanged. The city safety spec (`CitySafety.specStep`) and the Lean city gate (`CityGate.Plane.step`) fly with it on: infinite fuel, an assumption recorded in `docs/safety-objective.md`. `libcityjsb`'s `cityjsb_step` burns fuel unless the plant is set with `cityjsb_set_fuel_freeze(p, 1)` (`c/cityjsb.h`); the Rust demo and gate (`flight/`, `gate/`) set it by default, and `--fuel-drain` turns it off. To compare: `ext/harness-on $R ext/data/bank_ff bank 4 8000 3 freeze` writes dumps with the property set, and `jsbx ext/data/bank_ff step freeze` steps with it on. Measured: on such dumps of the `bank`, `level`, `takeoff` and `land` modes (4 episodes each, 66,101 steps), every compared field is bit-identical to JSBSim in `step` and `free` modes; with the mode mismatched, `tank0` and `tank1` differ on every step.
 
 Limits: no flap kinematic (flaps retracted), no gusts or turbulence (constant wind from the initial condition), engine temperatures skipped, no initial-condition or trim port (state comes from a harness dump), flat terrain for the gear.
 

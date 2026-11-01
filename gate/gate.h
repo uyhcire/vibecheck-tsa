@@ -32,6 +32,10 @@ typedef struct {
   uint32_t tick_frames;         // JSBSim frames (1/128 s) per tick, 1..GATE_MAX_TICK_FRAMES; 0 = 3
   uint32_t budget_frames;       // JsbExact frames simulated per tick at most; 0 = 2200 (process-wide)
   uint32_t time_cap_ms;         // wall-clock cap on a tick's checks; 0 = none (process-wide)
+  uint32_t fuel_drain;          // 0 = the host's JSBSim has propulsion/fuel_freeze = 1 (infinite fuel; the plant the safety
+                                // theorem is about); non-zero = the host burns fuel. Never mix the two: states imported
+                                // from a host with the other setting roll out as a different aircraft.
+                                // Added after the first release: a gate_config with a smaller size (no field) is accepted as 0.
 } gate_config;
 
 typedef struct {

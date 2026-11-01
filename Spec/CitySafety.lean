@@ -4,16 +4,16 @@ import CityJsb.Plant
 # Safety of a filter in the city flight demo (DRAFT for review)
 
 `Safe M F`: for every start in `Init` and every sequence of pilot commands, no state the closed loop of the plant
-(`JsbExact`) and the filter `F` reaches is a `Crash` with the city map `M`.
+(`specStep`: `JsbExact` with infinite fuel, decision 8) and the filter `F` reaches is a `Crash` with the city map `M`.
 
 Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` lists it):
 * this file: `ratOf`, `InRange`, `Surfaces`, `Surfaces.Valid`, `clampTo`, `Surfaces.clamp`, `Surfaces.toInput`,
-  `StartCond`, `StartCond.state`, `startConds`, `Init`, `Filter`, `Filter.frame`, `Reach`, `Pt`, `Box`,
+  `StartCond`, `StartCond.state`, `startConds`, `Init`, `Filter`, `specStep`, `Filter.frame`, `Reach`, `Pt`, `Box`,
   `Box.Contains`, `CityMap`, `clampR`, `CityMap.terrain`, `Solid`, `combo`, `InHull`, `contactPoints`,
   `flightGearPoints`, `ft`, `Report`, `report`, `mulRows`, `mapPoint`, `wheelPoints`, `bodyPoints`, `HullHits`,
   `gearPenMax`, `tdSinkMax`, `landedV`, `CityMap.InRunwayLayer`, `sinkRate`, `groundSpeedSq`, `Crash`, `Landed`,
   `Safe`;
-* the plant: `JsbExact.step` and what it calls, the generated `JsbExact.Gen` (from `c172p.xml`),
+* the plant: `JsbExact.step` (with `fuelFreeze`) and what it calls, the generated `JsbExact.Gen` (from `c172p.xml`),
   `CityJsb.template`, `CityJsb.initAt` and `CityJsb.setFuelE`. These are trusted because they match JSBSim 1.3.3 bit for bit on the
   validation datasets (measured, not proved);
 * libm, opaque to Lean: `jx_sin`, `jx_cos`, `__sincos_stret` (via `JsbExact.jxSin` and friends), `Float.atan2`,
@@ -39,7 +39,11 @@ Decisions:
    compressed), sinking at most `tdSinkMax`; the body hull touching anything, or a wheel anywhere else, is a crash.
    A thin obstacle between a wheel and the body points (the strut) is not counted. `Landed` (stopped on the runway)
    ends the flight. The plant's ground plane (0 ft) is the map's floor and runway surface (`CityMap.datum`).
-8. Starts carry 8 lb of fuel per tank, so every flight has to end in a landing; the brakes are a control.
+8. Infinite fuel: the plant is JSBSim's c172p with `propulsion/fuel_freeze` on (`specStep`). Without it no filter is
+   safe unless it lands: the tanks (200 lb at the start) drain in about 2.5 hours at full throttle, after which the
+   engine starves and the aircraft glides into the terrain. This is an assumption, not a property of the simulator;
+   relaxing it is being investigated separately (landing, decision 7), and removing it is a change to `specStep` alone.
+9. Starts carry 8 lb of fuel per tank (with the fuel frozen this sets the mass and CG); the brakes are a control.
 -/
 
 namespace CitySafety
@@ -92,11 +96,18 @@ structure Filter where
   start : State Float → σ
   act : σ → State Float → Surfaces → Surfaces × σ
 
+/-- **The plant, with infinite fuel (an assumption, decision 7).** One JSBSim frame (1/128 s) of `JsbExact.step`
+with `fuelFreeze` on: JSBSim 1.3.3's c172p with `propulsion/fuel_freeze` set. The tanks never drain, so the mass
+and CG stay at the start's, and the engine's starved flag keeps its start value (false for every `Init` state);
+everything else is plain JSBSim. Relaxing this is being
+investigated separately; doing so means replacing `fuelFreeze := true` here. -/
+def specStep (s : State Float) (u : Input Float) : State Float × Diag Float := step s u (fuelFreeze := true)
+
 /-- One closed-loop frame (1/128 s): the filter sees the state and the pilot's command `u`, its output is clamped,
-and the plant steps once. -/
+and the plant (`specStep`) steps once. -/
 def Filter.frame (F : Filter) (p : State Float × F.σ) (u : Surfaces) : State Float × F.σ :=
   let (a, m) := F.act p.2 p.1 u
-  ((step p.1 a.clamp.toInput).1, m)
+  ((specStep p.1 a.clamp.toInput).1, m)
 
 /-! ## Starting states -/
 

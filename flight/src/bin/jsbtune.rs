@@ -51,6 +51,7 @@ fn total(g: Gains) -> f64 {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    cityflight::jsb::parse_fuel_args(&args);
     let mut best = GAINS;
     if args.iter().any(|a| a == "search") {
         let mut bt = total(best);

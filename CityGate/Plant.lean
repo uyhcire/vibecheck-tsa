@@ -2,7 +2,12 @@ import CityJsb.Plant
 import CityGate.Landing
 
 /-! The aircraft the gate flies: `JsbExact` (JSBSim 1.3.3 c172p, bit-exact), one JSBSim frame (1/128 s) per step, placed
-on the city map. Trusted surface. -/
+on the city map. Trusted surface.
+
+Infinite fuel: every step has `fuelFreeze` on (JSBSim's `propulsion/fuel_freeze`), as the safety spec's plant
+`CitySafety.specStep` does (its decision 7), so the gate's rollouts predict the spec's plant. `libcityjsb`'s
+`cityjsb_step` (`CityJsb.stepE`) burns fuel; it agrees with `Plane.step` while the tanks hold fuel except in the
+tank contents and what follows from them (mass, CG, inertia). -/
 
 namespace CityGate
 
@@ -24,13 +29,15 @@ structure Plane where
   ox : Float
   oy : Float
 
-/-- One JSBSim frame with input `u` (`CityJsb.stepBrakeE`). Destructured so the old state is not shared and `JsbExact`
-updates it in place. -/
+/-- One JSBSim frame with input `u` (both wheel brakes at `u.brk`), mixture 0.9, with fuel frozen
+(`CitySafety.specStep`). Destructured so the old state is not shared and `JsbExact` updates it in place. -/
 def Plane.step (p : Plane) (u : Surf) : Plane :=
   match p with
   | ⟨st, _, ox, oy⟩ =>
-    let r := CityJsb.stepBrakeE st u.elev u.ail u.rud u.thr u.brk
-    { st := r.1, ob := r.2, ox, oy }
+    let i : JsbExact.Input Float :=
+      { elev := u.elev, ail := u.ail, rud := u.rud, thr := u.thr, mix := 0.9, brkL := u.brk, brkR := u.brk }
+    let r := JsbExact.step st i (fuelFreeze := true)
+    { st := r.1, ob := CityJsb.obs r.1 r.2, ox, oy }
 
 /-- Map position (m): east and north of the map origin, and map altitude = JSBSim's altitude above sea level plus
 `Landing.mapDatum` (so JSBSim's ground plane is the runway surface; as `JsbPlant::state`). -/

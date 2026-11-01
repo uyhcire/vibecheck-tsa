@@ -79,6 +79,14 @@ load-factor / roll-rate / throttle commands into elevator, aileron, rudder and t
 angle-of-attack protection. The filter still predicts with the point-mass model, so this measures it under
 model mismatch; wind and the `M` mismatch toggle do not affect the JSBSim aircraft.
 
+**Fuel.** Every mode that flies the JSBSim aircraft (`--jsb`, `--safety-filter exact-rollout`, the `crashes`, `adversary`, `esclab`, `regimes`, `harness`, `drawstep` and `jsbtune` bins) flies with infinite fuel
+by default: JSBSim's `propulsion/fuel_freeze` is on, mirroring the safety spec's assumption (`../docs/safety-objective.md`,
+`CitySafety.specStep`). The flown aircraft and every rollout fork step the same setting; it is chosen in one place
+(`jsb::fuel_freeze_default`, applied by `JsbPlant`'s constructors, carried by `fork` and `Seed`). `--fuel-drain` on any of
+those bins restores fuel burning for both. `--fuel-drain` does not combine with `--safety-filter exact-rollout-lean`, whose
+Lean gate always rolls out with fuel freeze. `cargo run --release --features jsb --bin fuelcheck` against
+`lake exe fuelfreezecheck` (arguments printed by `fuelcheck`) compares the plant with `JsbExact.step` bit for bit in both settings.
+
 ```sh
 (cd .. && lake build libcityjsb)
 cargo run --release --features jsb -- --jsb                                        # the demo
@@ -122,7 +130,7 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   its verified escape. Headless runs stay deterministic unless given `--time-cap`.
 
 ```sh
-cargo run --release --features jsb -- --safety-filter exact-rollout                                    # fly it (B: escapes)
+cargo run --release --features jsb -- --safety-filter exact-rollout                                    # fly it (B: escapes); from the repo root: make fly
 cargo run --release --features jsb -- --safety-filter exact-rollout --episode 59                       # replay an episode
 cargo run --release --features jsb -- --safety-filter exact-rollout --showcase --paths                # Tower gap showcase
 cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/s 100 --safety-filter exact-rollout --scenario 5
@@ -133,6 +141,12 @@ cargo run --release --no-default-features --features jsb --bin esclab -- trace  
 
 With `B`, the latest rollout is drawn green (verified) or red, and the committed escape yellow; turning
 escapes end in their terminal helix.
+
+Boundary regimes (`docs/boundary-regimes`, `--bin regimes`): where the gate's safe set ends near each kind of
+obstacle, with markers drawn at actual contact and one-line demos. Demo flags: `--start x,y,z,v,γ°,heading°,bank°,thr`
+(a given start, flown with the sticks released), `--lead S` (moved back S seconds along its velocity), `--margin M`
+and `--check-every N` (the gate's clearance margin and check spacing in frames; defaults 4 m and 8), `--label TEXT`.
+The HUD shows the minimum clearance so far.
 
 `crashes` on the 200 hostile episodes plus the 4 kamikaze scenarios (JSBSim plant). A start is verified when
 the filter accepts the pilot's first tick.

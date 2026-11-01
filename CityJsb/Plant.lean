@@ -67,6 +67,13 @@ def stepE (s : State Float) (elev ail rud thr : Float) : State Float × FloatArr
   let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := 0, brkR := 0 }
   (s', obs s' d)
 
+/-- `stepE` with JSBSim's `propulsion/fuel_freeze` as given (`libcityjsb`'s per-plant setting): `true` is the plant
+of the safety spec (`CitySafety.specStep`), `false` is `stepE`. -/
+@[export cityjsb_step_ff_lean]
+def stepFfE (s : State Float) (ff : Bool) (elev ail rud thr : Float) : State Float × FloatArray :=
+  let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := 0, brkR := 0 } (fuelFreeze := ff)
+  (s', obs s' d)
+
 /-- `obs` of the state a dump was taken at, from its derived fields; equals `obs` after the step that reached it. -/
 def obsFromDump (a : FloatArray) : Option FloatArray :=
   if a.size != dumpNames.size then none else
@@ -86,6 +93,12 @@ def stepDumpE (s : State Float) (elev ail rud thr : Float) : State Float × Floa
   let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := 0, brkR := 0 }
   (s', toDump s' d)
 
+/-- `stepDumpE` with `fuelFreeze` as given. -/
+@[export cityjsb_step_dump_ff_lean]
+def stepDumpFfE (s : State Float) (ff : Bool) (elev ail rud thr : Float) : State Float × FloatArray :=
+  let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := 0, brkR := 0 } (fuelFreeze := ff)
+  (s', toDump s' d)
+
 /-- `none` unless the dump has `dumpNames.size` fields. -/
 @[export cityjsb_from_dump_lean]
 def fromDumpE (a : FloatArray) : Option (State Float) := fromDump a
@@ -100,6 +113,12 @@ def dumpFieldE (i : USize) : String := dumpNames.getD i.toNat ""
 @[export cityjsb_step_brake_lean]
 def stepBrakeE (s : State Float) (elev ail rud thr brk : Float) : State Float × FloatArray :=
   let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := brk, brkR := brk }
+  (s', obs s' d)
+
+/-- `stepBrakeE` with `fuelFreeze` as given. -/
+@[export cityjsb_step_brake_ff_lean]
+def stepBrakeFfE (s : State Float) (ff : Bool) (elev ail rud thr brk : Float) : State Float × FloatArray :=
+  let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := brk, brkR := brk } (fuelFreeze := ff)
   (s', obs s' d)
 
 /-- `s` with `lb` pounds of fuel in each tank (the template carries 100), for low-fuel starts. -/

@@ -5,5 +5,6 @@ import CityGate.Terminal
 import CityGate.Law
 import CityGate.Gate
 import CityGate.Safety
+import CityGate.SafetyR
 import CityGate.Ffi
 import CityGate.Landing

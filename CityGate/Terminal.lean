@@ -115,6 +115,10 @@ def T_TERM : Float := 6.0
 def TERM_EVERY : Nat := 64
 def VZ_MIN : Float := 1.0
 def HALF : Nat := 32
+/-- Settled climb: the two windows' mean climb rates (m/s) differ by at most this. -/
+def VZ_SETTLED : Float := 1.0
+/-- Cap on the straight escape's ray gradient: 0.8 of its settled climb gradient (about 0.14). -/
+def GRAD_MAX : Float := 0.11
 
 structure Hist where
   t : Float
@@ -165,8 +169,8 @@ def helixClear (cx cy r m z : Float) : Bool := Id.run do
   return true
 
 /-- `ray_clear`: a climbing ray from `p` along track `psi` at gradient `grad`, in a corridor widening 2% of the
-distance, stays `R_BODY + MARGIN` above every raw cell until it is that far above the map's top or off the map.
-(`fuel` bounds the march; the ray leaves the 6 km map within 6,800 steps.) -/
+distance, stays `R_BODY + MARGIN` above every raw cell until it is that far above the map's top. Off the map the
+lookups clamp to the edge cells, as the terrain continues the edge; a ray still low after 10,000 steps fails. -/
 def rayClear (px py pz psi grad : Float) : Bool := Id.run do
   if grad < 0.02 then return false
   let c := psi.cos
@@ -177,7 +181,7 @@ def rayClear (px py pz psi grad : Float) : Bool := Id.run do
     let y := py + d * s
     let z := pz + d * grad
     let floor := z - R_BODY - MARGIN
-    if floor > top || !onMap x y then return true
+    if floor > top then return true
     let w := R_BODY + 5.0 + 0.02 * d
     let mut l := -w
     while l ≤ w do
@@ -197,7 +201,9 @@ def terminalOK (dir : Float) (hist : Array Hist) : Bool := Id.run do
   let e := b.e
   if dir == 0.0 then
     if fmax a.omega.abs b.omega.abs > 0.01 then return false
-    let grad := 0.8 * fmin (a.vzMean / fmax a.vh 1.0) (b.vzMean / fmax b.vh 1.0)
+    -- during the zoom climb vz is still falling and its gradient overstates the settled climb
+    if !((a.vzMean - b.vzMean).abs ≤ VZ_SETTLED) then return false
+    let grad := fmin (0.8 * fmin (a.vzMean / fmax a.vh 1.0) (b.vzMean / fmax b.vh 1.0)) GRAD_MAX
     return rayClear e.x e.y e.z e.psi grad
   else
     let want := -dir

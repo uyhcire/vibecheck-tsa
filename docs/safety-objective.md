@@ -22,7 +22,8 @@ touches terrain or a building, or a wheel touches anything but the runway, or to
 3 m/s (see "Contact is checked at each frame" and "Landing" below). `Landed` (stopped on the runway) ends the flight.
 
 - **The plant** is `JsbExact`, the bit-exact Lean port of JSBSim 1.3.3's c172p, stepped one JSBSim frame
-  (1/128 s) at a time. JSBSim is the ground truth for this simulator.
+  (1/128 s) at a time, with infinite fuel (`propulsion/fuel_freeze` on; see the decisions below). JSBSim is the
+  ground truth for this simulator.
 - **The pilot** is arbitrary: any control-surface, throttle and wheel-brake input within its physical range, chosen
   afresh every frame. The demo's keyboard pilot, fly-by-wire and 50 Hz control loop are special cases.
 - **The filter** is abstract: its own memory, a starting memory, and a per-frame map from (memory, aircraft state,
@@ -86,6 +87,16 @@ leads to a reachable crash.
   and up as altitude above sea level, as `CityJsb.obs` reports them. Airframe points are placed from it with the
   reported body-to-local rotation matrix `Tb2l`, in the local north-east-down frame at the CG; over the ±3000 m map
   that frame turns by at most 0.03° against the map axes, under 6 mm across the airframe.
+- **Infinite fuel, for now.** The plant is JSBSim's c172p with `propulsion/fuel_freeze` on
+  (`CitySafety.specStep`, `JsbExact.step` with `fuelFreeze := true`): the tanks never drain and the engine never
+  starves. With fuel burning, no filter is safe: the 200 lb in the tanks lasts about 2.5 hours at full throttle,
+  after which the engine starves and the aircraft glides into the terrain, so "no reachable crash, ever" fails for
+  every filter. This is an assumption about the plant, not a property of the simulator. Relaxing it (for example
+  bounding flight time, or counting a fuel-exhausted state as an end of the claim) is being investigated separately;
+  removing it is a change to `specStep` alone. `JsbExact`'s fuel freeze matches JSBSim's bit for bit on harness
+  dumps written with the property set (`jsbx ... freeze`). The demos and the C library match: the Rust demo, gate and
+  tools fly and roll out with fuel freeze by default (`--fuel-drain` restores burning), and `gate_config.fuel_drain`
+  defaults to 0 (frozen).
 - **Numbers.** Plant states are `Float`. The reported pose (CG location and altitude, `Tb2l`) is the plant's own
   `Float` computation, read exactly; airframe points, hulls, terrain and buildings are exact rational arithmetic from
   there.

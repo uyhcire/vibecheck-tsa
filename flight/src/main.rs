@@ -624,6 +624,8 @@ struct App {
     lens: usize,
     focal_mm: f32,
     fstop: f32,
+    /// Caption pill for demos (`--label`).
+    label: Option<String>,
 }
 
 /// (name, focal length mm, f-stop, hexagonal aperture, cat's-eye strength, tilt-shift).
@@ -1291,6 +1293,7 @@ impl App {
             ("ESCAPE", esc.to_string()),
             ("FILTER TIME", if on { format!("{:.2} ms/tick", ms) } else { "-".into() }),
             ("TRUE CLEARANCE", format!("{:.1} m", self.sim.true_clear)),
+            ("MIN CLEARANCE", format!("{:.1} m", self.sim.min_true_clear)),
         ];
         let px = 16.0;
         let py = 16.0;
@@ -1343,6 +1346,9 @@ impl App {
             pills.push((mode, mc, WHITE));
         } else {
             pills.push(("SAFETY FILTER OFF".into(), Color::new(0.75, 0.12, 0.1, 0.92), WHITE));
+        }
+        if let Some(l) = &self.label {
+            pills.push((l.clone(), Color::new(0.12, 0.14, 0.2, 0.92), WHITE));
         }
         if self.mismatch {
             pills.push(("MISMATCH: wind + weaker aircraft".into(), Color::new(0.55, 0.25, 0.7, 0.92), WHITE));
@@ -1572,6 +1578,8 @@ async fn main() {
     let shot = arg("--shot");
     let shot_frames: u32 = arg("--frames").and_then(|s| s.parse().ok()).unwrap_or(90);
     #[cfg(feature = "jsb")]
+    cityflight::jsb::parse_fuel_args(&args);
+    #[cfg(feature = "jsb")]
     if args.iter().any(|a| a == "--jsb") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -1601,6 +1609,10 @@ async fn main() {
         cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(&l), std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
+    if let Some(m) = arg("--margin").and_then(|s| s.parse::<f64>().ok()) {
+        cityflight::envfilter::set_filter_margin(m, arg("--check-every").and_then(|s| s.parse().ok()).unwrap_or(cityflight::envfilter::SAMPLE));
+    }
+    #[cfg(feature = "jsb")]
     if let Some(n) = arg("--escapes").and_then(|s| s.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
@@ -1608,6 +1620,8 @@ async fn main() {
     if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
         if f == "exact-rollout-lean" {
+            // The Lean gate rolls out with fuel freeze (CityGate.Plane.step); a burning flown plant would not match it.
+            assert!(cityflight::jsb::fuel_freeze_default(), "--fuel-drain does not combine with exact-rollout-lean (the Lean gate always rolls out with fuel freeze)");
             cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse(&f), std::sync::atomic::Ordering::Relaxed);
@@ -1670,6 +1684,7 @@ async fn main() {
         fstop: LENSES[0].2,
         sun_el: SUN[2].asin().to_degrees(),
         sun_az: SUN[1].atan2(SUN[0]).to_degrees(),
+        label: None,
         renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
             (true, false, true) => 2,
             (true, false, false) => 1,
@@ -1682,6 +1697,9 @@ async fn main() {
     }
     if let (true, Some(ph)) = (args.iter().any(|a| a == "--cinematic"), photo.as_mut()) {
         set_cinematic(&mut app, ph);
+    }
+    if let Some(c) = arg("--cam").and_then(|s| s.parse().ok()) {
+        app.cam_mode = c;
     }
     if let (Some(s), Some(ph)) = (arg("--fog"), photo.as_mut()) {
         let v: Vec<f32> = s.split(',').filter_map(|x| x.parse().ok()).collect();
@@ -1738,6 +1756,21 @@ async fn main() {
         let (f, _, _) = body_axes(&s0);
         app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
     }
+    // Boundary-regime demos: a given start (`--start x,y,z,v,gamma°,heading°,bank°,throttle`), optionally moved
+    // back `--lead S` seconds along its velocity, flown by the released sticks (holding flight path and bank).
+    #[cfg(feature = "jsb")]
+    if let Some(s0) = arg("--start").and_then(|a| cityflight::regimes::parse_start(&a)) {
+        let s0 = cityflight::regimes::lead_state(&s0, arg("--lead").and_then(|s| s.parse().ok()).unwrap_or(0.0));
+        app.sim = Sim::new(world, s0, app.cfg(true));
+        app.fbw = Fbw::from_state(&app.sim.s);
+        app.kamikaze = None;
+        app.hostile = None;
+        app.showcase = None;
+        app.trail.clear();
+        let (f, _, _) = body_axes(&s0);
+        app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
+    }
+    app.label = arg("--label");
     if args.iter().any(|a| a == "--off") {
         app.sim.set_filter(false);
     }

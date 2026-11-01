@@ -66,3 +66,8 @@ required-features = ["jsb"]
 # 32-bit indices, capture, raw handles); diff against the crates.io 0.4.11 source.
 [patch.crates-io]
 miniquad = { path = "vendor/miniquad" }
+
+[[bin]]
+name = "regimes"
+path = "src/bin/regimes.rs"
+required-features = ["jsb"]

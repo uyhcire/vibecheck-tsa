@@ -32,6 +32,25 @@ pub struct GateConfig {
     pub tick_frames: u32,
     pub budget_frames: u32,
     pub time_cap_ms: u32,
+    /// Appended after the first release: absent (0) in a shorter `size`.
+    pub fuel_drain: u32,
+}
+
+/// Bytes of `gate_config` in the first release (before `fuel_drain`); the smallest accepted `size`.
+const CONFIG_V1_SIZE: usize = std::mem::offset_of!(GateConfig, fuel_drain);
+
+/// The config at `p`, with the fields beyond its `size` zeroed, so an older, shorter `gate_config` is accepted.
+///
+/// Safety: `p` points to at least `size` bytes, the `size` it states.
+unsafe fn read_config(p: *const GateConfig) -> Result<GateConfig, c_int> {
+    let head = p as *const u32;
+    let (abi, size) = (head.read_unaligned(), head.add(1).read_unaligned() as usize);
+    if abi != GATE_ABI_VERSION || size < CONFIG_V1_SIZE {
+        return Err(GATE_ERR_VERSION);
+    }
+    let mut c: GateConfig = std::mem::zeroed();
+    std::ptr::copy_nonoverlapping(p as *const u8, &mut c as *mut GateConfig as *mut u8, size.min(std::mem::size_of::<GateConfig>()));
+    Ok(c)
 }
 
 #[repr(C)]
@@ -76,9 +95,6 @@ fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
 }
 
 fn config(c: &GateConfig) -> Result<Config, c_int> {
-    if c.abi_version != GATE_ABI_VERSION || (c.size as usize) < std::mem::size_of::<GateConfig>() {
-        return Err(GATE_ERR_VERSION);
-    }
     if !c.map_path.is_null() {
         return Err(GATE_ERR_UNSUPPORTED);
     }
@@ -99,6 +115,7 @@ fn config(c: &GateConfig) -> Result<Config, c_int> {
         tick_frames,
         budget_frames: (c.budget_frames > 0).then_some(c.budget_frames as usize),
         time_cap_ms: (c.time_cap_ms > 0).then_some(c.time_cap_ms),
+        fuel_drain: c.fuel_drain != 0,
     })
 }
 
@@ -150,7 +167,7 @@ fn fill(out: &mut GateResult, t: &Tick, path: &mut Vec<f64>) {
 /// Safety: `cfg` must point to a `gate_config`; `err` may be null.
 #[no_mangle]
 pub unsafe extern "C" fn gate_new(cfg: *const GateConfig, err: *mut c_int) -> *mut Gate {
-    let (g, e) = guard((std::ptr::null_mut(), GATE_ERR_INTERNAL), || match cfg.as_ref().map(config) {
+    let (g, e) = guard((std::ptr::null_mut(), GATE_ERR_INTERNAL), || match (!cfg.is_null()).then(|| read_config(cfg).and_then(|c| config(&c))) {
         None => (std::ptr::null_mut(), GATE_ERR_BAD_CONFIG),
         Some(Err(e)) => (std::ptr::null_mut(), e),
         Some(Ok(c)) => (Box::into_raw(Box::new(Gate { filter: Filter::new(c), path: Vec::new() })), GATE_OK),
