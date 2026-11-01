@@ -18,10 +18,11 @@ def tl2bOf (phi tht psi : Float) : M33 Float :=
     (sf * st * cp - cf * sp) (sf * st * sp + cf * cp) (sf * ct)
     (cf * st * cp + sf * sp) (cf * st * sp - sf * cp) (cf * ct)
 
-/-- An in-flight state `hM` metres above sea level: true airspeed `v` m/s, flight-path angle `gam`, heading
-`psi` (clockwise from north), bank `phi`, angle of attack `alpha`; engine and mass state from the template. -/
-def init (hM v gam psi phi alpha : Float) : State Float :=
-  let ri : V3 Float := ⟨Gen.a + hM / ft, 0, 0⟩
+/-- An in-flight state at `east`, `north` metres on the tangent plane at latitude and longitude 0 and `hM` metres
+above it: true airspeed `v` m/s, flight-path angle `gam`, heading `psi` (clockwise from north), bank `phi`, angle of
+attack `alpha`; engine and mass state from the template. -/
+def initAt (east north hM v gam psi phi alpha : Float) : State Float :=
+  let ri : V3 Float := ⟨Gen.a + hM / ft, east / ft, north / ft⟩
   let tec2l := (locDerive ri).tec2l
   let l2b := tl2bOf phi (gam + alpha) psi
   let ti2b := l2b.mul tec2l
@@ -46,6 +47,9 @@ def init (hM v gam psi phi alpha : Float) : State Float :=
     uvwdot := V3.zero
     stall := (0 : Float)
     wind := V3.zero }
+
+/-- `initAt` above the origin (latitude and longitude 0), `hM` metres above sea level. -/
+def init (hM v gam psi phi alpha : Float) : State Float := initAt 0 0 hM v gam psi phi alpha
 
 /-- North, east (from the origin), altitude above sea level, NED velocity, airspeed, Euler angles, body rates,
 alpha, beta, normal load factor, height above terrain, dynamic pressure (Pa), engine rpm, ECEF position. -/
