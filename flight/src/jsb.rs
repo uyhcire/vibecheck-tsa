@@ -5,12 +5,23 @@
 //! is reported back in the point-mass model's coordinates so the filter, world and renderer are unchanged.
 
 use crate::model::*;
+use crate::runway::MAP_DATUM;
 use std::f64::consts::PI;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Set once at startup (`--jsb`); every new `Sim` then flies JSBSim instead of the point-mass model.
 pub static JSB_PLANT: AtomicBool = AtomicBool::new(false);
 
+/// Fuel per tank (lb) for new aircraft (`--fuel`); NaN keeps the template's 100 lb.
+pub static FUEL_LB: AtomicU64 = AtomicU64::new(0x7ff8000000000000);
+
+pub fn fuel_lb() -> f64 {
+    f64::from_bits(FUEL_LB.load(Ordering::Relaxed))
+}
+
+pub fn set_fuel_lb(lb: f64) {
+    FUEL_LB.store(lb.to_bits(), Ordering::Relaxed);
+}
 pub fn enabled() -> bool {
     JSB_PLANT.load(Ordering::Relaxed)
 }
@@ -42,6 +53,9 @@ pub const NOBS: usize = 22;
 extern "C" {
     fn cityjsb_new(h: f64, v: f64, gam: f64, psi: f64, phi: f64, alpha: f64) -> *mut Raw;
     fn cityjsb_step(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, obs: *mut f64);
+    fn cityjsb_step_brake(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, brk: f64, obs: *mut f64);
+    fn cityjsb_set_fuel(p: *mut Raw, lb: f64);
+    fn cityjsb_fuel(p: *const Raw) -> f64;
     fn cityjsb_step_dump(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, dump: *mut f64);
     fn cityjsb_set_fuel_freeze(p: *mut Raw, on: i32);
     fn cityjsb_clone(p: *const Raw) -> *mut Raw;
@@ -259,9 +273,14 @@ impl JsbPlant {
         let v = s[V].max(20.0);
         let alpha = alpha_for(s[N].max(0.5), v);
         let psi_jsb = PI / 2.0 - s[PSI];
+        // Map altitude is JSBSim's altitude above sea level plus `MAP_DATUM` (JSBSim's ground is the runway).
         let freeze = fuel_freeze_default();
-        let raw = adopt(unsafe { cityjsb_new(s[Z], v, s[GAM], psi_jsb, -s[PHI], alpha) }, freeze);
+        let raw = adopt(unsafe { cityjsb_new(s[Z] - MAP_DATUM, v, s[GAM], psi_jsb, -s[PHI], alpha) }, freeze);
         assert!(!raw.is_null(), "libcityjsb: Lean runtime failed to initialise");
+        let lb = fuel_lb();
+        if !lb.is_nan() {
+            unsafe { cityjsb_set_fuel(raw, lb) };
+        }
         let mut p = JsbPlant {
             raw,
             freeze,
@@ -430,6 +449,20 @@ impl JsbPlant {
         self.step_surf(self.surf);
     }
 
+    /// `frame_raw` with both wheel brakes at `brk` (0 released, 1 full).
+    pub fn frame_brake(&mut self, elev: f64, ail: f64, rud: f64, thr: f64, brk: f64) {
+        self.thr = thr;
+        self.set_surf([elev, ail, rud, thr]);
+        let mut out = [0.0; NOBS];
+        unsafe { cityjsb_step_brake(self.raw, elev, ail, rud, thr, brk, out.as_mut_ptr()) };
+        self.obs = Obs::from(&out);
+    }
+
+    /// Fuel on board (lb, both tanks) if the engine is running, else -1.
+    pub fn fuel(&self) -> f64 {
+        unsafe { cityjsb_fuel(self.raw) }
+    }
+
     /// Step JSBSim one frame with surfaces `s` and read the observation.
     fn step_surf(&mut self, s: [f64; 4]) {
         let mut out = [0.0; NOBS];
@@ -498,7 +531,7 @@ impl JsbPlant {
                 let [e, n] = f.local(&o.ecef);
                 (e, n, o.h - f.alt0)
             }
-            None => (self.origin[0] + o.east, self.origin[1] + o.north, o.h),
+            None => (self.origin[0] + o.east, self.origin[1] + o.north, o.h + MAP_DATUM),
         };
         [
             x,

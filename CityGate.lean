@@ -7,3 +7,6 @@ import CityGate.Gate
 import CityGate.Safety
 import CityGate.SafetyR
 import CityGate.Ffi
+import CityGate.Landing
+import CityGate.SpecMap
+import CityGate.ClearSpec

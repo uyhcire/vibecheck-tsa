@@ -1,4 +1,5 @@
 import CityJsb.Plant
+import CityGate.Landing
 
 /-! The aircraft the gate flies: `JsbExact` (JSBSim 1.3.3 c172p, bit-exact), one JSBSim frame (1/128 s) per step, placed
 on the city map. Trusted surface.
@@ -10,12 +11,14 @@ tank contents and what follows from them (mass, CG, inertia). -/
 
 namespace CityGate
 
-/-- Applied input: JSBSim's elevator, aileron, rudder (each in [-1, 1]) and throttle ([0, 1]) commands. -/
+/-- Applied input: JSBSim's elevator, aileron, rudder (each in [-1, 1]), throttle ([0, 1]) and wheel brake ([0, 1],
+both sides) commands. -/
 structure Surf where
   elev : Float
   ail : Float
   rud : Float
   thr : Float
+  brk : Float
   deriving Inhabited
 
 /-- The aircraft: its `JsbExact` state, the observation after its last frame (`CityJsb.obs` layout), and the map
@@ -26,25 +29,26 @@ structure Plane where
   ox : Float
   oy : Float
 
-/-- One JSBSim frame with input `u`, mixture 0.9 and brakes released, with fuel frozen (`CitySafety.specStep`;
-`CityJsb.stepE` with `fuelFreeze` on). Destructured so the old state is not shared and `JsbExact` updates it in
-place. -/
+/-- One JSBSim frame with input `u` (both wheel brakes at `u.brk`), mixture 0.9, with fuel frozen
+(`CitySafety.specStep`). Destructured so the old state is not shared and `JsbExact` updates it in place. -/
 def Plane.step (p : Plane) (u : Surf) : Plane :=
   match p with
   | ⟨st, _, ox, oy⟩ =>
-    let i : JsbExact.Input Float := { elev := u.elev, ail := u.ail, rud := u.rud, thr := u.thr, mix := 0.9, brkL := 0, brkR := 0 }
+    let i : JsbExact.Input Float :=
+      { elev := u.elev, ail := u.ail, rud := u.rud, thr := u.thr, mix := 0.9, brkL := u.brk, brkR := u.brk }
     let r := JsbExact.step st i (fuelFreeze := true)
     { st := r.1, ob := CityJsb.obs r.1 r.2, ox, oy }
 
-/-- Map position (m): east and north of the map origin, altitude above sea level (as `JsbPlant::state`). -/
+/-- Map position (m): east and north of the map origin, and map altitude = JSBSim's altitude above sea level plus
+`Landing.mapDatum` (so JSBSim's ground plane is the runway surface; as `JsbPlant::state`). -/
 def Plane.pos (p : Plane) : Float × Float × Float :=
-  (p.ox + p.ob[1]!, p.oy + p.ob[0]!, p.ob[2]!)
+  (p.ox + p.ob[1]!, p.oy + p.ob[0]!, p.ob[2]! + Landing.mapDatum)
 
 /-- An aircraft at map point `(ox, oy)`, `hM` m above sea level, in JSBSim's conventions (`CityJsb.init`: airspeed,
 flight path, heading clockwise from north, bank, angle of attack), after one frame at throttle `thr` with the
 surfaces centred (so `ob` is defined). -/
 def Plane.init (ox oy hM v gam psi phi alpha thr : Float) : Plane :=
   let st := CityJsb.init hM v gam psi phi alpha
-  ({ st, ob := FloatArray.empty, ox, oy } : Plane).step ⟨0, 0, 0, thr⟩
+  ({ st, ob := FloatArray.empty, ox, oy } : Plane).step ⟨0, 0, 0, thr, 0⟩
 
 end CityGate

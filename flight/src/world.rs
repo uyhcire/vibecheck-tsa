@@ -218,7 +218,8 @@ impl World {
             for i in 0..TN {
                 let x = -MAP_HALF + i as f64 * TSP;
                 let y = -MAP_HALF + j as f64 * TSP;
-                self.terr[j * TN + i] = self.terrain_fn(x, y) as f32;
+                // The world floor is the runway surface (JSBSim's ground plane): nothing lower.
+                self.terr[j * TN + i] = self.terrain_fn(x, y).max(crate::runway::RWY_Z) as f32;
             }
         }
     }

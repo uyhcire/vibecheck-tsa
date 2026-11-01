@@ -23,15 +23,20 @@ def frameOut (g : GateState) (u : Surf) : GateState × FloatArray :=
 theorem frameOut_fst (g : GateState) (u : Surf) : (frameOut g u).1 = cityGate.frame g u :=
   frameP_fst cityGate g u
 
+/-- A start with the template's fuel (100 lb per tank). -/
 @[export citygate_new_lean]
-def newE (x y z v gam psi phi n thr : Float) : GateState := startState x y z v gam psi phi n thr
+def newE (x y z v gam psi phi n thr : Float) : GateState := startState x y z v gam psi phi n thr 100.0
+
+/-- A start with `fuel` lb in each tank. -/
+@[export citygate_new_fuel_lean]
+def newFuelE (x y z v gam psi phi n thr fuel : Float) : GateState := startState x y z v gam psi phi n thr fuel
 
 /-- The allowed-start check (`CityGate.Init`). -/
 @[export citygate_start_ok_lean]
 def startOkE (g : GateState) : Bool := cityGate.rolloutOK cityGate.horizon (cityGate.start g.1, g.1)
 
 @[export citygate_frame_lean]
-def frameE (g : GateState) (elev ail rud thr : Float) : GateState × FloatArray := frameOut g ⟨elev, ail, rud, thr⟩
+def frameE (g : GateState) (elev ail rud thr : Float) : GateState × FloatArray := frameOut g ⟨elev, ail, rud, thr, 0.0⟩
 
 /-- `predictPath` as `[x0, y0, z0, x1, …]`. -/
 @[export citygate_path_lean]
@@ -46,7 +51,7 @@ def obsE (g : GateState) : FloatArray := let p := g.1.pos; ⟨g.1.ob.data ++ #[p
 Output as `frameE`, with `accepted` 0. -/
 @[export citygate_bypass_lean]
 def bypassE (g : GateState) (elev ail rud thr : Float) : GateState × FloatArray :=
-  let s := g.1.step ⟨elev, ail, rud, thr⟩
+  let s := g.1.step ⟨elev, ail, rud, thr, 0.0⟩
   let p := s.pos
   ((s, g.2), ⟨#[elev, ail, rud, thr, 0] ++ s.ob.data ++ #[p.1, p.2.1, p.2.2]⟩)
 

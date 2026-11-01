@@ -1,6 +1,8 @@
 import CityGate.Map
 import CityGate.Plant
 import VcFilter.Exact
+import CityGate.Landing
+import Spec.CitySafety
 
 /-! What a crash is (trusted surface), the clearance test the gate runs on every frame of every rollout, and its
 soundness (`clear_sound`). -/
@@ -10,8 +12,9 @@ open VcFilter (ratOfFloat)
 
 /-! ### What a crash is (trusted surface) -/
 
-/-- Terrain height (m) at grid node `(i, j)`: `x = gridX0 + i · gridStep`, `y = gridY0 + j · gridStep`. -/
-def node (i j : Nat) : Rat := terrain.getD (j * gridN + i) 0
+/-- Terrain height (m) at grid node `(i, j)`: `x = gridX0 + i · gridStep`, `y = gridY0 + j · gridStep`, raised to the
+world floor `Landing.rwyZ` (the runway surface and JSBSim's ground plane). -/
+def node (i j : Nat) : Rat := max Landing.rwyZ (terrain.getD (j * gridN + i) 0)
 
 /-- Grid coordinate of `x` (m) along an axis starting at `x0`, clamped to the grid `[0, gridN - 1]`. -/
 def gridCoord (x0 : Int) (x : Rat) : Rat := max 0 (min ((gridN - 1 : Nat) : Rat) ((x - x0) / (gridStep : Rat)))
@@ -100,10 +103,10 @@ def boxesClear (xl xh yl yh zl zh : Int) : Bool :=
       (cellBoxes.getD (j * 100 + i) []).all fun b =>
         !(meets xl xh b.xmin b.xmax && meets yl yh b.ymin b.ymax && meets zl zh b.zmin b.zmax)
 
-/-- Terrain heights rounded up to units. -/
-def terrainI : Array Int := terrain.map fun q => (q * S).ceil
+/-- Terrain heights raised to the floor and rounded up to units. -/
+def terrainI : Array Int := terrain.map fun q => (max Landing.rwyZ q * S).ceil
 
-def nodeI (i j : Nat) : Int := terrainI.getD (j * gridN + i) 0
+def nodeI (i j : Nat) : Int := terrainI.getD (j * gridN + i) ((max Landing.rwyZ 0 * S).ceil)
 
 /-- Highest node (units) of grid square `(i, j)`. -/
 def squareTop (i j : Nat) : Int := max (max (nodeI i j) (nodeI (i + 1) j)) (max (nodeI i (j + 1)) (nodeI (i + 1) (j + 1)))
@@ -117,9 +120,10 @@ def terrainClear (xl xh yl yh zl : Int) : Bool :=
     (List.range' (squareOf gridY0 yl) (squareOf gridY0 yh + 1 - squareOf gridY0 yl)).all fun j =>
       squareTop i j < zl
 
-/-- The clearance test: the keep-out cube of half-size 8.5 m + `extra` around the aircraft meets no building and
-stays above the terrain. -/
-def clearAt (extra : Float) (p : Plane) : Bool :=
+/-- The cube test (the gate's earlier clearance test): the keep-out cube of half-size 8.5 m + `extra` around the
+aircraft's observed position meets no building and stays above the terrain. Sound for the cube `Crash`
+(`clearCube_sound`); the gate now uses `clearAt`, sound for the spec's `Crash` (`CityGate.clear_spec_sound`). -/
+def clearCube (extra : Float) (p : Plane) : Bool :=
   match exactPos p with
   | some (x, y, z) =>
     let k : Int := keepBase + extraUnits extra
@@ -258,7 +262,7 @@ theorem nodeI_eq (i j : Nat) : nodeI i j = (node i j * S).ceil := by
   unfold nodeI node terrainI
   by_cases h : j * gridN + i < terrain.size
   · simp [Array.getD, h]
-  · simp [Array.getD, h]; rfl
+  · simp [Array.getD, h]
 
 /-- A node lies below the top of any square whose top bounds it in units. -/
 theorem node_le_top {a b i j : Nat} (h : nodeI a b ≤ squareTop i j) : node a b ≤ (squareTop i j : Rat) / S := by
@@ -316,10 +320,10 @@ theorem terrain_case {xl xh yl yh zl : Int} (hc : terrainClear xl xh yl yh zl = 
   have hmul : pz * S ≤ terrainAt px py * S := Rat.mul_le_mul_of_nonneg_right ht hS
   grind
 
-/-- **The clearance test is sound**: if it passes, no point of the airframe envelope is solid. -/
-theorem clear_sound (e : Float) (p : Plane) : clearAt e p = true → ¬ Crash p := by
+/-- **The cube test is sound**: if it passes, no point of the airframe envelope is solid. -/
+theorem clearCube_sound (e : Float) (p : Plane) : clearCube e p = true → ¬ Crash p := by
   intro hc hcr
-  unfold clearAt at hc
+  unfold clearCube at hc
   unfold Crash at hcr
   cases hp : exactPos p with
   | none => simp [hp] at hc
@@ -341,6 +345,75 @@ theorem clear_sound (e : Float) (p : Plane) : clearAt e p = true → ¬ Crash p 
 /-- A plane whose reported position is `(x, y, z)` (map metres), for checks. -/
 def planeAt (x y z : Float) : Plane := { st := CityJsb.template, ob := ⟨#[y, x, z]⟩, ox := 0, oy := 0 }
 
-#guard clearAt 0 (planeAt (-120) (-180) 60) && !clearAt 0 (planeAt 63 63 300) && !clearAt 0 (planeAt (-120) (-180) 5)
+#guard clearCube 0 (planeAt (-120) (-180) 60) && !clearCube 0 (planeAt 63 63 300) &&
+  !clearCube 0 (planeAt (-120) (-180) 5)
+
+/-! ### The clearance test against the spec's airframe (`CityGate.clear_spec_sound`)
+
+The positions are the plant's own reported ones (`CitySafety.report`), decoded exactly, as the spec places the
+airframe. Every airframe point's offset from the reported CG is bounded per map axis by the row sums of
+`|Tb2l| · |Ts2b| · M`, where `M` bounds `|r - cg|` per body axis over the 20 points; the box around the CG, widened by
+2.5 m plus `extra`, must meet no building and stay above the terrain. -/
+
+/-- `|x|`. -/
+def rabs (x : Rat) : Rat := max x (-x)
+
+/-- Per-axis range (structural inches) of the 20 points of `CitySafety.airframe`, rounded outward. -/
+def ptMinX : Rat := -119
+def ptMaxX : Rat := 255
+def ptMinY : Rat := -233
+def ptMaxY : Rat := 233
+def ptMinZ : Rat := -22
+def ptMaxZ : Rat := 91
+
+/-- Every airframe point decodes and lies in that range (a constant). -/
+def ptsOK : Bool := (CitySafety.contactPoints ++ CitySafety.flightGearPoints).all fun r =>
+  match CitySafety.ratOf r.x, CitySafety.ratOf r.y, CitySafety.ratOf r.z with
+  | some x, some y, some z => decide (ptMinX ≤ x ∧ x ≤ ptMaxX ∧ ptMinY ≤ y ∧ y ≤ ptMaxY ∧ ptMinZ ≤ z ∧ z ≤ ptMaxZ)
+  | _, _, _ => false
+
+/-- The structural-to-body matrix, decoded (a constant). -/
+def ts2bL : Option (List Rat) := JsbExact.Gen.Ts2b.toList.mapM CitySafety.ratOf
+
+/-- `CitySafety.mulRows` with every entry's absolute value. -/
+def absRows (m : List Rat) (v : Rat × Rat × Rat) : Rat × Rat × Rat := CitySafety.mulRows (m.map rabs) v
+
+/-- Keep-out margin beyond the airframe's bounding box (units): 2.5 m. -/
+def keepSpec : Nat := 40
+
+/-- The map box `[xlo, xhi] × [ylo, yhi] × [zlo, zhi]` (m), widened by `k` units, meets no building and stays above
+the terrain. -/
+def boxClear (k : Int) (xlo xhi ylo yhi zlo zhi : Rat) : Bool :=
+  terrainClear ((xlo * S).floor - k) ((xhi * S).ceil + k) ((ylo * S).floor - k) ((yhi * S).ceil + k)
+      ((zlo * S).floor - k) &&
+    boxesClear ((xlo * S).floor - k) ((xhi * S).ceil + k) ((ylo * S).floor - k) ((yhi * S).ceil + k)
+      ((zlo * S).floor - k) ((zhi * S).ceil + k)
+
+/-- The clearance test on the plant's reported pose; `none` (not clear) if a reported number is not finite. -/
+def clearSpec (extra : Float) (s : JsbExact.State Float) : Option Bool := do
+  let rep := CitySafety.report s
+  let ts ← ts2bL
+  let tb ← [rep.tb2l.a11, rep.tb2l.a12, rep.tb2l.a13, rep.tb2l.a21, rep.tb2l.a22, rep.tb2l.a23,
+    rep.tb2l.a31, rep.tb2l.a32, rep.tb2l.a33].mapM CitySafety.ratOf
+  let cx ← CitySafety.ratOf s.cg.x
+  let cy ← CitySafety.ratOf s.cg.y
+  let cz ← CitySafety.ratOf s.cg.z
+  let ly ← CitySafety.ratOf rep.loc.y
+  let lz ← CitySafety.ratOf rep.loc.z
+  let h ← CitySafety.ratOf rep.hsl
+  let _ ← CitySafety.sinkRate s
+  let m := (max (ptMaxX - cx) (cx - ptMinX), max (ptMaxY - cy) (cy - ptMinY), max (ptMaxZ - cz) (cz - ptMinZ))
+  let dd := absRows tb (absRows ts m)
+  let k : Int := keepSpec + extraUnits extra
+  return ptsOK && boxClear k ((ly - dd.2.1) * CitySafety.ft) ((ly + dd.2.1) * CitySafety.ft)
+    ((lz - dd.1) * CitySafety.ft) ((lz + dd.1) * CitySafety.ft)
+    ((h - dd.2.2) * CitySafety.ft + 9) ((h + dd.2.2) * CitySafety.ft + 9)
+
+/-- **The clearance test** the gate runs on every frame of every rollout: the spec's airframe, placed by the plant's
+reported pose, is boxed and the box (2.5 m + `extra` wider) meets no building and stays above the terrain. -/
+def clearAt (extra : Float) (p : Plane) : Bool := (clearSpec extra p.st).getD false
+
+-- the box part: a level aircraft (±6 m, ±1.5 m) mid-street is clear, one inside the tallest tower is not
+#guard boxClear 40 (-126) (-114) (-186) (-174) (117 / 2) (123 / 2) && !boxClear 40 57 69 57 69 (597 / 2) (603 / 2)
 
 end CityGate

@@ -2,8 +2,9 @@ import GateSafety.Spec
 import CityGate.Geometry
 import CityGate.Law
 
-/-! The city gate as a `GateSafety.Gate`: `flight/src/envfilter.rs`'s exact-rollout gatekeeper (escapes,
-end-of-escape test, resume, direction preference, hold, hand-back margin), one JSBSim frame at a time. Every
+/-! The city gate as a `GateSafety.Gate`: `flight/src/envfilter.rs`'s exact-rollout gatekeeper (escapes, resume,
+direction preference, hold, hand-back margin), one JSBSim frame at a time, its escapes ending in the landing funnel
+(`inFunnel`). Every
 3 frames (about the demo's 20 ms tick) it checks candidates "the pilot's surfaces for 3 frames, then escape law
 `l`"; in between it flies what it holds. The rollout bookkeeping `rollout_law` keeps locally (frames flown,
 samples, the track unwrap) lives in the controller state, so `term` and `clear` see it. -/
@@ -25,10 +26,13 @@ structure Ctl where
   cap : Nat
   deriving Inhabited
 
-/-- Frames between checks (≈ the demo's 20 ms tick), and the frames a candidate holds the pilot's surfaces. -/
-def CHECK_EVERY : Nat := 3
-/-- `HORIZON` (16 s) and `RESUME_CAP` in JSBSim frames. -/
-def HORIZON_FRAMES : Nat := 2048
+/-- Frames between checks, and the frames a candidate holds the pilot's surfaces: funnel mode's
+`FUNNEL_CHECK_TICKS` (10 ticks of 20 ms = 25.6 frames; Rust flies 25 or 26 by its tick accounting). -/
+def CHECK_EVERY : Nat := 26
+/-- Escapes: the autoland variants (`N_AUTO`; `n_esc()` in funnel mode). -/
+def N_GATE : Nat := N_AUTO
+/-- `HORIZON_FUNNEL` (300 s) and `RESUME_CAP` in JSBSim frames. -/
+def HORIZON_FRAMES : Nat := 38400
 def RESUME_CAP : Nat := 1100
 /-- `HOLD_TICKS` (15 ticks = 0.3 s) and `RESUME_TICKS` (100 ticks = 2 s), in frames. -/
 def HOLD_FRAMES : Nat := 38
@@ -57,7 +61,7 @@ def clampIn (lo hi x : Float) : Float := if lo ≤ x then (if x ≤ hi then x el
 
 /-- Surfaces clamped to their ranges (`CitySafety.Surfaces.clamp`); a no-op on finite in-range values. -/
 def Surf.clamp (u : Surf) : Surf :=
-  ⟨clampIn (-1) 1 u.elev, clampIn (-1) 1 u.ail, clampIn (-1) 1 u.rud, clampIn 0 1 u.thr⟩
+  ⟨clampIn (-1) 1 u.elev, clampIn (-1) 1 u.ail, clampIn (-1) 1 u.rud, clampIn 0 1 u.thr, clampIn 0 1 u.brk⟩
 
 /-- One frame: the latched pilot surfaces, or a frame of the law (recording a sample every `SAMPLE` law
 frames), clamped to their ranges. -/
@@ -72,12 +76,9 @@ def Ctl.ctl (c : Ctl) (p : Plane) : Surf × Ctl :=
 def Ctl.streetOK (c : Ctl) (p : Plane) : Bool :=
   c.pf > 0 || c.law.esc != STREET || !(c.law.capture p.ob).axis.isNaN
 
-/-- End-of-escape test on the schedule of `rollout_law`: from `T_TERM` every `TERM_EVERY` frames while turning,
-`terminal` on the samples including this one. Leaving the map is not an end: the terrain continues past its edge. -/
-def Ctl.term (c : Ctl) (p : Plane) : Bool :=
-  if c.pf > 0 || c.lk % SAMPLE != 0 then false
-  else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir (c.record p).hist
-  else false
+/-- End of an escape: the escape (past the pilot's frames) has brought the aircraft into the landing funnel. From
+there the autoland lands it; that is the assumption `FunnelSound` (`CityGate.Safety`). -/
+def Ctl.term (c : Ctl) (p : Plane) : Bool := c.pf == 0 && inFunnel p
 
 /-- The proposal layer's memory: frame counter, whether the held controller is a committed escape, frames since
 the commit, frames since the last hand-back, the round-robin start while committed, the last turn direction. -/
@@ -109,7 +110,7 @@ def candidateLaws (m : Mem) (p : Plane) (w : Ctl) : List Law × Nat :=
   let first := if m.committed || wl.t == 0.0 || m.sinceHandback < RESUME_FRAMES then [wl] else []
   let pref := prefDir m p w
   let start := if m.committed then m.rr else wl.esc
-  let order := (List.range N_ESC).map fun i => (start + i) % N_ESC
+  let order := (List.range N_GATE).map fun i => (start + i) % N_GATE
   let ordered := order.filter (fun e => ESC_DIR[e]! * pref ≥ 0.0) ++ order.filter (fun e => !(ESC_DIR[e]! * pref ≥ 0.0))
   let fresh := (ordered.filter fun e => !first.any fun l => l.t == 0.0 && l.esc == e).map Law.new
   let laws := (first ++ fresh).take MAX_CANDS
@@ -131,7 +132,7 @@ def updateM (m : Mem) (p : Plane) (w : Ctl) (_u : Surf) (accepted : Bool) : Mem 
     { m' with committed := true, runFrames := 1, prevDir := if d != 0.0 then d else m.prevDir }
   else if m.committed then
     let d := lawDir w.law
-    let rr := if m.checks then (m.rr + Nat.max (candidateLaws m p w).2 1) % N_ESC else m.rr
+    let rr := if m.checks then (m.rr + Nat.max (candidateLaws m p w).2 1) % N_GATE else m.rr
     { m' with runFrames := m.runFrames + 1, rr, prevDir := if d != 0.0 then d else m.prevDir }
   else { m' with sinceHandback := m.sinceHandback + 1 }
 
@@ -141,7 +142,7 @@ def MEM0 : Mem := { frame := 0, committed := false, runFrames := 0, sinceHandbac
 def gate0 : Gate Plane Surf Ctl Mem where
   step := Plane.step
   ctl := Ctl.ctl
-  clear x := (decide (x.1.lk ≤ x.1.cap) && x.1.streetOK x.2) && clearAt x.1.extra x.2
+  clear x := ((decide (x.1.lk ≤ x.1.cap) && x.1.streetOK x.2) && onMap x.2.pos.1 x.2.pos.2.1) && clearAt x.1.extra x.2
   term x := x.1.term x.2
   horizon := CHECK_EVERY + HORIZON_FRAMES
   propose := proposeC
@@ -152,8 +153,8 @@ def gate0 : Gate Plane Surf Ctl Mem where
 /-- `Gate::new`: the first escape that verifies from `p`, else escape 0 (Rust picks the one that survives longest;
 either way such a start is outside `Init`). -/
 def startCtl (p : Plane) : Ctl :=
-  let c := fun e => Ctl.fresh ⟨0, 0, 0, 0⟩ 0 (Law.new e) 0.0 HORIZON_FRAMES
-  match (List.range N_ESC).find? fun e => gate0.rolloutOK gate0.horizon (c e, p) with
+  let c := fun e => Ctl.fresh ⟨0, 0, 0, 0, 0⟩ 0 (Law.new e) 0.0 HORIZON_FRAMES
+  match (List.range N_GATE).find? fun e => gate0.rolloutOK gate0.horizon (c e, p) with
   | some e => c e
   | none => c 0
 
@@ -171,22 +172,24 @@ def alphaFor (n v : Float) : Float :=
   let cl := n * 1043.0 * 9.81 / (qbar * 16.2)
   clamp ((cl - 0.31) / 4.6) (-0.05) 0.25
 
-/-- The aircraft at the start, as `JsbPlant::new` builds it from a point-mass state: map point, altitude, airspeed,
-flight path, heading (counter-clockwise from east), bank (positive left), load factor, throttle. Its first frame
-flies the fly-by-wire's first output (all observations zero: elevator `-clamp(0.21 n)`, the rest centred). -/
-def startPlane (x y z v gam psi phi n thr : Float) : Plane :=
+/-- The aircraft at the start, as `JsbPlant::new` builds it from a point-mass state: map point, map altitude, airspeed,
+flight path, heading (counter-clockwise from east), bank (positive left), load factor, throttle, and `fuel` lb in each
+tank. JSBSim's altitude is the map altitude minus `Landing.mapDatum`. Its first frame flies the fly-by-wire's first
+output (all observations zero: elevator `-clamp(0.21 n)`, the rest centred). -/
+def startPlane (x y z v gam psi phi n thr fuel : Float) : Plane :=
   let v := fmax v 20.0
-  let st := CityJsb.init z v gam (PI / 2.0 - psi) (-phi) (alphaFor (fmax n 0.5) v)
+  let st := CityJsb.setFuelE (CityJsb.init (z - Landing.mapDatum) v gam (PI / 2.0 - psi) (-phi) (alphaFor (fmax n 0.5) v)) fuel
   let raw := 1.0 * (0.21 * n + 0.84 * 0.0 - 0.21 * 0.0) - 24.0 * 0.0
-  ({ st, ob := FloatArray.empty, ox := x, oy := y } : Plane).step ⟨-(clamp raw (-1.0) 1.0), 0.0, 0.0, clamp thr 0.0 1.0⟩
+  ({ st, ob := FloatArray.empty, ox := x, oy := y } : Plane).step ⟨-(clamp raw (-1.0) 1.0), 0.0, 0.0, clamp thr 0.0 1.0, 0.0⟩
 
-def startState (x y z v gam psi phi n thr : Float) : Plane × (Mem × Ctl) :=
-  let s := startPlane x y z v gam psi phi n thr
+def startState (x y z v gam psi phi n thr fuel : Float) : Plane × (Mem × Ctl) :=
+  let s := startPlane x y z v gam psi phi n thr fuel
   (s, (cityGate.m₀, cityGate.start s))
 
-theorem startState_eq (x y z v gam psi phi n thr : Float) :
-    startState x y z v gam psi phi n thr =
-      (startPlane x y z v gam psi phi n thr, (cityGate.m₀, cityGate.start (startPlane x y z v gam psi phi n thr))) :=
+theorem startState_eq (x y z v gam psi phi n thr fuel : Float) :
+    startState x y z v gam psi phi n thr fuel =
+      (startPlane x y z v gam psi phi n thr fuel,
+        (cityGate.m₀, cityGate.start (startPlane x y z v gam psi phi n thr fuel))) :=
   rfl
 
 /-- Display only (called every 0.1 s): points (east, north, up; m) every `SAMPLE` frames along the held controller's escape,

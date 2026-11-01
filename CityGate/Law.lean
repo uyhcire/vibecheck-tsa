@@ -1,13 +1,10 @@
-import CityGate.Terminal
+import CityGate.Autoland
 
 /-! The escape law of `flight/src/envfilter.rs` (`Law`, with the default gains `law_params()` = `LAW_CEGIS2`, a
 cegis elevator law), ported over `Float` with Rust's operation order. Not trusted: the gate's rollouts fly it
 on the plant itself, so nothing about it needs proving. -/
 
 namespace CityGate.Esc
-
-def G0 : Float := 9.80665
-def DT_JSB : Float := 0.0078125
 
 /-- Escapes: turn direction (JSBSim sign, +1 = bank right) and bank (rad): straight, left/right at 30° and 40°,
 and the street escape. -/
@@ -54,8 +51,6 @@ def KR : Float := 0.5
 def T_PULL_MAX : Float := 6.0
 def GAM_TURN : Float := 0.03
 
-def rhoOf (h : Float) : Float := 1.225 * (fmax (1.0 - 2.2558e-5 * h) 0.5).pow 4.256
-
 /-- The escape law's state (`Law`): which escape, time since it began, integrators, the track held once the
 pull-up ends, and the street escape's axis, helix side and next look. -/
 structure Law where
@@ -69,11 +64,16 @@ structure Law where
   side : Float
   nextTry : Float
   captured : Bool
+  /-- Funnel mode: the autoland escape this law flies instead (`autoland.rs`). -/
+  auto : Option Auto
   deriving Inhabited
+
+/-- Funnel mode (`--funnel`): the escapes are the autoland variants and a check ends in the landing funnel. -/
+def FUNNEL : Bool := true
 
 def Law.new (esc : Nat) : Law :=
   { esc, t := 0.0, ia := 0.0, ib := 0.0, iphi := 0.0, psiRef := NAN, axis := NAN, side := 0.0, nextTry := 0.0,
-    captured := false }
+    captured := false, auto := if FUNNEL then some (Auto.new esc) else none }
 
 def Law.turning (l : Law) : Bool := !l.psiRef.isNaN
 
@@ -167,12 +167,17 @@ def Law.controls (l : Law) (o : FloatArray) : Surf × Law :=
   let rudRaw := -KB * beta + KR * (o[12]! - rTurn) + l.ib
   let rud := clamp rudRaw (-1.0) 1.0
   let ib := if rud == rudRaw || beta * l.ib > 0.0 then clamp (l.ib - KI_B * beta * DT_JSB) (-0.5) 0.5 else l.ib
-  (⟨-e, ail, rud, 1.0⟩, { l with iphi, ib })
+  (⟨-e, ail, rud, 1.0, 0.0⟩, { l with iphi, ib })
 
 /-- One frame of the escape (`Law::step`): capture, street turn, surfaces; the clock advances. -/
 def Law.step (l : Law) (p : Plane) : Surf × Law :=
-  let l := (l.capture p.ob).streetTurn p
-  let (u, l) := l.controls p.ob
-  (u, { l with t := l.t + DT_JSB })
+  match l.auto with
+  | some a =>
+    let (u, a) := a.controls p
+    (u, { l with auto := some a, t := l.t + DT_JSB })
+  | none =>
+    let l := (l.capture p.ob).streetTurn p
+    let (u, l) := l.controls p.ob
+    (u, { l with t := l.t + DT_JSB })
 
 end CityGate.Esc

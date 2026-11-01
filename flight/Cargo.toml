@@ -53,6 +53,11 @@ path = "src/bin/esclab.rs"
 required-features = ["jsb"]
 
 [[bin]]
+name = "landing"
+path = "src/bin/landing.rs"
+required-features = ["jsb"]
+
+[[bin]]
 name = "drawstep"
 path = "src/bin/drawstep.rs"
 required-features = ["jsb"]
