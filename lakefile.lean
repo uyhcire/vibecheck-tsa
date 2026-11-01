@@ -125,7 +125,7 @@ target cityjsb_abi.o pkg : FilePath := do
 /-- `libcityjsb.dylib`: `JsbExact` as a flight-sim plant and the Lean city gate (`CityGate.Ffi`), Lean runtime linked
 in; exports only `cityjsb_*` and `citygate_*`. -/
 target libcityjsb pkg : FilePath := do
-  let lib := pkg.buildDir / "lib" / "libcityjsb.dylib"
+  let lib := pkg.buildDir / "lib" / (if System.Platform.isOSX then "libcityjsb.dylib" else "libcityjsb.so")
   let leanLib := (← getLeanLibDir).toString
   let sysLib := ((← getLeanSysroot) / "lib").toString
   let abi ← cityjsb_abi.o.fetch
@@ -138,8 +138,14 @@ target libcityjsb pkg : FilePath := do
   (Job.collectArray #[abi, jx, gate, gsafe, vcf, city, exact]).mapM fun files => do
     buildFileUnlessUpToDate' lib do
       IO.FS.createDirAll (pkg.buildDir / "lib")
-      proc {cmd := "cc", args := #["-shared", "-o", lib.toString, "-Wl,-force_load," ++ files[0]!.toString]
-        ++ (files.extract 1).map (·.toString) ++ #["-L", leanLib, "-L", sysLib, "-lInit", "-lStd", "-lleanrt",
-        "-lgmp", "-luv", "-lc++", "-Wl,-dead_strip", "-Wl,-exported_symbol,_cityjsb_*", "-Wl,-exported_symbol,_citygate_*",
-        "-Wl,-install_name,@rpath/libcityjsb.dylib"]}
+      let rest := (files.extract 1).map (·.toString)
+      let args := if System.Platform.isOSX then
+        #["-shared", "-o", lib.toString, "-Wl,-force_load," ++ files[0]!.toString] ++ rest ++ #["-L", leanLib,
+          "-L", sysLib, "-lInit", "-lStd", "-lleanrt", "-lgmp", "-luv", "-lc++", "-Wl,-dead_strip",
+          "-Wl,-exported_symbol,_cityjsb_*", "-Wl,-exported_symbol,_citygate_*", "-Wl,-install_name,@rpath/libcityjsb.dylib"]
+      else
+        #["-shared", "-o", lib.toString, "-Wl,--whole-archive", files[0]!.toString, "-Wl,--no-whole-archive"] ++ rest
+          ++ #["-L", leanLib, "-lleanshared", "-Wl,-rpath," ++ leanLib, "-lm", "-lpthread", "-ldl",
+          "-Wl,-soname,libcityjsb.so"]
+      proc {cmd := "cc", args}
     return lib
