@@ -499,10 +499,26 @@ pub struct RollCfg<'a> {
     pub term_margin: f64,
     pub horizon: f64,
     pub prefix: &'a [(f64, f64, f64)],
+    /// Clearance is checked every this many frames (terminal-test history is kept every `SAMPLE` regardless).
+    pub check_every: usize,
+}
+
+/// The filters' clearance margin (m, stored as f64 bits) and check spacing (frames): `MARGIN` and `SAMPLE` unless
+/// overridden (`--margin`, `--check-every`), a filter design choice for experiments.
+pub static FILTER_MARGIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x4010_0000_0000_0000);
+pub static FILTER_CHECK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(SAMPLE);
+
+pub fn set_filter_margin(m: f64, check_every: usize) {
+    FILTER_MARGIN.store(m.to_bits(), Ordering::Relaxed);
+    FILTER_CHECK.store(check_every.clamp(1, SAMPLE), Ordering::Relaxed);
 }
 
 impl RollCfg<'static> {
-    pub const FILTER: RollCfg<'static> = RollCfg { margin: MARGIN, term_margin: MARGIN, horizon: HORIZON, prefix: &[] };
+    /// What the filters check: the default margin, horizon and spacing unless overridden.
+    pub fn filter() -> RollCfg<'static> {
+        let m = f64::from_bits(FILTER_MARGIN.load(Ordering::Relaxed));
+        RollCfg { margin: m, term_margin: m, horizon: HORIZON, prefix: &[], check_every: FILTER_CHECK.load(Ordering::Relaxed) }
+    }
 }
 
 impl Roll {
@@ -539,10 +555,10 @@ pub fn rollout(world: &World, p: &JsbPlant, esc: usize, max_frames: usize) -> Ro
 
 /// `rollout` with an explicit law, stopping with `Outcome::Budget` at the wall-clock `deadline` if given.
 pub fn rollout_law(world: &World, p: &JsbPlant, law: Law, max_frames: usize, deadline: Option<std::time::Instant>) -> Roll {
-    rollout_cfg(world, p, law, max_frames, deadline, &RollCfg::FILTER)
+    rollout_cfg(world, p, law, max_frames, deadline, &RollCfg::filter())
 }
 
-/// `rollout_law` with explicit settings (`RollCfg`); with `RollCfg::FILTER` it is exactly the filters' check.
+/// `rollout_law` with explicit settings (`RollCfg`); `RollCfg::filter()` is the filters' check.
 pub fn rollout_cfg(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>, cfg: &RollCfg) -> Roll {
     let esc = law.esc;
     let mut q = p.fork();
@@ -625,6 +641,16 @@ pub fn rollout_cfg(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize,
         r.nz_max = r.nz_max.max(q.obs.nz);
         let t = k as f64 * DT_JSB;
         r.t = t;
+        if cfg.check_every < SAMPLE && k % cfg.check_every == 0 && k % SAMPLE != 0 {
+            let s = q.state();
+            if on_map(s[X], s[Y]) {
+                let c = world.airframe_clearance(&s, 50.0);
+                r.min_clear = r.min_clear.min(c);
+                if c <= cfg.margin {
+                    return finish(r, &q, &law, Outcome::Hit);
+                }
+            }
+        }
         if k % SAMPLE == 0 {
             if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
                 return finish(r, &q, &law, Outcome::Budget);

@@ -1,6 +1,6 @@
 # Regime 3: canyon
 
-**What it is.** The aircraft is flying down a street below the roofs. The street is too narrow to turn in (28 m wide; a 40° turn at 45 m/s needs a radius of about 240 m), so every way out goes along the street and up. Nothing ahead is close: the street is open for 1.6 km. What decides it: the height below the roof line, the length of canyon ahead before a turn or climb-out fits, and the speed. Here the binding constraint is not an obstacle but the filter's **terminal sets**: the escapes do not hit anything until they try to turn, and the ones that keep going straight never reach a terminal set the filter can certify.
+**What it is.** The aircraft is flying down a street below the roofs. The street is too narrow to turn in (28 m wide; a 40° turn at 45 m/s needs a radius of about 240 m), so every way out goes along the street and up. Nothing ahead is close: the street is open for 1.6 km. What decides it: the height below the roof line, the length of canyon ahead before a turn or climb-out fits, and the speed. Here what binds the gate is not an obstacle but its **terminal sets**: the escapes that keep to the street do not hit anything, but they never reach a terminal set the gate can certify while still below the roofs, and the ones that turn hit the walls.
 
 ## Location
 
@@ -10,23 +10,68 @@ The street `y = 120` (28 m wide), flown east from `x = −470` toward downtown, 
 
 ![canyon](03-canyon.svg)
 
-| Proven safe | Best found, 4 m | Best found, 0 m | Proven unsafe | Filter conservatism | Cost of the 4 m margin | Outer-bound slack |
+| Gate accepts (its 4 m margin) | Proven safe (contact) | Best found (contact) | Proven unsafe | Gate's own margin | Escape library and terminal sets | Outer-bound slack |
 |---|---|---|---|---|---|---|
-| 121.1 m | 26.1 m | 18.9 m | none | 94.9 m | 7.3 m | – |
+| 121.1 m | 109.9 m | 26.6 m | none | 11.1 m | 83.3 m | – |
 
-The filter accepts only from 121 m up, at about the height of the walls near the start. The richer search finds escapes from 26 m up, but not at every height in between (none at 30.5, 49.9, 77.0 or 84.8 m on the grid): the street's geometry makes the best escape depend on where along the block the climb-out happens, and the search is not exhaustive.
+The richer search finds escapes from 26.6 m up, but not at every height in between (none at 30.5, 42.1, 65.4 or 69.2 m on the grid, for example): the street's geometry makes the best escape depend on where along the block the climb-out happens, and the search is not exhaustive.
 
-**Binding causes along the slice.** Over the whole slice the straight escape fails its terminal test: its climbing ray's corridor widens 2% of the distance, so after a couple of hundred metres it is wider than the street and runs into the walls (`ray-bldg`). The street escape follows the street climbing, but until it is near roof height its helix annulus is never clear (`ray-bldg` below 112 m, `unsettled`/`helix` from 116 m). The turns hit the walls beside them (`wall-side`) or the walls of the cross street they turn into (`wall-ahead`, and `roof` near 70 m). The first escape to verify, at 121 m, is the right 30° turn; the 40° turns follow at 139 m.
+**Binding causes along the slice** (at contact). The straight escape fails its terminal test over the whole slice: its climbing ray's corridor widens with distance, runs into the walls (`ray-bldg`) and, above 100 m, into the hills beyond the city (`ray-terrain`). The street escape follows the street climbing, but its terminal test fails the same way until it is near roof height (`ray-terrain`, then `unsettled` and `helix` from 116 m) and it never verifies below 139 m. The turns hit the walls beside them (`wall-side`) or the walls of the cross street they turn into (`wall-ahead`, and `roof` near 65 m). The first escape to verify, at 109.9 m, is the right 30° turn; the 40° turns follow at 127 to 135 m.
 
-**Where the conservatism is.** Almost all of it is the terminal-set requirement, not the escape manoeuvre: the search's programs (a few seconds of hard banked pulls to line up and climb, then the street escape) get out of the canyon by flying along it for longer (24 s horizon against 16 s) and climbing, which the filter's escapes also do, but only certify once a full helix fits. A terminal set that accepts "climbing along a straight, open street with walls on both sides" (a corridor terminal set) would be the lever here, worth up to 95 m on this slice. The outer bound proves nothing: the street is open, so a point mass can always keep flying along it.
+**Where the gap is.** The gate's margin is worth 11 m here, more than on any other slice, because the first escape to verify skims a wall: with no margin the right 30° turn gets through 11 m lower. The rest, 83 m, is the terminal-set requirement, not the manoeuvre: the search's programs (a few seconds of hard banked pulls at up to 5.4 g to line up and climb, then the street escape, over a 24 s horizon against 16 s) get out of the canyon by flying along it for longer and climbing, which the street escape also does, but the gate certifies only once a full helix fits. A terminal set for "climbing along a straight open street" (a corridor terminal set) would be the lever. The safety objective has no terminal sets: they are this gate's proof device, so this gap belongs to the gate, not to physics. The outer bound proves nothing: the street is open, so a point mass can always keep flying along it. The demos below make the same point from the other side: with the sticks released the aircraft flies down the street for 25 s without touching anything (filter off), yet the gate takes over 31 to 48 times, every one of them because no terminal set fits, not because anything was about to be hit.
 
 <!-- DEMOS -->
+## Demos (run from `flight/`)
+
+### Demo: Canyon run east along y = 120 (03-canyon)
+
+**Closest safe call** (the proven-safe state; the gate with its margin set to zero and clearance checked every frame, `--margin 0 --check-every 1`; pilot lead-in 3.00 s with the sticks released, so the fly-by-wire holds flight path and bank into the obstacle):
+
+```sh
+cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -470.00,120.00,117.20,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest safe call, zero-margin gate, 109.9 m"
+```
+
+- filter on: no crash; closest pass during the save **13.31 m** at t = 3.5 s; minimum over 25 s 0.10 m (filter takes over at t = 1.2 s, hands back at 1.2 s, 31 takeovers in all)
+- filter off (`--off`): no crash; minimum airframe clearance 5.3 m (filter never takes over)
+
+**Just-barely-unsafe twin**: 64.0 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
+
+```sh
+cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -470.00,120.00,53.20,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths --label "03-canyon: unverified twin, 45.9 m"
+```
+
+- filter on: **crashes** at t = 16.9 s (filter takes over at t = 0.0 s; start not verified)
+
+**The deployed gate (4 m margin)** from its own acceptance marker (lead-in 3.00 s):
+
+```sh
+cargo run --release --features jsb -- --env gate --time-cap 0 --start -470.00,120.00,128.34,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest call, deployed gate, 121.1 m"
+```
+
+- filter on: no crash; closest pass during the save **15.90 m** at t = 8.4 s; minimum over 25 s 3.93 m (filter takes over at t = 1.6 s, hands back at 1.6 s, 48 takeovers in all)
+- filter off: no crash; minimum airframe clearance 6.1 m (filter never takes over)
+
+
+![03-canyon-gate](shots/03-canyon-gate.jpg) ![03-canyon-safe](shots/03-canyon-safe.jpg) ![03-canyon-twin](shots/03-canyon-twin.jpg)
+<!-- /DEMOS -->
 
 <!-- WILD -->
+## In the wild
+
+Of the 22100 commit runs (filter takeovers) in the 200 hostile-pilot harness episodes, 2975 in 199 episodes fall in this regime (classified by the cause of the escape that got farthest, judged as the deployed gate judges it, with its 4 m margin, from the state where it rejected the pilot; `regimes wild`, `wild.csv`): helix blocked 1259, climb not settled 903, ray blocked by a building 813.
+
+The three closest saves (lowest airframe clearance during the takeover):
+
+| Episode | Takeover at | Cause | Airspeed | Closest pass | Replay (from `flight/`) |
+|---|---|---|---|---|---|
+| 71 | t = 36.5 s | helix blocked | 40 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 71 --paths --cinematic --cam 0` |
+| 5 | t = 59.1 s | climb not settled | 32 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 5 --paths --cinematic --cam 0` |
+| 9 | t = 52.4 s | climb not settled | 30 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 9 --paths --cinematic --cam 0` |
+<!-- /WILD -->
 
 ## State of progress
 
-- **Exact:** escapes flown on the bit-exact JSBSim port.
-- **Numerical:** clearance at 1/16 s samples; the terminal sets (ray corridor, helix annulus) on the settled rollout. These are what bind here.
+- **Exact:** escapes flown on the bit-exact JSBSim port, contact checked at every frame.
+- **Numerical:** the terminal sets (ray corridor, helix annulus) on the settled rollout. These are what bind here.
 - **Formally proved:** nothing for this regime.
-- **Main lever:** a corridor terminal set for open streets (or a longer horizon with a street-following climb), up to 95 m. No outer bound exists for an open canyon without a model of where the street ends.
+- **Main lever:** a corridor terminal set for open streets (or a longer horizon with a street-following climb): up to 83 m. Then the margin (11 m).

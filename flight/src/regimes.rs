@@ -1,17 +1,14 @@
-//! Boundary regimes of the gate filter (`--env gate`): slices through the state space near one obstacle, and
-//! three markers along each slice.
+//! Boundary regimes of the gate filter (`--env gate`) under the contact objective (`docs/safety-objective.md`):
+//! slices through the state space near one obstacle, and markers along each slice, all drawn at actual contact.
 //!
-//! - **Proven safe** (`filter_verdict`): the gate filter accepts the state, i.e. one of its six escapes, flown
-//!   by exact rollout on a fork of the JSBSim aircraft, keeps `MARGIN` of airframe clearance and reaches a
-//!   terminal set. The rollout is exact; the terminal sets are checked numerically on the settled rollout.
-//! - **Best escape found** (`best_found`): some program in a much richer family (a grid of escape-law
-//!   variants with any bank, pull-up time, aggressiveness and climb speed, plus a local search over
-//!   piecewise-constant fly-by-wire prefixes before switching to one) avoids the obstacle on the exact plant.
+//! - **Proven safe** (`contact_verdict`): one of the gate's six escapes, flown by exact rollout on a fork of the
+//!   JSBSim aircraft, keeps positive airframe clearance at every frame and reaches a terminal set (zero vertical
+//!   margin). The rollout is exact; the terminal sets are checked numerically on the settled rollout.
+//! - **Best escape found** (`best_found`): some program in a much richer family avoids contact the same way.
 //!   Empirical: a failed search proves nothing.
-//! - **Proven unsafe** (`outer_bound`): no point mass inside a stated envelope (`Env`) avoids the actual city
-//!   geometry. Sound under the `Env` assumptions, which are optimistic for the aircraft.
-//!
-//! Every slice point also logs, per escape, why the filter's check failed (`Cause`).
+//! - **Proven unsafe** (`outer_bound`): no point mass inside a stated envelope (`env`) avoids the city geometry.
+//! - **Gate accepts** (`gate_verdict`): the deployed filter's own acceptance, with its 4 m margin: a property of
+//!   the filter, not of safety.
 
 use crate::envfilter::*;
 use crate::jsb::*;
@@ -184,17 +181,26 @@ pub struct Verdict {
     pub per_esc: Vec<EscOut>,
 }
 
-/// The gate filter's verdict at a start state (`Gate::new`'s search: every escape, no budget), with every
-/// escape's outcome and cause.
-pub fn filter_verdict(world: &World, s: &State) -> Verdict {
-    let p = JsbPlant::new(s);
-    filter_verdict_plant(world, &p)
+/// The gate filter's own verdict at a start state (`Gate::new`'s search: every escape, no budget, its margin).
+pub fn gate_verdict(world: &World, s: &State) -> Verdict {
+    verdict_cfg(world, &JsbPlant::new(s), &RollCfg::filter())
 }
 
+/// The gate's escapes judged at contact: positive airframe clearance at every frame, zero-margin terminal sets.
+pub fn contact_verdict(world: &World, s: &State) -> Verdict {
+    verdict_cfg(world, &JsbPlant::new(s), &CONTACT)
+}
+
+pub const CONTACT: RollCfg<'static> = RollCfg { margin: 0.0, term_margin: 0.0, horizon: HORIZON, prefix: &[], check_every: 1 };
+
 pub fn filter_verdict_plant(world: &World, p: &JsbPlant) -> Verdict {
+    verdict_cfg(world, p, &RollCfg::filter())
+}
+
+pub fn verdict_cfg(world: &World, p: &JsbPlant, cfg: &RollCfg) -> Verdict {
     let per_esc: Vec<EscOut> = (0..n_esc())
         .map(|e| {
-            let r = rollout(world, p, e, usize::MAX);
+            let r = rollout_cfg(world, p, Law::new(e), usize::MAX, None, cfg);
             EscOut { outcome: r.outcome, cause: classify(world, &r), env: envelope_tag(&r), t: r.t, min_clear: r.min_clear, nz_max: r.nz_max }
         })
         .collect();
@@ -211,7 +217,8 @@ pub struct Prog {
     pub dir: f64,
     pub bank: f64,
     pub t_pull: f64,
-    pub aggressive: bool,
+    /// 0: the filter's gains; 1: n ≤ 3.8, α ≤ 0.26, stiffer flight-path loop; 2: n ≤ 6, α ≤ 0.27.
+    pub aggr: u8,
     pub v_ref: f64,
 }
 
@@ -219,8 +226,11 @@ impl Prog {
     pub fn law(&self) -> Law {
         let base = law_params();
         let mut p = LawP { t_pull_min: [self.t_pull; N_ESC], v_ref: [self.v_ref; N_ESC], keep_bank: true, ..base };
-        if self.aggressive {
+        if self.aggr >= 1 {
             p = LawP { nmax: 3.8, amax: 0.26, kg: 3.5, ..p };
+        }
+        if self.aggr >= 2 {
+            p = LawP { nmax: 6.0, amax: 0.27, kg: 4.5, ..p };
         }
         if self.esc == STREET {
             Law::with(STREET, p)
@@ -231,7 +241,7 @@ impl Prog {
     pub fn text(&self) -> String {
         let pre: Vec<String> = self.prefix.iter().map(|(d, n, ph)| format!("{d:.2}s@{n:.2}g/{:.0}°", -ph.to_degrees())).collect();
         let tail = if self.esc == STREET { "street".to_string() } else if self.dir == 0.0 { "straight".to_string() } else { format!("{}{:.0}°", if self.dir > 0.0 { "R" } else { "L" }, self.bank.to_degrees()) };
-        format!("[{}] {tail} pull≥{:.2}s v_ref {:.0}{}", pre.join(" "), self.t_pull, self.v_ref, if self.aggressive { " aggr" } else { "" })
+        format!("[{}] {tail} pull≥{:.2}s v_ref {:.0}{}", pre.join(" "), self.t_pull, self.v_ref, ["", " aggr", " aggr2"][self.aggr as usize])
     }
 }
 
@@ -247,22 +257,20 @@ pub struct Found {
 
 /// Horizon of the richer search (s): longer than the filter's 16 s.
 pub const BEST_HORIZON: f64 = 24.0;
-/// The richer search rejects programs whose load factor exceeds the c172's +3.8 g limit load by over 5%.
-pub const NZ_SEARCH: f64 = 4.0;
 
 fn grid_progs() -> Vec<Prog> {
     let mut v = Vec::new();
-    for aggressive in [true, false] {
+    for aggr in [2u8, 1, 0] {
         for v_ref in [34.0, 40.0] {
             for t_pull in [0.0, 0.75, 1.5, 3.0] {
-                v.push(Prog { prefix: vec![], esc: 0, dir: 0.0, bank: 0.0, t_pull, aggressive, v_ref });
+                v.push(Prog { prefix: vec![], esc: 0, dir: 0.0, bank: 0.0, t_pull, aggr, v_ref });
                 for dir in [-1.0, 1.0] {
                     for bank_deg in [15.0, 25.0, 35.0, 45.0, 55.0, 62.0] {
-                        v.push(Prog { prefix: vec![], esc: 1, dir, bank: f64::to_radians(bank_deg), t_pull, aggressive, v_ref });
+                        v.push(Prog { prefix: vec![], esc: 1, dir, bank: f64::to_radians(bank_deg), t_pull, aggr, v_ref });
                     }
                 }
             }
-            v.push(Prog { prefix: vec![], esc: STREET, dir: 0.0, bank: 0.7, t_pull: 1.5, aggressive, v_ref });
+            v.push(Prog { prefix: vec![], esc: STREET, dir: 0.0, bank: 0.7, t_pull: 1.5, aggr, v_ref });
         }
     }
     v
@@ -270,9 +278,6 @@ fn grid_progs() -> Vec<Prog> {
 
 /// Score of a failed rollout for the local search: later failures and wider clearance score higher.
 fn score(r: &Roll) -> f64 {
-    if r.nz_max > NZ_SEARCH {
-        return r.t.min(BEST_HORIZON) - 100.0;
-    }
     match r.outcome {
         Outcome::Ok => 1e9,
         Outcome::Hit => r.t,
@@ -280,11 +285,13 @@ fn score(r: &Roll) -> f64 {
     }
 }
 
-/// Whether some program avoids a crash from `s` with `margin` of airframe clearance (and `margin` in the
-/// terminal sets): the grid first, then `local` local-search iterations from the best grid programs.
-pub fn best_found(world: &World, s: &State, margin: f64, local: usize, seed: u64) -> Found {
+/// Whether some program avoids contact from `s` (positive clearance at every frame, zero-margin terminal sets):
+/// the grid first, then `local` local-search iterations from the best grid programs.
+pub fn best_found(world: &World, s: &State, local: usize, seed: u64) -> Found {
     let p = JsbPlant::new(s);
-    let cfg = |pre: &[(f64, f64, f64)]| RollCfg { margin, term_margin: margin, horizon: BEST_HORIZON, prefix: unsafe { std::mem::transmute::<&[(f64, f64, f64)], &'static [(f64, f64, f64)]>(pre) } };
+    fn cfg(pre: &[(f64, f64, f64)]) -> RollCfg<'_> {
+        RollCfg { prefix: pre, horizon: BEST_HORIZON, ..CONTACT }
+    }
     let mut evals = 0;
     let mut nz_max: f64 = 0.0;
     let mut scored: Vec<(f64, Prog)> = Vec::new();
@@ -296,7 +303,7 @@ pub fn best_found(world: &World, s: &State, margin: f64, local: usize, seed: u64
     };
     for prog in grid_progs() {
         let r = run(&prog, &mut evals, &mut nz_max);
-        if r.ok() && r.nz_max <= NZ_SEARCH {
+        if r.ok() {
             return Found { ok: true, prog: Some(prog), min_clear: r.min_clear, evals, nz_max: r.nz_max };
         }
         scored.push((score(&r), prog));
@@ -310,11 +317,11 @@ pub fn best_found(world: &World, s: &State, margin: f64, local: usize, seed: u64
         let mut q = best[k].1.clone();
         if q.prefix.is_empty() || rng.chance(0.3) {
             let nseg = 1 + (rng.f() * 3.0) as usize;
-            q.prefix = (0..nseg).map(|_| (rng.range(0.15, 1.6), rng.range(0.0, 3.8), rng.range(-1.4, 1.4))).collect();
+            q.prefix = (0..nseg).map(|_| (rng.range(0.15, 1.6), rng.range(0.0, 6.0), rng.range(-1.4, 1.4))).collect();
         } else {
             for seg in &mut q.prefix {
                 seg.0 = (seg.0 * rng.range(0.7, 1.4)).clamp(0.05, 3.0);
-                seg.1 = (seg.1 + rng.range(-0.5, 0.5)).clamp(-0.5, 3.8);
+                seg.1 = (seg.1 + rng.range(-0.5, 0.5)).clamp(-0.5, 6.0);
                 seg.2 = (seg.2 + rng.range(-0.3, 0.3)).clamp(-1.4, 1.4);
             }
         }
@@ -323,7 +330,7 @@ pub fn best_found(world: &World, s: &State, margin: f64, local: usize, seed: u64
             q.t_pull = (q.t_pull + rng.range(-0.5, 0.5)).clamp(0.0, 4.0);
         }
         let r = run(&q, &mut evals, &mut nz_max);
-        if r.ok() && r.nz_max <= NZ_SEARCH {
+        if r.ok() {
             return Found { ok: true, prog: Some(q), min_clear: r.min_clear, evals, nz_max: r.nz_max };
         }
         let sc = score(&r);
@@ -337,19 +344,17 @@ pub fn best_found(world: &World, s: &State, margin: f64, local: usize, seed: u64
 /// Fly a program (no checks) for `secs`: path samples and the minimum airframe clearance.
 pub fn fly_prog(world: &World, s: &State, prog: &Prog, secs: f64) -> (Vec<[f64; 3]>, f64) {
     let p = JsbPlant::new(s);
-    let r = rollout_cfg(world, &p, prog.law(), (secs / DT_JSB) as usize, None, &RollCfg { margin: f64::NEG_INFINITY, term_margin: 0.0, horizon: secs, prefix: unsafe { std::mem::transmute::<&[(f64, f64, f64)], &'static [(f64, f64, f64)]>(&prog.prefix[..]) } });
+    let r = rollout_cfg(world, &p, prog.law(), (secs / DT_JSB) as usize, None, &RollCfg { margin: f64::NEG_INFINITY, horizon: secs, prefix: &prog.prefix, ..CONTACT });
     (r.path, r.min_clear)
 }
 
 // ------------------------------------------------------------------------------------------------ outer bound
 
 /// The optimistic point-mass envelope of the outer bound. Lift is perpendicular to the velocity with magnitude
-/// at most `min(N_CAP g, KAPPA qbar g)` (load-factor cap and stall), thrust is along the velocity and at most
+/// at most `KAPPA qbar g` (the plant's stall, with no structural limit), thrust is along the velocity and at most
 /// `A_T` (specific), drag is against it and at most `CD_MAX qbar S / M_MIN`, and there are no other forces
 /// besides gravity. Controls act instantly (no pitch or roll transients); the aircraft is a point (no wings).
 pub mod env {
-    /// Load-factor cap (g).
-    pub const N_CAP: f64 = 3.8;
     /// 1 / Pa.
     pub const KAPPA: f64 = 0.0036;
     /// Thrust per unit mass (m/s²): an ideal actuator disk of the c172p's 1.9 m propeller at 200 hp gives at
@@ -444,14 +449,12 @@ pub fn outer_bound(world: &World, s: &State) -> Option<Bound> {
     let dt = 0.01;
     let (mut vlo, mut vhi, mut th, mut slo, mut shi, mut rp) = (v0, v0, 0.0f64, 0.0, 0.0, 0.0);
     let (mut vz, mut z_hi, mut z_max) = (v0 * sg, p0[2], p0[2]);
-    let lift = |v: f64| (N_CAP * G0).min(KAPPA * 0.5 * RHO * v * v * G0);
+    let lift = |v: f64| KAPPA * 0.5 * RHO * v * v * G0;
     let mut next_tube = 0.0;
     let mut next_disk = 0.0;
     let mut t = 0.0;
     while t < 8.0 {
-        let vstar = (N_CAP / (KAPPA * 0.5 * RHO)).sqrt();
-        let vc = vstar.clamp(vlo.max(1e-3), vhi.max(1e-3));
-        let om = lift(vc) / vc + G0 / vlo.max(1e-3);
+        let om = lift(vhi) / vhi.max(1e-3) + G0 / vlo.max(1e-3);
         let a_d = CD_MAX * 0.5 * RHO * vhi * vhi * S_OVER_M;
         th = (th + om * dt).min(PI);
         let c = th.cos();
@@ -548,7 +551,7 @@ pub fn calib() {
     }
     println!("plant maxima over the calibration manoeuvres:");
     println!("  perpendicular specific force / (g qbar): {:.5} 1/Pa (bound KAPPA {:.5}); nz/qbar {:.5}", worst.0, env::KAPPA, worst.4);
-    println!("  perpendicular specific force: {:.2} g (bound N_CAP {:.1})", worst.1, env::N_CAP);
+    println!("  perpendicular specific force: {:.2} g (no load-factor cap in the bound)", worst.1);
     println!("  along-path thrust minus drag: {:.2} m/s² (bound A_T {:.1})", worst.2, env::A_T);
     println!("  along-path deceleration / (qbar S/m): {:.3} (bound CD_MAX {:.2})", worst.3, env::CD_MAX);
 }
@@ -584,35 +587,42 @@ impl SliceDef {
 #[derive(Clone, Debug)]
 pub struct Point {
     pub d: f64,
-    pub filter: Verdict,
-    pub best4: Found,
-    pub best0: Found,
+    /// The gate's own acceptance (its 4 m margin), the gate's escapes at contact, the richer search, the bound.
+    pub gate: Verdict,
+    pub lib: Verdict,
+    pub best: Found,
     pub bound: Option<Bound>,
 }
 
-/// The four markers: filter boundary, best found at the filter's 4 m margin and at 0 m, outer bound.
+/// The markers: gate acceptance, proven safe (gate escapes at contact), best found, proven unsafe.
 #[derive(Clone, Debug, Default)]
 pub struct Markers {
+    pub gate: Option<f64>,
     pub safe: Option<f64>,
-    pub best4: Option<f64>,
-    pub best0: Option<f64>,
+    pub best: Option<f64>,
     pub unsafe_: Option<f64>,
-    /// Programs found at the best-found markers (for the record).
-    pub best4_prog: Option<String>,
-    pub best0_prog: Option<String>,
+    pub best_prog: Option<String>,
+    /// Highest load factor of any program found on the slice.
     pub nz_max: f64,
 }
 
 pub const LOCAL_ITERS: usize = 160;
 
+/// Best found, counting the gate's own escapes at contact as part of the search family.
+fn best_or_lib(world: &World, s: &State, lib_ok: bool, d: f64) -> Found {
+    if lib_ok {
+        return Found { ok: true, prog: None, min_clear: f64::NAN, evals: 0, nz_max: 0.0 };
+    }
+    best_found(world, s, LOCAL_ITERS, (d * 1000.0) as u64)
+}
+
 pub fn eval_point(world: &World, def: &SliceDef, d: f64) -> Point {
     let s = (def.make)(world, d);
-    let filter = filter_verdict(world, &s);
-    let seed = (d * 1000.0) as u64;
-    let best4 = best_found(world, &s, MARGIN, LOCAL_ITERS, seed);
-    let best0 = if best4.ok { best4.clone() } else { best_found(world, &s, 0.0, LOCAL_ITERS, seed) };
+    let gate = gate_verdict(world, &s);
+    let lib = contact_verdict(world, &s);
+    let best = best_or_lib(world, &s, lib.ok, d);
     let bound = outer_bound(world, &s);
-    Point { d, filter, best4, best0, bound }
+    Point { d, gate, lib, best, bound }
 }
 
 /// Smallest grid `d` where `pred` holds, refined by bisection against the grid point below it to `tol`.
@@ -649,32 +659,34 @@ pub fn grid_ds(def: &SliceDef) -> Vec<f64> {
 
 pub fn markers(world: &World, def: &SliceDef, pts: &[Point], threads: usize) -> Markers {
     let g = |f: &dyn Fn(&Point) -> bool| -> Vec<(f64, bool)> { pts.iter().map(|p| (p.d, f(p))).collect() };
-    let gf = g(&|p| p.filter.ok);
-    let g4 = g(&|p| p.best4.ok);
-    let g0 = g(&|p| p.best0.ok);
-    let gu = g(&|p| p.bound.is_some());
+    let (gg, gl, gb, gu) = (g(&|p| p.gate.ok), g(&|p| p.lib.ok), g(&|p| p.best.ok), g(&|p| p.bound.is_some()));
     let tol = def.tol;
-    let jobs: Vec<usize> = (0..4).collect();
+    let mk = |d: f64| (def.make)(world, d);
     let res: Vec<Option<f64>> = crate::harness::par_map(
-        jobs,
+        (0..4).collect::<Vec<usize>>(),
         threads.min(4),
         |&k| match k {
-            0 => closest_true(&gf, tol, &|d| filter_verdict(world, &(def.make)(world, d)).ok),
-            1 => closest_true(&g4, tol, &|d| best_found(world, &(def.make)(world, d), MARGIN, LOCAL_ITERS, (d * 1000.0) as u64).ok),
-            2 => closest_true(&g0, tol, &|d| best_found(world, &(def.make)(world, d), 0.0, LOCAL_ITERS, (d * 1000.0) as u64).ok),
-            _ => farthest_true(&gu, tol, &|d| outer_bound(world, &(def.make)(world, d)).is_some()),
+            0 => closest_true(&gg, tol, &|d| gate_verdict(world, &mk(d)).ok),
+            1 => closest_true(&gl, tol, &|d| contact_verdict(world, &mk(d)).ok),
+            2 => closest_true(&gb, tol, &|d| {
+                let s = mk(d);
+                best_or_lib(world, &s, contact_verdict(world, &s).ok, d).ok
+            }),
+            _ => farthest_true(&gu, tol, &|d| outer_bound(world, &mk(d)).is_some()),
         },
         |_, _| {},
     );
-    let prog_at = |d: Option<f64>, m: f64| d.and_then(|d| best_found(world, &(def.make)(world, d), m, LOCAL_ITERS, (d * 1000.0) as u64).prog.map(|p| p.text()));
+    let best_prog = res[2].map(|d| {
+        let s = mk(d);
+        if contact_verdict(world, &s).ok { "one of the gate's own escapes".to_string() } else { best_found(world, &s, LOCAL_ITERS, (d * 1000.0) as u64).prog.map_or("-".into(), |p| p.text()) }
+    });
     Markers {
-        safe: res[0],
-        best4: res[1],
-        best0: res[2],
+        gate: res[0],
+        safe: res[1],
+        best: res[2],
         unsafe_: res[3],
-        best4_prog: prog_at(res[1], MARGIN),
-        best0_prog: prog_at(res[2], 0.0),
-        nz_max: pts.iter().flat_map(|p| [p.best4.clone(), p.best0.clone()]).filter(|f| f.ok).map(|f| f.nz_max).fold(0.0, f64::max),
+        best_prog,
+        nz_max: pts.iter().filter(|p| p.best.ok && p.best.prog.is_some()).map(|p| p.best.nz_max).fold(0.0, f64::max),
     }
 }
 
@@ -770,34 +782,19 @@ pub fn demo_run(world: &World, s0: &State, filter_on: bool, secs: f64) -> DemoRu
 
 // ------------------------------------------------------------------------------------------------ in the wild
 
-pub const REGIMES: [&str; 7] = [
-    "01-terrain-roof-below",
-    "02-wall-beside",
-    "03-canyon",
-    "04-wall-ahead",
-    "05-low-speed",
-    "06-high-speed",
-    "07-rising-terrain",
-];
+pub const REGIMES: [&str; 5] = ["01-terrain-roof-below", "02-wall-beside", "03-canyon", "04-wall-ahead", "05-rising-terrain"];
 
-/// The regime a filter verdict falls in, from the cause of the escape that got farthest (latest failure)
-/// and the aircraft's speed: index into `REGIMES`.
-pub fn regime_of(v: &Verdict, s: &State) -> usize {
-    let best = v.per_esc.iter().filter(|e| e.cause != Cause::NoStreet).max_by(|a, b| a.t.partial_cmp(&b.t).unwrap());
-    let Some(e) = best else { return 0 };
-    if s[V] < 31.0 && e.env.contains("alpha") {
-        return 4;
-    }
-    if s[V] > 55.0 && e.env.contains('n') {
-        return 5;
-    }
+/// The regime of a takeover, from the cause of the escape that got farthest (latest failure): index into
+/// `REGIMES`, or `None` when an escape verified (the filter fell back for lack of budget, not geometry).
+pub fn regime_of(v: &Verdict) -> Option<usize> {
+    let e = v.per_esc.iter().filter(|e| e.cause != Cause::NoStreet).max_by(|a, b| a.t.partial_cmp(&b.t).unwrap())?;
     match e.cause {
-        Cause::HitGround | Cause::HitRoof => 0,
-        Cause::HitWallSide => 1,
-        Cause::TermRayBuilding | Cause::TermHelix | Cause::TermUnsettled | Cause::TermNotTurning => 2,
-        Cause::HitWallAhead => 3,
-        Cause::HitTerrainAhead | Cause::TermRayTerrain => 6,
-        _ => 0,
+        Cause::HitGround | Cause::HitRoof => Some(0),
+        Cause::HitWallSide => Some(1),
+        Cause::TermRayBuilding | Cause::TermHelix | Cause::TermUnsettled | Cause::TermNotTurning => Some(2),
+        Cause::HitWallAhead => Some(3),
+        Cause::HitTerrainAhead | Cause::TermRayTerrain => Some(4),
+        Cause::Ok | Cause::NoStreet => None,
     }
 }
 
@@ -805,7 +802,7 @@ pub fn regime_of(v: &Verdict, s: &State) -> usize {
 pub struct WildEvent {
     pub episode: u64,
     pub t: f64,
-    pub regime: usize,
+    pub regime: Option<usize>,
     pub cause: Cause,
     pub v: f64,
     /// Lowest airframe clearance from the commit until the pilot is accepted again (m).
@@ -847,7 +844,7 @@ pub fn wild_episode(world: &World, e: u64, secs: f64) -> Vec<WildEvent> {
                 if let Some(c) = pre {
                     let v = filter_verdict_plant(world, &c);
                     let st = c.state();
-                    let reg = regime_of(&v, &st);
+                    let reg = regime_of(&v);
                     let cause = v.per_esc.iter().filter(|x| x.cause != Cause::NoStreet).max_by(|a, b| a.t.partial_cmp(&b.t).unwrap()).map_or(Cause::Ok, |x| x.cause);
                     out.push(WildEvent { episode: e, t: sim.time(), regime: reg, cause, v: st[V], min_clear: sim.true_clear, crashed: false });
                 }

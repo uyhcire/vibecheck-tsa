@@ -1,0 +1,3 @@
+mkdir -p docs/boundary-regimes/01-terrain-roof-below/shots
+flight/target/release/cityflight --env gate --time-cap 0 --margin 0 --check-every 1 --start 0.00,-1600.00,21.85,20.40,8.000,0.000,0.000,0.00 --lead 0 --cinematic --cam 0 --paths --label "01c-slow-valley: closest safe call, zero-margin gate, 20.4 m/s" --shot docs/boundary-regimes/01-terrain-roof-below/shots/01c-slow-valley-safe.png --frames 345
+flight/target/release/cityflight --env gate --time-cap 0 --start 0.00,-1600.00,21.85,24.80,8.000,0.000,0.000,0.00 --lead 0 --cinematic --cam 0 --paths --label "01c-slow-valley: closest call, deployed gate, 24.8 m/s" --shot docs/boundary-regimes/01-terrain-roof-below/shots/01c-slow-valley-gate.png --frames 12
