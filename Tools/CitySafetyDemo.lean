@@ -8,7 +8,7 @@ def toF (r : Rat) : Float := Float.ofInt r.num / r.den.toFloat
 
 /-- Nose gear and lowest airframe point, in map metres. -/
 def describe (s : State Float) : String :=
-  match airframe s with
+  match airframe tiny s with
   | none => "pose undefined"
   | some ps =>
     let low := ps.foldl (fun m p => min m (toF p.z)) 1e9
@@ -33,4 +33,4 @@ def main : IO Unit := do
     let hit := vertexCrash tiny c.state
     IO.println s!"start psi={c.psi}: vertexCrash tiny at the start = {hit}"
   run "cruise north into the tower" north cruise (128 * 60)
-  run "dive south into the ground" ⟨0, 0, 1500, 50, 3.141592653589793, 0.0223⟩ ⟨0.5, 0, 0, 0⟩ (128 * 120)
+  run "dive south into the ground" ⟨0, 0, 1500, 50, 3.141592653589793, 0.0223, 8⟩ ⟨0.5, 0, 0, 0, 0⟩ (128 * 120)
