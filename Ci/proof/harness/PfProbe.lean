@@ -138,7 +138,7 @@ def main (args : List String) : IO UInt32 := do
         cur := nx
       IO.println (" | ".intercalate outs.toList)
     return 0
-  | ["safecheck", depth, hw] =>
+  | ["safecheck", depth, hw, focus] =>
     let h := (← IO.getStdin)
     repeat
       let line ← h.getLine
@@ -153,7 +153,8 @@ def main (args : List String) : IO UInt32 := do
       let dims : List (Nat × Int) := (List.range 20).filterMap fun i =>
         if i == 0 || i == 11 then none else
         let w := width (B.get i)
-        if w ≤ 0 then none else some (i, (if i == 1 then hw.toInt! else 1) * 1000000000000 / w)
+        let fs := (focus.splitOn ",").map String.toNat!
+        if w ≤ 0 then none else some (i, (if i == 1 then hw.toInt! else if fs.contains i then 10 else 1) * 1000000000000 / w)
       let (okv, n) := countRec dims depth.toNat! B
       IO.println s!"{okv} {n}"
     return 0
