@@ -125,6 +125,7 @@ lean_object *citygate_path_lean(lean_obj_arg g);
 lean_object *citygate_obs_lean(lean_obj_arg g);
 lean_object *citygate_bypass_lean(lean_obj_arg g, double elev, double ail, double rud, double thr);
 lean_object *citygate_restart_lean(lean_obj_arg g);
+lean_object *citygate_trace_lean(lean_obj_arg g);
 
 struct citygate { lean_object *g; };
 
@@ -186,6 +187,16 @@ API size_t citygate_path(const citygate *h, double *xyz, size_t max_points) {
   lean_object *fa = citygate_path_lean(h->g);
   size_t n = lean_sarray_size(fa) / 3;
   if (xyz) memcpy(xyz, lean_float_array_cptr(fa), sizeof(double) * 3 * (n < max_points ? n : max_points));
+  lean_dec(fa);
+  return n;
+}
+
+API size_t citygate_trace(const citygate *h, double *out, size_t max) {
+  lean_rt_ensure();
+  lean_inc(h->g);
+  lean_object *fa = citygate_trace_lean(h->g);
+  size_t n = lean_sarray_size(fa);
+  memcpy(out, lean_float_array_cptr(fa), sizeof(double) * (n < max ? n : max));
   lean_dec(fa);
   return n;
 }

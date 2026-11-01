@@ -54,4 +54,16 @@ def bypassE (g : GateState) (elev ail rud thr : Float) : GateState × FloatArray
 @[export citygate_restart_lean]
 def restartE (g : GateState) : GateState := (g.1, (cityGate.m₀, cityGate.start g.1))
 
+/-- Tooling only (trace comparison): the proposal memory and the held controller, as numbers. -/
+@[export citygate_trace_lean]
+def traceE (g : GateState) : FloatArray :=
+  let m := g.2.1
+  let c := g.2.2
+  let l := c.law
+  let b := fun (x : Bool) => if x then (1 : Float) else 0
+  ⟨#[m.frame.toFloat, b m.committed, m.runFrames.toFloat, m.sinceHandback.toFloat, m.rr.toFloat, m.prevDir,
+    c.pilot.elev, c.pilot.ail, c.pilot.rud, c.pilot.thr, c.pf.toFloat, l.esc.toFloat, l.t, l.ia, l.ib, l.iphi,
+    l.psiRef, l.axis, l.side, l.nextTry, b l.captured, c.lk.toFloat, c.hist.size.toFloat, c.psiPrev, c.extra,
+    c.cap.toFloat]⟩
+
 end CityGate

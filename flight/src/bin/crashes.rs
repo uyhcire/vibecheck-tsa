@@ -62,6 +62,9 @@ struct Stats {
     jump: Vec<[f32; 3]>,
     frames_all: Vec<u32>,
     cpu_workers_ms: Vec<f32>,
+    /// Lean gate: per-tick process CPU (ms), and the frame trace (`CITYGATE_TRACE`).
+    proc_ms: Vec<f32>,
+    trace: Option<Vec<u8>>,
     /// `digest` of the episode's records.
     digest: u64,
 }
@@ -159,6 +162,9 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
     if let Some(g) = sim.lean.take() {
         st.first_accept = g.start_ok;
         st.wall_ms = g.wall_ms.clone();
+        st.cpu_ms = g.cpu_ms.clone();
+        st.proc_ms = g.proc_ms.clone();
+        st.trace = g.trace.clone();
     }
     if let Some(g) = sim.env_gate.take() {
         st.first_accept = g.first_accept.unwrap_or(false);
@@ -320,7 +326,10 @@ fn main() {
             if crashed {
                 std::fs::write(format!("{out}/{name}.json"), json(&world, name, *e, *pk == PilotKind::Kamikaze, &recs, &plans)).unwrap();
             }
-            let st = Stats { digest: digest(&recs), ..st };
+            let mut st = Stats { digest: digest(&recs), ..st };
+            if let Some(t) = st.trace.take() {
+                std::fs::write(format!("{out}/{name}.trace"), t).unwrap();
+            }
             (name.clone(), crashed, recs.last().map_or(0.0, |r| r.t), st)
         },
         |_, _| {},
@@ -386,7 +395,13 @@ fn main() {
     // All threads: the calling thread's CPU plus the pool workers'; all frames, including discarded rollouts.
     let mut cpu_all: Vec<f32> = res.iter().flat_map(|r| r.3.cpu_ms.iter().zip(&r.3.cpu_workers_ms).map(|(a, b)| a + b)).collect();
     let mut fr_all: Vec<f32> = res.iter().flat_map(|r| r.3.frames_all.iter().map(|&f| f as f32)).collect();
-    if !cpu.is_empty() {
+    if cityflight::leangate::enabled() {
+        let mut proc: Vec<f32> = res.iter().flat_map(|r| r.3.proc_ms.iter().copied()).collect();
+        for (label, v) in [("thread CPU ms", &mut cpu), ("process CPU ms", &mut proc), ("wall ms", &mut wall)] {
+            let mean = v.iter().map(|&x| x as f64).sum::<f64>() / v.len().max(1) as f64;
+            println!("lean tick {label:14}: median {:.2}  mean {mean:.2}  p99 {:.2}  p99.9 {:.2}  max {:.2}", pct(v, 0.5), pct(v, 0.99), pct(v, 0.999), pct(v, 1.0));
+        }
+    } else if !cpu.is_empty() {
         let parallel = cityflight::envfilter::CHECK_THREADS.load(std::sync::atomic::Ordering::Relaxed) > 1;
         let mut rows: Vec<(&str, &mut Vec<f32>)> = vec![("thread CPU ms", &mut cpu), ("wall ms", &mut wall), ("JSBSim frames", &mut fr)];
         if parallel {

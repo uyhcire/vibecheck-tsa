@@ -42,6 +42,9 @@ void citygate_bypass(citygate *g, double elev, double ail, double rud, double th
 // Filter back on: start the closed loop afresh from the current aircraft, a new start. Returns citygate_start_ok.
 int citygate_restart(citygate *g);
 
+// Tooling only: the proposal memory and held controller as numbers (CityGate.traceE); returns how many.
+size_t citygate_trace(const citygate *g, double *out, size_t max);
+
 void citygate_free(citygate *g);
 
 #ifdef __cplusplus

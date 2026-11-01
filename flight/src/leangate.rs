@@ -34,7 +34,30 @@ extern "C" {
     fn citygate_restart(g: *mut Raw) -> i32;
     fn citygate_obs(g: *const Raw, out: *mut f64);
     fn citygate_path(g: *const Raw, xyz: *mut f64, max_points: usize) -> usize;
+    fn citygate_trace(g: *const Raw, out: *mut f64, max: usize) -> usize;
     fn citygate_free(g: *mut Raw);
+}
+
+/// Trace values per frame (`CityGate.traceE`).
+const NTRACE: usize = 26;
+
+/// CPU time of the whole process (s): the calling thread plus Lean's task-manager threads.
+pub fn proc_cpu() -> f64 {
+    #[cfg(target_os = "macos")]
+    const ID: i32 = 12;
+    #[cfg(not(target_os = "macos"))]
+    const ID: i32 = 2;
+    #[repr(C)]
+    struct Ts {
+        sec: i64,
+        nsec: i64,
+    }
+    extern "C" {
+        fn clock_gettime(id: i32, ts: *mut Ts) -> i32;
+    }
+    let mut ts = Ts { sec: 0, nsec: 0 };
+    unsafe { clock_gettime(ID, &mut ts) };
+    ts.sec as f64 + ts.nsec as f64 * 1e-9
 }
 
 /// Pilot surfaces remembered for telling the pilot's (latched) input from an escape's.
@@ -66,6 +89,11 @@ pub struct LeanGate {
     pub jump: [f64; 4],
     /// Per-tick wall time of the gate's frames (ms).
     pub wall_ms: Vec<f32>,
+    /// Per-tick CPU time of the calling thread, and of the whole process (ms).
+    pub cpu_ms: Vec<f32>,
+    pub proc_ms: Vec<f32>,
+    /// With `CITYGATE_TRACE` set: per frame, the frame's output and `citygate_trace`, as little-endian f64 bits.
+    pub trace: Option<Vec<u8>>,
 }
 
 // The handle is only ever used by the thread that owns the `Sim`; the C ABI registers that thread with Lean.
@@ -100,6 +128,9 @@ impl LeanGate {
             tv: [0.0; 4],
             jump: [0.0; 4],
             wall_ms: Vec::new(),
+            cpu_ms: Vec::new(),
+            proc_ms: Vec::new(),
+            trace: std::env::var_os("CITYGATE_TRACE").map(|_| Vec::new()),
         };
         let mut o = [0.0; NOBS + 3];
         unsafe { citygate_obs(raw, o.as_mut_ptr()) };
@@ -111,7 +142,7 @@ impl LeanGate {
     /// Advance `dt` seconds of simulation time with the pilot's command held, one gate frame per JSBSim frame;
     /// with `filter_on` false the frames bypass the gate.
     pub fn tick(&mut self, u: &Pilot, dt: f64, filter_on: bool) {
-        let w0 = std::time::Instant::now();
+        let (w0, c0, p0) = (std::time::Instant::now(), crate::envfilter::thread_cpu(), proc_cpu());
         self.lag -= dt;
         while self.lag < -1e-12 {
             // While an escape flies, keep the fly-by-wire bumpless to its surfaces, so a hand-back continues from them.
@@ -128,6 +159,8 @@ impl LeanGate {
             self.lag += DT_JSB;
         }
         self.wall_ms.push((w0.elapsed().as_secs_f64() * 1e3) as f32);
+        self.cpu_ms.push(((crate::envfilter::thread_cpu() - c0) * 1e3) as f32);
+        self.proc_ms.push(((proc_cpu() - p0) * 1e3) as f32);
     }
 
     fn frame(&mut self, s: [f64; 4], filter_on: bool) {
@@ -137,6 +170,14 @@ impl LeanGate {
                 citygate_frame(self.raw, s[0], s[1], s[2], s[3], out.as_mut_ptr());
             } else {
                 citygate_bypass(self.raw, s[0], s[1], s[2], s[3], out.as_mut_ptr());
+            }
+        }
+        if let Some(t) = self.trace.as_mut() {
+            let mut tr = [0.0; NTRACE];
+            let n = unsafe { citygate_trace(self.raw, tr.as_mut_ptr(), NTRACE) };
+            assert_eq!(n, NTRACE);
+            for v in out.iter().chain(tr.iter()) {
+                t.extend_from_slice(&v.to_bits().to_le_bytes());
             }
         }
         let a = [out[0], out[1], out[2], out[3]];
