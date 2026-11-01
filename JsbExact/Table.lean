@@ -16,48 +16,62 @@ variable {α : Type} [Scalar α]
 namespace Table
 @[inline] def at' (t : Table) (i : Nat) : α := lit t.data[i]!
 
-def scan1 (t : Table) (key : α) (r : Nat) : (fuel : Nat) → Nat
-  | 0 => r
-  | fuel + 1 => if lt (t.at' (2 * r)) key then t.scan1 key (r + 1) fuel else r
+/-- Interpolation on segment `r` (between key rows `r - 1` and `r`) of a one-column table. -/
+@[inline] def interp1 (t : Table) (key : α) (r : Nat) : α :=
+  let x0 : α := t.at' (2 * r - 2)
+  let span := t.at' (2 * r) - x0
+  let factor := (key - x0) / span
+  let y0 : α := t.at' (2 * r - 1)
+  mac factor (t.at' (2 * r + 1) - y0) y0
+
+/-- `interp1` on the first segment from `r` whose upper key is not below `key`. -/
+def seg1 (t : Table) (key : α) (r : Nat) : (fuel : Nat) → α
+  | 0 => t.interp1 key r
+  | fuel + 1 => sif lt (t.at' (2 * r)) key then t.seg1 key (r + 1) fuel else t.interp1 key r
 
 def get1 (t : Table) (key : α) : α :=
   let n := t.rows
-  if le key (t.at' 2) then t.at' 3
-  else if ge key (t.at' (2 * n)) then t.at' (2 * n + 1)
-  else
-    let r := t.scan1 key 2 n
-    let x0 : α := t.at' (2 * r - 2)
-    let span := t.at' (2 * r) - x0
-    let factor := (key - x0) / span
-    let y0 : α := t.at' (2 * r - 1)
-    mac factor (t.at' (2 * r + 1) - y0) y0
+  sif le key (t.at' 2) then t.at' 3
+  else sif ge key (t.at' (2 * n)) then t.at' (2 * n + 1)
+  else t.seg1 key 2 n
 
-def scanC (t : Table) (key : α) (c : Nat) : (fuel : Nat) → Nat
-  | 0 => c
-  | fuel + 1 => if lt (t.at' c) key && c < t.cols then t.scanC key (c + 1) fuel else c
-
-def scanR (t : Table) (key : α) (r : Nat) : (fuel : Nat) → Nat
-  | 0 => r
-  | fuel + 1 => if lt (t.at' (r * (t.cols + 1))) key && r < t.rows then t.scanR key (r + 1) fuel else r
-
-def get2 (t : Table) (rowKey colKey : α) : α :=
-  if t.cols == 1 then t.get1 rowKey else
+/-- Bilinear cell (row segment `r`, column segment `c`) with column fraction `cf`. -/
+@[inline] def cell2 (t : Table) (rowKey cf : α) (c r : Nat) : α :=
   let w := t.cols + 1
-  let c := t.scanC colKey 2 t.cols
+  let x0 : α := t.at' ((r - 1) * w)
+  let span := t.at' (r * w) - x0
+  let rf := constrain zero ((rowKey - x0) / span) one
+  let c1 := mac rf (t.at' (r * w + c - 1)) ((one - rf) * t.at' ((r - 1) * w + c - 1))
+  let c2 := mac rf (t.at' (r * w + c)) ((one - rf) * t.at' ((r - 1) * w + c))
+  mac cf (c2 - c1) c1
+
+def rowSeg (t : Table) (rowKey cf : α) (c r : Nat) : (fuel : Nat) → α
+  | 0 => t.cell2 rowKey cf c r
+  | fuel + 1 =>
+    if r < t.rows then
+      sif lt (t.at' (r * (t.cols + 1))) rowKey then t.rowSeg rowKey cf c (r + 1) fuel else t.cell2 rowKey cf c r
+    else t.cell2 rowKey cf c r
+
+/-- `get2` once the column segment `c` is known. -/
+def get2At (t : Table) (rowKey colKey : α) (c : Nat) : α :=
+  let w := t.cols + 1
   let x0 : α := t.at' (c - 1)
   let span := t.at' c - x0
   let cf := constrain zero ((colKey - x0) / span) one
   if t.rows == 1 then
     let y0 : α := t.at' (w + c - 1)
     mac cf (t.at' (w + c) - y0) y0
-  else
-    let r := t.scanR rowKey 2 t.rows
-    let x0 : α := t.at' ((r - 1) * w)
-    let span := t.at' (r * w) - x0
-    let rf := constrain zero ((rowKey - x0) / span) one
-    let c1 := mac rf (t.at' (r * w + c - 1)) ((one - rf) * t.at' ((r - 1) * w + c - 1))
-    let c2 := mac rf (t.at' (r * w + c)) ((one - rf) * t.at' ((r - 1) * w + c))
-    mac cf (c2 - c1) c1
+  else t.rowSeg rowKey cf c 2 t.rows
+
+def colSeg (t : Table) (rowKey colKey : α) (c : Nat) : (fuel : Nat) → α
+  | 0 => t.get2At rowKey colKey c
+  | fuel + 1 =>
+    if c < t.cols then
+      sif lt (t.at' c) colKey then t.colSeg rowKey colKey (c + 1) fuel else t.get2At rowKey colKey c
+    else t.get2At rowKey colKey c
+
+def get2 (t : Table) (rowKey colKey : α) : α :=
+  if t.cols == 1 then t.get1 rowKey else t.colSeg rowKey colKey 2 t.cols
 end Table
 
 end JsbExact

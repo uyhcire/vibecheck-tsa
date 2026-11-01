@@ -38,7 +38,7 @@ lean_exe jsbresid where
 lean_exe jsbbench where
   root := `Tools.Bench
 
-/-- C shims for `JsbExact`: libm `sin`/`cos` and Darwin's combined `__sincos_stret`. -/
+/-- C shims for `JsbExact`'s `Float` instance; every executable using that instance needs `moreLinkObjs := #[jxmath.o]`. -/
 target jxmath.o pkg : FilePath := do
   let oFile := pkg.buildDir / "c" / "jxmath.o"
   let srcJob ← inputTextFile <| pkg.dir / "c" / "jxmath.c"

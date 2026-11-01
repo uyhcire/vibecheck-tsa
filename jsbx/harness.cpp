@@ -15,6 +15,7 @@
 #include <functional>
 #include <algorithm>
 #include <chrono>
+// Relies on JSBSim v1.3.3's member layout: the version pin is load-bearing, since the dumps' meaning depends on it.
 #define private public
 #define protected public
 #include "FGFDMExec.h"
