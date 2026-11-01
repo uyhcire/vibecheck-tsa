@@ -12,26 +12,30 @@ crash:
 ```lean
 inductive Reach (F : Filter) : State × F.σ → Prop
   | init : Init s → Reach (s, F.start s)
-  | step (u : PilotCmd) : Reach p → Reach (F.frame p u)   -- any pilot command; F decides what is applied
+  | step (u : PilotCmd) : ¬ Landed p.1 → Reach p → Reach (F.frame p u)   -- any pilot command until landed
 
 def Safe (F : Filter) : Prop := ∀ p, Reach F p → ¬ Crash map p.1
 ```
 
-`Crash map s` is contact at state `s`: the convex hull of the airframe points touches terrain or a building (see
-"Contact is checked at each frame" below).
+`Crash map s` is contact at state `s` other than a gentle landing: the convex hull of the airframe's body points
+touches terrain or a building, or a wheel touches anything but the runway, or touches the runway sinking faster than
+3 m/s (see "Contact is checked at each frame" and "Landing" below). `Landed` (stopped on the runway) ends the flight.
 
 - **The plant** is `JsbExact`, the bit-exact Lean port of JSBSim 1.3.3's c172p, stepped one JSBSim frame
   (1/128 s) at a time. JSBSim is the ground truth for this simulator.
-- **The pilot** is arbitrary: any control-surface and throttle input within its physical range, chosen afresh every
-  frame. The demo's keyboard pilot, fly-by-wire and 50 Hz control loop are special cases.
+- **The pilot** is arbitrary: any control-surface, throttle and wheel-brake input within its physical range, chosen
+  afresh every frame. The demo's keyboard pilot, fly-by-wire and 50 Hz control loop are special cases.
 - **The filter** is abstract: its own memory, a starting memory, and a per-frame map from (memory, aircraft state,
   pilot command) to the input actually applied, which is clamped to the physical ranges.
 - **Allowed starting states** (`Init`) are a small, conservative, explicit set: for example, steady level flight
-  well clear of everything. Leaving out any starting state that is inconvenient is fine. Because the pilot is
+  well clear of everything. They carry 8 lb of fuel per tank, so every flight has to end in a landing. Leaving out any starting state that is inconvenient is fine. Because the pilot is
   arbitrary, close calls (flying deliberately into a street canyon, say) are still reachable from such starts.
 - **Crash** means actual contact between the airframe and terrain or a building. There is **no clearance margin** in
-  the definition; a margin is a design choice inside a filter. `Crash` is its own predicate so that a later version
-  can treat benign landing-gear contact with a runway as a landing, not a crash (landing is out of scope for now).
+  the definition; a margin is a design choice inside a filter.
+- **Landing.** The map has a runway (on the demo map `[-100, 1100] × [-1360, -1320]`, surface 9 m, landing east).
+  Only the three wheels may touch, only the runway, at most 0.5 m below its surface (the strut compressed), sinking
+  at most 3 m/s. The plant's ground plane (0 ft) is placed at the map's floor and runway surface (`CityMap.datum`),
+  and terrain below the floor is raised to it, so the plant's gear and the map agree.
 
 ## What is deliberately not in the definition
 

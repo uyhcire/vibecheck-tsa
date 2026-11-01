@@ -15,7 +15,7 @@ example : ratOf (Float.ofBits 0x7ff8000000000000) = none := by decide +kernel
 
 /-! ## `Init` is satisfiable -/
 
-def north : StartCond := ⟨0, 0, 1500, 50, 0, 0.0223⟩
+def north : StartCond := ⟨0, 0, 1500, 50, 0, 0.0223, 8⟩
 
 example : Init north.state := ⟨north, List.mem_cons_self .., rfl⟩
 
@@ -70,10 +70,11 @@ theorem hull_lin_ge (cx cy cz k : Rat) {ps : List Pt} (hp : ∀ p ∈ ps, k ≤ 
   rw [hs] at this
   simpa using this
 
-def idle : Surfaces := ⟨0, 0, 0, 0⟩
+def idle : Surfaces := ⟨0, 0, 0, 0, 0⟩
 
 theorem idle_valid : idle.Valid :=
   ⟨⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
+   ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩⟩
@@ -84,10 +85,12 @@ def tower : Box := ⟨-50, 50, 150, 200, -3 / 2, 2000⟩
 
 def pole : Box := ⟨3, 16 / 5, -1 / 2, 1 / 2, -3 / 2, 30⟩
 
-def tiny : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [tower, pole]⟩
+theorem max00 : max (0 : Rat) 0 = 0 := by decide +kernel
+
+def tiny : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [tower, pole], 1000, 1100, 1000, 1040, 0, 0, 0⟩
 
 theorem tiny_terrain (x y : Rat) : tiny.terrain x y = 0 := by
-  simp [CityMap.terrain, tiny, Rat.sub_self, Rat.mul_zero, Rat.add_zero]
+  simp [CityMap.terrain, tiny, Rat.sub_self, Rat.mul_zero, Rat.add_zero, max00]
 
 -- `contactPoints ++ flightGearPoints` (CG at structural (42, 0, 38) in) of a level aircraft heading north, to the cm
 def level (x y z : Rat) : List Pt :=
@@ -130,10 +133,10 @@ example : (∀ p ∈ level 0 0 20, ¬ pole.Contains p) ∧ HullHits tiny (level 
 /-- A 2 cm ledge just inside the right wingtip (FlightGear's RIGHT_TIP), 20.10 to 20.12 m up. -/
 def ledge : Box := ⟨588 / 100, 589 / 100, 1 / 2, 6 / 10, 2010 / 100, 2012 / 100⟩
 
-def ledgeMap : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [ledge]⟩
+def ledgeMap : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [ledge], 1000, 1100, 1000, 1040, 0, 0, 0⟩
 
 theorem ledgeMap_terrain (x y : Rat) : ledgeMap.terrain x y = 0 := by
-  simp [CityMap.terrain, ledgeMap, Rat.sub_self, Rat.mul_zero, Rat.add_zero]
+  simp [CityMap.terrain, ledgeMap, Rat.sub_self, Rat.mul_zero, Rat.add_zero, max00]
 
 -- sinking 0.25 m in one frame (32 m/s) past the ledge: neither frame touches it. Contact strictly between frames is
 -- not counted (decision 5 in `Spec/CitySafety.lean`).
@@ -152,52 +155,87 @@ example : ¬ HullHits ledgeMap (level 0 0 20) ∧ ¬ HullHits ledgeMap (level 0 
     · rw [ledgeMap_terrain] at h; grind
     · simp [ledgeMap] at hb; subst hb; simp [Box.Contains, ledge] at hc; grind
 
+/-- A runway under a level aircraft heading north at the origin; flat ground at 0, no buildings. -/
+def rwyMap : CityMap := ⟨3000, 20, 301, fun _ _ => 0, [], -50, 50, -100, 100, 0, 0, 0⟩
+
+theorem rwyMap_terrain (x y : Rat) : rwyMap.terrain x y = 0 := by
+  simp [CityMap.terrain, rwyMap, Rat.sub_self, Rat.mul_zero, Rat.add_zero, max00]
+
+instance (M : CityMap) (q : Pt) : Decidable (M.InRunwayLayer q) := by unfold CityMap.InRunwayLayer; infer_instance
+
+-- resting on the runway (nose wheel at its surface, CG 1.46 m up): the body hull clears it and every wheel is in the
+-- runway layer, so this contact is allowed (`Crash` with a gentle sink rate)
+example : ¬ HullHits rwyMap (((level 0 0 (146 / 100)).drop 3).take 4 ++ (level 0 0 (146 / 100)).drop 10) ∧
+    ∀ w ∈ (level 0 0 (146 / 100)).take 3 ++ ((level 0 0 (146 / 100)).drop 7).take 3, rwyMap.InRunwayLayer w := by
+  refine ⟨?_, by decide +kernel⟩
+  rintro ⟨q, hq, hs⟩
+  have hz := hull_lin_ge 0 0 1 (1 / 2) (by decide +kernel) hq
+  rcases hs with h | ⟨b, hb, _⟩
+  · rw [rwyMap_terrain] at h; grind
+  · simp [rwyMap] at hb
+
 /-! ## The spec rejects a filter that does nothing -/
 
 def passThrough : Filter := ⟨Unit, fun _ => (), fun _ _ u => (u, ())⟩
 
-theorem reach_foldl {F : Filter} {p : State Float × F.σ} (hp : Reach F p) :
-    ∀ us : List Surfaces, (∀ u ∈ us, u.Valid) → Reach F (us.foldl F.frame p) := by
+theorem reach_foldl {M : CityMap} {F : Filter} {p : State Float × F.σ} (hp : Reach M F p) :
+    ∀ us : List Surfaces, (∀ u ∈ us, u.Valid) →
+      (∀ k < us.length, ¬ Landed M ((us.take k).foldl F.frame p).1) → Reach M F (us.foldl F.frame p) := by
   intro us
   induction us generalizing p with
-  | nil => intro _; exact hp
-  | cons u us ih => intro hu; exact ih (.step u (hu u (by simp)) hp) (fun v hv => hu v (by simp [hv]))
+  | nil => intro _ _; exact hp
+  | cons u us ih =>
+    intro hu hl
+    exact ih (.step u (hu u (by simp)) (hl 0 (by simp)) hp) (fun v hv => hu v (by simp [hv]))
+      (fun k hk => hl (k + 1) (by simp; omega))
 
 theorem not_safe_of_trace {M : CityMap} {F : Filter} {s : State Float} (hs : Init s) (us : List Surfaces)
-    (hu : ∀ u ∈ us, u.Valid) (hc : Crash M (us.foldl F.frame (s, F.start s)).1) : ¬ Safe M F :=
-  fun h => h _ (reach_foldl (.init hs) us hu) hc
+    (hu : ∀ u ∈ us, u.Valid) (hl : ∀ k < us.length, ¬ Landed M ((us.take k).foldl F.frame (s, F.start s)).1)
+    (hc : Crash M (us.foldl F.frame (s, F.start s)).1) : ¬ Safe M F :=
+  fun h => h _ (reach_foldl (.init hs) us hu hl) hc
 
 instance (M : CityMap) (q : Pt) : Decidable (Solid M q) := by unfold Solid; infer_instance
 
-/-- Sufficient for `Crash`, not equivalent: an undefined pose, or an airframe point in something solid. -/
+/-- Sufficient for `Crash`, not equivalent: an undefined pose, a body point in something solid, or a wheel in
+something solid that is not a gentle runway contact. -/
 def vertexCrash (M : CityMap) (s : State Float) : Bool :=
-  match airframe s with
-  | some ps => ps.any fun p => decide (Solid M p)
-  | none => true
+  match bodyPoints.mapM (mapPoint M s), wheelPoints.mapM (mapPoint M s), sinkRate s with
+  | some bs, some ws, some v => bs.any (fun p => decide (Solid M p)) ||
+      ws.any (fun w => decide (Solid M w ∧ ¬ (M.InRunwayLayer w ∧ v ≤ tdSinkMax)))
+  | _, _, _ => true
 
 set_option linter.unusedSimpArgs false in
 theorem crash_of_vertex {M : CityMap} {s : State Float} (h : vertexCrash M s = true) : Crash M s := by
   unfold vertexCrash at h; unfold Crash
-  cases h1 : airframe s <;> simp only [h1] at h ⊢ <;> try trivial
-  obtain ⟨p, hp, hs⟩ := List.any_eq_true.mp h
-  exact ⟨p, inHull_of_mem hp, of_decide_eq_true hs⟩
+  cases h1 : bodyPoints.mapM (mapPoint M s) <;> cases h2 : wheelPoints.mapM (mapPoint M s) <;>
+    cases h3 : sinkRate s <;> simp only [h1, h2, h3] at h ⊢ <;> try trivial
+  simp only [Bool.or_eq_true, List.any_eq_true, decide_eq_true_eq] at h
+  rcases h with ⟨p, hp, hs⟩ | h
+  · exact .inl ⟨p, inHull_of_mem hp, hs⟩
+  · exact .inr h
 
-def cruise : Surfaces := ⟨-0.0625, 0, 0, 0.75⟩
+def cruise : Surfaces := ⟨-0.0625, 0, 0, 0.75, 0⟩
 
 theorem cruise_valid : cruise.Valid :=
   ⟨⟨-1 / 16, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
    ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩,
-   ⟨3 / 4, by decide +kernel, by decide +kernel, by decide +kernel⟩⟩
+   ⟨3 / 4, by decide +kernel, by decide +kernel, by decide +kernel⟩,
+   ⟨0, by decide +kernel, by decide +kernel, by decide +kernel⟩⟩
 
 /-- The state after `n` frames of `cruise` from `north` under `passThrough`. -/
 def cruiseAt (n : Nat) : State Float × Unit := (List.replicate n cruise).foldl passThrough.frame (north.state, ())
 
 -- `Tools/CitySafetyDemo.lean` evaluates `h` by running the plant; `Lean.ofReduceBool` would be needed to use that here
-theorem passThrough_unsafe_of_cruise (n : Nat) (h : vertexCrash tiny (cruiseAt n).1 = true) :
-    ¬ Safe tiny passThrough :=
+theorem passThrough_unsafe_of_cruise (n : Nat) (hl : ∀ k < n, ¬ Landed tiny (cruiseAt k).1)
+    (h : vertexCrash tiny (cruiseAt n).1 = true) : ¬ Safe tiny passThrough :=
   not_safe_of_trace ⟨north, List.mem_cons_self .., rfl⟩ _
-    (fun u hu => by rw [List.eq_of_mem_replicate hu]; exact cruise_valid) (crash_of_vertex h)
+    (fun u hu => by rw [List.eq_of_mem_replicate hu]; exact cruise_valid)
+    (fun k hk => by
+      rw [List.length_replicate] at hk
+      rw [List.take_replicate, Nat.min_eq_left (Nat.le_of_lt hk)]
+      exact hl k hk)
+    (crash_of_vertex h)
 
 /-! ## Audit -/
 

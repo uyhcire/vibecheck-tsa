@@ -10,9 +10,11 @@ Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` 
 * this file: `ratOf`, `InRange`, `Surfaces`, `Surfaces.Valid`, `clampTo`, `Surfaces.clamp`, `Surfaces.toInput`,
   `StartCond`, `StartCond.state`, `startConds`, `Init`, `Filter`, `Filter.frame`, `Reach`, `Pt`, `Box`,
   `Box.Contains`, `CityMap`, `clampR`, `CityMap.terrain`, `Solid`, `combo`, `InHull`, `contactPoints`,
-  `flightGearPoints`, `ft`, `Report`, `report`, `mulRows`, `mapPoint`, `airframe`, `HullHits`, `Crash`, `Safe`;
+  `flightGearPoints`, `ft`, `Report`, `report`, `mulRows`, `mapPoint`, `wheelPoints`, `bodyPoints`, `HullHits`,
+  `gearPenMax`, `tdSinkMax`, `landedV`, `CityMap.InRunwayLayer`, `sinkRate`, `groundSpeedSq`, `Crash`, `Landed`,
+  `Safe`;
 * the plant: `JsbExact.step` and what it calls, the generated `JsbExact.Gen` (from `c172p.xml`),
-  `CityJsb.template` and `CityJsb.initAt`. These are trusted because they match JSBSim 1.3.3 bit for bit on the
+  `CityJsb.template`, `CityJsb.initAt` and `CityJsb.setFuelE`. These are trusted because they match JSBSim 1.3.3 bit for bit on the
   validation datasets (measured, not proved);
 * libm, opaque to Lean: `jx_sin`, `jx_cos`, `__sincos_stret` (via `JsbExact.jxSin` and friends), `Float.atan2`,
   `Float.pow`, `Float.exp`, `Float.atan`, `Float.asin`, and `Float.sin`, `Float.cos` in `initAt`. Lean's logic knows
@@ -33,6 +35,11 @@ Decisions:
 5. Contact is checked at each frame's state. Frames are 1/128 s (0.39 m at 50 m/s), so contact strictly between
    two frames is not counted; `Spec/CitySafetyChecks.lean` shows a 2 cm ledge this misses.
 6. Touching counts as contact (all solids are closed).
+7. Landing: only the wheels may touch, only the runway (at most `gearPenMax` below its surface, the strut
+   compressed), sinking at most `tdSinkMax`; the body hull touching anything, or a wheel anywhere else, is a crash.
+   A thin obstacle between a wheel and the body points (the strut) is not counted. `Landed` (stopped on the runway)
+   ends the flight. The plant's ground plane (0 ft) is the map's floor and runway surface (`CityMap.datum`).
+8. Starts carry 8 lb of fuel per tank, so every flight has to end in a landing; the brakes are a control.
 -/
 
 namespace CitySafety
@@ -51,30 +58,32 @@ def ratOf (f : Float) : Option Rat :=
 
 /-! ## Pilot commands and the filter -/
 
-/-- The four controls commanded every frame, in JSBSim's normalised units (`fcs/elevator-cmd-norm` and so on). -/
+/-- The controls commanded every frame, in JSBSim's normalised units (`fcs/elevator-cmd-norm` and so on), and both
+wheel brakes together (`fcs/left-brake-cmd-norm`, `fcs/right-brake-cmd-norm`). -/
 structure Surfaces where
   elev : Float
   ail : Float
   rud : Float
   thr : Float
+  brake : Float
 
 /-- `x` is a finite number in `[lo, hi]`. -/
 def InRange (lo hi : Rat) (x : Float) : Prop := ∃ r, ratOf x = some r ∧ lo ≤ r ∧ r ≤ hi
 
-/-- A physically possible command: elevator, aileron and rudder in `[-1, 1]`, throttle in `[0, 1]`. -/
+/-- A physically possible command: elevator, aileron and rudder in `[-1, 1]`, throttle and brakes in `[0, 1]`. -/
 def Surfaces.Valid (u : Surfaces) : Prop :=
-  InRange (-1) 1 u.elev ∧ InRange (-1) 1 u.ail ∧ InRange (-1) 1 u.rud ∧ InRange 0 1 u.thr
+  InRange (-1) 1 u.elev ∧ InRange (-1) 1 u.ail ∧ InRange (-1) 1 u.rud ∧ InRange 0 1 u.thr ∧ InRange 0 1 u.brake
 
 /-- `x` clamped to `[lo, hi]`; NaN becomes `lo`. -/
 def clampTo (lo hi x : Float) : Float := if lo ≤ x then (if x ≤ hi then x else hi) else lo
 
 /-- What reaches the plant from a filter's output: every control clamped to its range. -/
 def Surfaces.clamp (u : Surfaces) : Surfaces :=
-  ⟨clampTo (-1) 1 u.elev, clampTo (-1) 1 u.ail, clampTo (-1) 1 u.rud, clampTo 0 1 u.thr⟩
+  ⟨clampTo (-1) 1 u.elev, clampTo (-1) 1 u.ail, clampTo (-1) 1 u.rud, clampTo 0 1 u.thr, clampTo 0 1 u.brake⟩
 
-/-- The plant input for given controls: mixture 0.9 and brakes released, as in the demo (`CityJsb.stepE`). -/
+/-- The plant input for given controls: mixture 0.9 and both brakes at `brake`, as `CityJsb.stepBrakeE`. -/
 def Surfaces.toInput (u : Surfaces) : Input Float :=
-  { elev := u.elev, ail := u.ail, rud := u.rud, thr := u.thr, mix := 0.9, brkL := 0, brkR := 0 }
+  { elev := u.elev, ail := u.ail, rud := u.rud, thr := u.thr, mix := 0.9, brkL := u.brake, brkR := u.brake }
 
 /-- A safety filter: a memory of type `σ`, its value at the start, and one frame's decision, which maps the memory,
 the plant state and the pilot's command to the controls to apply and the next memory. -/
@@ -93,7 +102,8 @@ def Filter.frame (F : Filter) (p : State Float × F.σ) (u : Surfaces) : State F
 
 /-- A start: map position `x` east, `y` north (m, see `mapPoint`), `z` metres above the plane tangent to sea level at
 the map origin (at `x = y = 0` this is the altitude above sea level), true airspeed `v` (m/s), heading `psi`
-(rad, clockwise from north) and angle of attack `alpha` (rad); flight-path angle and bank are zero. -/
+(rad, clockwise from north), angle of attack `alpha` (rad) and `fuel` (lb in each tank); flight-path angle and bank
+are zero. -/
 structure StartCond where
   x : Float
   y : Float
@@ -101,24 +111,21 @@ structure StartCond where
   v : Float
   psi : Float
   alpha : Float
+  fuel : Float
 
-/-- The plant state of a start; engine, fuel and mass state are `CityJsb.template`'s. -/
-def StartCond.state (c : StartCond) : State Float := CityJsb.initAt c.x c.y c.z c.v 0 c.psi 0 c.alpha
+/-- The plant state of a start: engine and mass state are `CityJsb.template`'s, the fuel is `fuel` per tank. -/
+def StartCond.state (c : StartCond) : State Float :=
+  CityJsb.setFuelE (CityJsb.initAt c.x c.y c.z c.v 0 c.psi 0 c.alpha) c.fuel
 
 /-- The allowed starts: wings level, level flight at 50 m/s, 1500 m above the map origin (on the demo map, seed
-1337, the terrain peaks at 927 m and the roofs at 459 m), heading north, east, south or west. -/
+1337, the terrain peaks at 927 m and the roofs at 459 m), heading north, east, south or west, with 8 lb of fuel per
+tank (the template carries 100), so every flight has to end in a landing within minutes. -/
 def startConds : List StartCond :=
-  [⟨0, 0, 1500, 50, 0, 0.0223⟩, ⟨0, 0, 1500, 50, 1.5707963267948966, 0.0223⟩,
-   ⟨0, 0, 1500, 50, 3.141592653589793, 0.0223⟩, ⟨0, 0, 1500, 50, 4.71238898038469, 0.0223⟩]
+  [⟨0, 0, 1500, 50, 0, 0.0223, 8⟩, ⟨0, 0, 1500, 50, 1.5707963267948966, 0.0223, 8⟩,
+   ⟨0, 0, 1500, 50, 3.141592653589793, 0.0223, 8⟩, ⟨0, 0, 1500, 50, 4.71238898038469, 0.0223, 8⟩]
 
 /-- The allowed starting states. -/
 def Init (s : State Float) : Prop := ∃ c ∈ startConds, s = c.state
-
-/-- The plant states and filter memories the closed loop can reach: a start, then any number of frames, each with
-any physically possible pilot command. -/
-inductive Reach (F : Filter) : State Float × F.σ → Prop
-  | init {s : State Float} : Init s → Reach F (s, F.start s)
-  | step {p : State Float × F.σ} (u : Surfaces) : u.Valid → Reach F p → Reach F (F.frame p u)
 
 /-! ## The city -/
 
@@ -142,7 +149,8 @@ def Box.Contains (b : Box) (q : Pt) : Prop :=
   b.x0 ≤ q.x ∧ q.x ≤ b.x1 ∧ b.y0 ≤ q.y ∧ q.y ≤ b.y1 ∧ b.z0 ≤ q.z ∧ q.z ≤ b.z1
 
 /-- A city map, as `World` in `flight/src/world.rs`: terrain heights on an `n × n` grid of spacing `spacing` whose
-corner vertex `(0, 0)` is at `(-half, -half)`, and buildings. The demo has `half = 3000`, `spacing = 20`, `n = 301`. -/
+corner vertex `(0, 0)` is at `(-half, -half)`, buildings, and a runway. The demo has `half = 3000`, `spacing = 20`,
+`n = 301`, the runway `[-100, 1100] × [-1360, -1320]` at 9 m, floor 9 m and datum 9 m (`flight/src/runway.rs`). -/
 structure CityMap where
   half : Rat
   spacing : Rat
@@ -150,12 +158,23 @@ structure CityMap where
   /-- Height (m) of grid vertex `(i, j)`, at `(-half + i * spacing, -half + j * spacing)`; `terr[j * TN + i]`. -/
   height : Nat → Nat → Rat
   boxes : List Box
+  /-- The runway `[rwyX0, rwyX1] × [rwyY0, rwyY1]`, its surface at `rwyZ`. -/
+  rwyX0 : Rat
+  rwyX1 : Rat
+  rwyY0 : Rat
+  rwyY1 : Rat
+  rwyZ : Rat
+  /-- Grid heights below `floor` are raised to it (on the demo map the floor is the runway surface). -/
+  floor : Rat
+  /-- Map altitude = the plant's altitude above sea level + `datum`, so the plant's ground plane (0 ft) is at `datum`
+  (on the demo map, the floor and runway surface). -/
+  datum : Rat
 
 /-- `x` clamped to `[lo, hi]`. -/
 def clampR (lo hi x : Rat) : Rat := max lo (min hi x)
 
 /-- Terrain height (m) at `(x, y)`: `World::terrain` in exact arithmetic. Grid coordinates are clamped to the grid,
-so beyond the edge the terrain continues the edge's profile. Each cell is split along its diagonal from vertex
+so beyond the edge the terrain continues the edge's profile; vertex heights below `M.floor` are raised to it. Each cell is split along its diagonal from vertex
 `(i, j)` to `(i + 1, j + 1)` and the height is interpolated linearly in the triangle containing the point. -/
 def CityMap.terrain (M : CityMap) (x y : Rat) : Rat :=
   let fx := clampR 0 (M.n - 1 : Nat) ((x + M.half) / M.spacing)
@@ -164,7 +183,8 @@ def CityMap.terrain (M : CityMap) (x y : Rat) : Rat :=
   let j := min fy.floor.toNat (M.n - 2)
   let u := fx - i
   let v := fy - j
-  let (h00, h10, h01, h11) := (M.height i j, M.height (i + 1) j, M.height i (j + 1), M.height (i + 1) (j + 1))
+  let h := fun a b => max M.floor (M.height a b)
+  let (h00, h10, h01, h11) := (h i j, h (i + 1) j, h i (j + 1), h (i + 1) (j + 1))
   if v ≤ u then h00 + u * (h10 - h00) + v * (h11 - h10) else h00 + v * (h01 - h00) + u * (h11 - h01)
 
 /-- `q` is in something solid: at or below the terrain, or in a building. Touching counts. -/
@@ -211,11 +231,13 @@ def ft : Rat := 3048 / 10000
 /-- What the plant reports about the aircraft in state `s`, in `Float` as `step` computes it: the CG's ECEF location
 (ft; `Diag.loc`: Earth rotated by `s.epa`, CG at `s.ri`), its altitude above sea level (ft; `Diag.hsl`: distance from
 the Earth's centre minus the sea-level radius at its geocentric latitude), and the body-to-local rotation matrix
-`Tb2l` from the attitude `s.q` (rows local north, east, down; columns body x forward, y right, z down). -/
+`Tb2l` from the attitude `s.q` (rows local north, east, down; columns body x forward, y right, z down), and the
+velocity relative to the Earth in local north, east, down (ft/s; `Diag.vned`). -/
 structure Report where
   loc : V3 Float
   hsl : Float
   tb2l : M33 Float
+  vned : V3 Float
 
 def report (s : State Float) : Report :=
   let ce := S.cosS s.epa
@@ -223,7 +245,9 @@ def report (s : State Float) : Report :=
   let ti2ec : M33 Float := M33.mk' ce se 0 (-se) ce 0 0 0 1
   let loc := ti2ec.mulV s.ri
   let l := locDerive loc
-  { loc, hsl := l.radius - seaLevelRadius l, tb2l := (s.q.toM.mul (l.tec2l.mul ti2ec).T).T }
+  let tb2l := (s.q.toM.mul (l.tec2l.mul ti2ec).T).T
+  let uvw := s.q.toM.mulV (V3.sub s.vi (V3.cross (v3 Gen.omega) s.ri))
+  { loc, hsl := l.radius - seaLevelRadius l, tb2l, vned := tb2l.mulV uvw }
 
 /-- `m · v` for a 3 × 3 matrix given row by row as 9 numbers (missing entries count as 0). -/
 def mulRows (m : List Rat) (v : Rat × Rat × Rat) : Rat × Rat × Rat :=
@@ -234,32 +258,78 @@ def mulRows (m : List Rat) (v : Rat × Rat × Rat) : Rat × Rat × Rat :=
 not finite. Exact (`ratOf`) from the plant's reported values: the point's offset from the CG is `Ts2b · (r - cg)` in
 body axes (ft; `Ts2b` maps structural inches, x aft, to body feet, x forward), `Tb2l` turns it into local north, east
 and down, and the map position is the reported CG position (east = ECEF y, north = ECEF z, up = `hsl`, as the demo's
-`CityJsb.obs`) plus that offset, converted to metres. -/
-def mapPoint (s : State Float) (r : V3 Float) : Option Pt := do
+`CityJsb.obs`) plus that offset, converted to metres, with `M.datum` added to the altitude. -/
+def mapPoint (M : CityMap) (s : State Float) (r : V3 Float) : Option Pt := do
   let rep := report s
   let ts2b ← Gen.Ts2b.toList.mapM ratOf
   let tb2l ← [rep.tb2l.a11, rep.tb2l.a12, rep.tb2l.a13, rep.tb2l.a21, rep.tb2l.a22, rep.tb2l.a23,
     rep.tb2l.a31, rep.tb2l.a32, rep.tb2l.a33].mapM ratOf
   let off := ((← ratOf r.x) - (← ratOf s.cg.x), (← ratOf r.y) - (← ratOf s.cg.y), (← ratOf r.z) - (← ratOf s.cg.z))
   let (n, e, d) := mulRows tb2l (mulRows ts2b off)
-  return ⟨((← ratOf rep.loc.y) + e) * ft, ((← ratOf rep.loc.z) + n) * ft, ((← ratOf rep.hsl) - d) * ft⟩
+  return ⟨((← ratOf rep.loc.y) + e) * ft, ((← ratOf rep.loc.z) + n) * ft, ((← ratOf rep.hsl) - d) * ft + M.datum⟩
 
 /-- Map positions of the airframe points in state `s`, or `none` if any is undefined. -/
-def airframe (s : State Float) : Option (List Pt) := (contactPoints ++ flightGearPoints).mapM (mapPoint s)
+def airframe (M : CityMap) (s : State Float) : Option (List Pt) :=
+  (contactPoints ++ flightGearPoints).mapM (mapPoint M s)
+
+/-- The wheels: the first three points of each list (nose gear, left and right main gear). -/
+def wheelPoints : List (V3 Float) := contactPoints.take 3 ++ flightGearPoints.take 3
+
+/-- The rest of the airframe: propeller hub, tail skid, wingtips, and FlightGear's structure points. -/
+def bodyPoints : List (V3 Float) := contactPoints.drop 3 ++ flightGearPoints.drop 3
 
 /-- Some point of the convex hull of `ps` is in something solid. -/
 def HullHits (M : CityMap) (ps : List Pt) : Prop := ∃ q, InHull ps q ∧ Solid M q
 
-/-- The aircraft in state `s` touches the city: some point of the convex hull of its airframe points is in
-something solid. A state with a non-finite pose counts as a crash (the simulation has broken down). -/
+/-- Landing limits (as `flight/src/runway.rs`): how far a wheel's contact point may sit below the runway surface (its
+strut compressed), the fastest sink rate (m/s) with a wheel on the runway, and the ground speed (m/s) below which the
+aircraft has stopped. -/
+def gearPenMax : Rat := 1 / 2
+def tdSinkMax : Rat := 3
+def landedV : Rat := 1 / 2
+
+/-- `q` is in the runway layer: over the runway, at most `gearPenMax` below its surface. -/
+def CityMap.InRunwayLayer (M : CityMap) (q : Pt) : Prop :=
+  M.rwyX0 ≤ q.x ∧ q.x ≤ M.rwyX1 ∧ M.rwyY0 ≤ q.y ∧ q.y ≤ M.rwyY1 ∧ M.rwyZ - gearPenMax ≤ q.z
+
+/-- Reported sink rate (m/s, positive down), or `none` if not finite. -/
+def sinkRate (s : State Float) : Option Rat := do return (← ratOf (report s).vned.z) * ft
+
+/-- Reported ground speed squared (m²/s²), or `none` if not finite. -/
+def groundSpeedSq (s : State Float) : Option Rat := do
+  let n := (← ratOf (report s).vned.x) * ft
+  let e := (← ratOf (report s).vned.y) * ft
+  return n * n + e * e
+
+/-- The aircraft in state `s` touches the city: the convex hull of its body points touches something solid, or a wheel
+touches something solid outside the runway layer, or touches the runway layer while the aircraft sinks faster than
+`tdSinkMax`. So only the wheels may touch, only the runway, gently. A non-finite pose counts as a crash (the
+simulation has broken down). -/
 def Crash (M : CityMap) (s : State Float) : Prop :=
-  match airframe s with
-  | none => True
-  | some ps => HullHits M ps
+  match bodyPoints.mapM (mapPoint M s), wheelPoints.mapM (mapPoint M s), sinkRate s with
+  | some bs, some ws, some v => HullHits M bs ∨ ∃ w ∈ ws, Solid M w ∧ ¬ (M.InRunwayLayer w ∧ v ≤ tdSinkMax)
+  | _, _, _ => True
+
+/-- The aircraft has landed: no crash, every wheel over the runway, a wheel touching it, and ground speed below
+`landedV`. The flight ends there (`Reach`). -/
+def Landed (M : CityMap) (s : State Float) : Prop :=
+  ¬ Crash M s ∧
+    match wheelPoints.mapM (mapPoint M s), groundSpeedSq s with
+    | some ws, some g =>
+      (∀ w ∈ ws, M.rwyX0 ≤ w.x ∧ w.x ≤ M.rwyX1 ∧ M.rwyY0 ≤ w.y ∧ w.y ≤ M.rwyY1) ∧ (∃ w ∈ ws, Solid M w) ∧
+        g < landedV * landedV
+    | _, _ => False
+
+/-- The plant states and filter memories the closed loop can reach: a start, then any number of frames, each with
+any physically possible pilot command, until the aircraft has landed. -/
+inductive Reach (M : CityMap) (F : Filter) : State Float × F.σ → Prop
+  | init {s : State Float} : Init s → Reach M F (s, F.start s)
+  | step {p : State Float × F.σ} (u : Surfaces) : u.Valid → ¬ Landed M p.1 → Reach M F p →
+      Reach M F (F.frame p u)
 
 /-- The filter `F` keeps the aircraft from touching the city `M`, whatever the pilot does: no state the closed loop
 can reach is a crash. Contact is checked at each frame's state (decision 5). -/
 def Safe (M : CityMap) (F : Filter) : Prop :=
-  ∀ p, Reach F p → ¬ Crash M p.1
+  ∀ p, Reach M F p → ¬ Crash M p.1
 
 end CitySafety
