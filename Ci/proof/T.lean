@@ -35,12 +35,9 @@ def coord (s : State) (m : Mem) (i : Nat) : Int :=
 /-- `a + (b − a) · num / den`, floored. -/
 def lerp (a b num den : Int) : Int := a + (b - a) * num / den
 
-def quad (P : Array (Array Int)) (d : Array Int) : Int := Id.run do
-  let mut acc : Int := 0
-  for i in [0:7] do
-    for j in [0:7] do
-      acc := acc + P[i]![j]! * d[i]! * d[j]!
-  return acc
+/-- `dᵀ P d` over the first 7 coordinates. -/
+def quad (P : Array (Array Int)) (d : Array Int) : Int :=
+  ((List.range 7).map fun i => ((List.range 7).map fun j => P[i]![j]! * d[i]! * d[j]!).sum).sum
 
 def gmul (G : Array (Array Int)) (d : Array Int) (k : Nat) : Int := Id.run do
   let mut acc : Int := 0
