@@ -25,6 +25,7 @@ const NOBS: usize = 22;
 extern "C" {
     fn cityjsb_new(h: f64, v: f64, gam: f64, psi: f64, phi: f64, alpha: f64) -> *mut Raw;
     fn cityjsb_step(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, obs: *mut f64);
+    fn cityjsb_step_dump(p: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, dump: *mut f64);
     fn cityjsb_clone(p: *const Raw) -> *mut Raw;
     fn cityjsb_free(p: *mut Raw);
     fn cityjsb_from_dump(dump: *const f64, n: usize) -> *mut Raw;
@@ -190,10 +191,31 @@ pub struct JsbPlant {
     pub gains: Gains,
     /// Map axes for an imported aircraft (`from_dump`); `None` for `new`, which offsets from `origin`.
     pub frame: Option<MapFrame>,
+    /// Smoothness metrics over the frames flown: total variation of each surface command (`surf` order), and
+    /// the largest single-frame change since the caller last cleared `jump`.
+    pub tv: [f64; 4],
+    pub jump: [f64; 4],
 }
 
 // The handle is only ever used by the thread that owns the `Sim`.
 unsafe impl Send for JsbPlant {}
+
+/// A plant without its Lean state: a state dump (plain doubles) and the Rust-side fields. Another thread
+/// rebuilds an independent, bit-identical plant from it (`JsbPlant::from_seed`). Lean reference counts are
+/// not atomic, so forks that share Lean objects (`fork`) must stay on one thread; a seed holds none.
+#[derive(Clone, Debug)]
+pub struct Seed {
+    dump: Vec<f64>,
+    obs: Obs,
+    origin: [f64; 2],
+    lag: f64,
+    int_n: f64,
+    int_p: f64,
+    thr: f64,
+    surf: [f64; 4],
+    gains: Gains,
+    frame: Option<MapFrame>,
+}
 
 /// Angle of attack for lift `n` g at airspeed `v` (rough c172p lift curve), for the initial state.
 fn alpha_for(n: f64, v: f64) -> f64 {
@@ -221,9 +243,12 @@ impl JsbPlant {
             surf: [0.0, 0.0, 0.0, s[THR]],
             gains: GAINS,
             frame: None,
+            tv: [0.0; 4],
+            jump: [0.0; 4],
         };
         p.int_n = 0.0;
         p.frame(&[s[N], 0.0, s[THR]]);
+        (p.tv, p.jump) = ([0.0; 4], [0.0; 4]);
         p
     }
 
@@ -249,6 +274,8 @@ impl JsbPlant {
             surf: [0.0; 4],
             gains: GAINS,
             frame: Some(frame),
+            tv: [0.0; 4],
+            jump: [0.0; 4],
         })
     }
 
@@ -281,13 +308,104 @@ impl JsbPlant {
         JsbPlant { raw, ..*self }
     }
 
+    /// `advance_pilot`, also returning the surfaces flown on each frame and, if `want_dump`, the state dump after
+    /// the last frame (`None` if no frame ran), for `seed`.
+    pub fn advance_pilot_dump(&mut self, u: &Pilot, dt: f64, want_dump: bool) -> (Vec<[f64; 4]>, Option<Vec<f64>>) {
+        let mut surfs = Vec::with_capacity(4);
+        let mut dump = None;
+        self.lag -= dt;
+        while self.lag < -1e-12 {
+            // The same test the loop makes after this frame: is this the tick's last frame?
+            let last = !(self.lag + DT_JSB < -1e-12);
+            let surf = match u {
+                Pilot::Fbw(c) => self.fbw_surf(c),
+                Pilot::Surfaces(s) => {
+                    self.thr = s[3];
+                    self.set_surf(*s);
+                    *s
+                }
+            };
+            if want_dump && last {
+                dump = Some(self.dump_after(surf));
+            }
+            self.step_surf(surf);
+            self.lag += DT_JSB;
+            surfs.push(surf);
+        }
+        (surfs, dump)
+    }
+
+    /// The state dump after one frame with surfaces `s`, leaving this plant unchanged: a clone steps instead
+    /// (`JsbExact.step` is a function, so the clone's state is the one this plant reaches with `s`).
+    fn dump_after(&self, s: [f64; 4]) -> Vec<f64> {
+        let mut d = vec![0.0; dump_len()];
+        unsafe {
+            let c = cityjsb_clone(self.raw);
+            assert!(!c.is_null());
+            cityjsb_step_dump(c, s[0], s[1], s[2], s[3], d.as_mut_ptr());
+            cityjsb_free(c);
+        }
+        d
+    }
+
+    /// What another thread needs to rebuild this plant, given the dump of its current state.
+    pub fn seed(&self, dump: Vec<f64>) -> Seed {
+        Seed {
+            dump,
+            obs: self.obs,
+            origin: self.origin,
+            lag: self.lag,
+            int_n: self.int_n,
+            int_p: self.int_p,
+            thr: self.thr,
+            surf: self.surf,
+            gains: self.gains,
+            frame: self.frame,
+        }
+    }
+
+    /// An independent plant equal to the one `s` was taken from. Its Lean objects belong to the calling thread.
+    pub fn from_seed(s: &Seed) -> JsbPlant {
+        let raw = unsafe { cityjsb_from_dump(s.dump.as_ptr(), s.dump.len()) };
+        assert!(!raw.is_null(), "libcityjsb: bad state dump");
+        JsbPlant {
+            raw,
+            obs: s.obs,
+            origin: s.origin,
+            lag: s.lag,
+            int_n: s.int_n,
+            int_p: s.int_p,
+            thr: s.thr,
+            surf: s.surf,
+            gains: s.gains,
+            frame: s.frame,
+            tv: [0.0; 4],
+            jump: [0.0; 4],
+        }
+    }
+
     /// One JSBSim frame with the surfaces set directly (JSBSim conventions: elevator positive nose down).
     pub fn frame_raw(&mut self, elev: f64, ail: f64, rud: f64, thr: f64) {
         self.thr = thr;
-        self.surf = [elev, ail, rud, thr];
+        self.set_surf([elev, ail, rud, thr]);
+        self.step_surf(self.surf);
+    }
+
+    /// Step JSBSim one frame with surfaces `s` and read the observation.
+    fn step_surf(&mut self, s: [f64; 4]) {
         let mut out = [0.0; NOBS];
-        unsafe { cityjsb_step(self.raw, elev, ail, rud, thr, out.as_mut_ptr()) };
+        unsafe { cityjsb_step(self.raw, s[0], s[1], s[2], s[3], out.as_mut_ptr()) };
         self.obs = Obs::from(&out);
+    }
+
+    /// Set the surfaces for the next frame, accumulating the smoothness metrics.
+    fn set_surf(&mut self, s: [f64; 4]) {
+        for i in 0..4 {
+            let d = (s[i] - self.surf[i]).abs();
+            self.tv[i] += d;
+            self.jump[i] = self.jump[i].max(d);
+        }
+        self.surf = s;
     }
 
     /// Forget the fly-by-wire integrators (after the escape has flown the surfaces directly).
@@ -306,6 +424,12 @@ impl JsbPlant {
 
     /// One JSBSim frame under the fly-by-wire loop.
     pub fn frame(&mut self, u: &Cmd) {
+        let s = self.fbw_surf(u);
+        self.step_surf(s);
+    }
+
+    /// The fly-by-wire loop's surfaces for this frame (updating its integrators, `thr` and `surf`).
+    fn fbw_surf(&mut self, u: &Cmd) -> [f64; 4] {
         let o = self.obs;
         let g = self.gains;
         let sched = if o.qbar > 100.0 { (QBAR_REF / o.qbar).min(4.0) } else { 1.0 };
@@ -326,10 +450,8 @@ impl JsbPlant {
         }
         let rud = (g.kb * o.beta).clamp(-1.0, 1.0);
         self.thr = u[2].clamp(0.0, 1.0);
-        self.surf = [elev, ail, rud, self.thr];
-        let mut out = [0.0; NOBS];
-        unsafe { cityjsb_step(self.raw, elev, ail, rud, self.thr, out.as_mut_ptr()) };
-        self.obs = Obs::from(&out);
+        self.set_surf([elev, ail, rud, self.thr]);
+        self.surf
     }
 
     /// Advance by `dt` seconds of simulation time with command `u` held.

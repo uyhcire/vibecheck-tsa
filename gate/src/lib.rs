@@ -2,7 +2,7 @@
 
 pub mod capi;
 
-use cityflight::envfilter::{Gate, Law, BUDGET, ESCAPES, TIME_CAP_MS};
+use cityflight::envfilter::{Gate, BUDGET, ESCAPES, TIME_CAP_MS};
 use cityflight::jsb::{JsbPlant, MapFrame, Pilot, DT_JSB};
 use cityflight::model::{X, Y, Z};
 use cityflight::world::{World, MAP_HALF};
@@ -116,31 +116,18 @@ impl Filter {
         let pre = plant.fork();
         let world = &self.world;
         let gate = self.gate.get_or_insert_with(|| Gate::new(world, &plant));
-        let law_pre = gate.law;
         let blind_pre = gate.blind_ticks;
         let n = self.cfg.tick_frames;
         let accept = gate.tick_pilot(world, &mut plant, &pilot, n as f64 * DT_JSB, true);
-        // Per-frame surfaces: replaying is exact because a fresh escape law depends only on its index.
+        // Per-frame surfaces as the gate applied them; replaying them on the state before the tick must
+        // reproduce the gate's aircraft exactly.
+        let surfaces = gate.tick_surfaces.clone();
         let mut q = pre.fork();
-        let mut surfaces = Vec::with_capacity(n);
-        if accept {
-            if law_pre.is_some() && matches!(pilot, Pilot::Fbw(_)) {
-                q.bumpless_fbw();
-            }
-            for _ in 0..n {
-                q.lag = 0.0;
-                q.advance_pilot(&pilot, DT_JSB);
-                surfaces.push(q.surf);
-            }
-        } else {
-            let mut law = law_pre.unwrap_or_else(|| Law::new(gate.law.expect("committed").esc));
-            for _ in 0..n {
-                law.step(world, &mut q);
-                surfaces.push(q.surf);
-            }
+        for s in &surfaces {
+            q.frame_raw(s[0], s[1], s[2], s[3]);
         }
-        let replay_exact = q.obs.ecef == plant.obs.ecef && q.obs.vned == plant.obs.vned && q.obs.pqr == plant.obs.pqr;
-        let escape = if accept { gate.witness } else { gate.law.map(|l| l.esc) };
+        let replay_exact = surfaces.len() == n && q.obs.ecef == plant.obs.ecef && q.obs.vned == plant.obs.vned && q.obs.pqr == plant.obs.pqr;
+        let escape = if accept { gate.witness } else { gate.law }.map(|l| l.esc);
         let path = if accept { gate.witness_path.clone() } else { gate.committed_path.clone() };
         let s = pre.state();
         let out = Tick {

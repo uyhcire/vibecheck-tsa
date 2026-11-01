@@ -440,6 +440,57 @@ fn tower_gap_start(world: &World) -> State {
     trimmed(x, -60.0, world.terrain(x, -60.0) + 88.0, 45.0, 0.0, PI / 2.0, 0.7)
 }
 
+/// Display only: the aircraft as drawn between ticks. The sim advances in `DT_F` ticks and the screen at its
+/// own rate, so drawing `Sim::s` directly moves the aircraft in tick-sized steps held for an uneven number of
+/// frames. This keeps the last two ticks' states and returns the state a fraction of a tick past the older
+/// one (one tick of display latency). Each state is placed at its tick's sim time: with JSBSim, `Sim::s` is
+/// the tick's last frame, which runs `lag` (0 to 1/128 s) ahead of it, so ticks of 2 and 3 frames would
+/// otherwise alternate short and long.
+#[derive(Clone, Copy, Debug)]
+pub struct Drawn {
+    prev: State,
+    cur: State,
+}
+
+impl Drawn {
+    pub fn new(sim: &Sim) -> Drawn {
+        let s = Drawn::of(sim);
+        Drawn { prev: s, cur: s }
+    }
+
+    /// After each tick.
+    pub fn push(&mut self, sim: &Sim) {
+        self.prev = self.cur;
+        self.cur = Drawn::of(sim);
+    }
+
+    /// `sim.s` moved back to the tick's sim time.
+    pub fn of(sim: &Sim) -> State {
+        #[allow(unused_mut)]
+        let mut s = sim.s;
+        #[cfg(feature = "jsb")]
+        if let Some(p) = &sim.jsb {
+            let v = [p.obs.vned[1], p.obs.vned[0], -p.obs.vned[2]];
+            for (i, k) in [X, Y, Z].into_iter().enumerate() {
+                s[k] -= v[i] * p.lag;
+            }
+        }
+        s
+    }
+
+    /// The state `frac` (0 to 1) of the way from the older tick to the newer; angles take the short way round.
+    pub fn at(&self, frac: f64) -> State {
+        let t = frac.clamp(0.0, 1.0);
+        let mut s = self.cur;
+        for i in 0..s.len() {
+            let d = self.cur[i] - self.prev[i];
+            let d = if i == GAM || i == PSI || i == PHI { (d + PI).rem_euclid(2.0 * PI) - PI } else { d };
+            s[i] = self.prev[i] + d * t;
+        }
+        s
+    }
+}
+
 /// Deterministic scenario starts, each searched so that a verified escape
 /// exists at spawn (inside the safe set).
 pub fn scenario_start(world: &World, id: usize) -> State {

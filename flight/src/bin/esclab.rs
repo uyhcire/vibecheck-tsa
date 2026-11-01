@@ -149,7 +149,7 @@ fn main() {
                 let g = sim.env_gate.as_ref().unwrap();
                 if k % 12 == 0 || sim.crashed {
                     let s = sim.s;
-                    let e = g.law.map(|l| l.esc).or(g.witness).map_or("-", |i| ESCAPES[i].name);
+                    let e = g.law.or(g.witness).map(|l| l.esc).map_or("-", |i| ESCAPES[i].name);
                     println!("t={:5.2} x={:6.1} y={:6.1} z={:5.1} agl={:5.1} psi={:6.1} phi={:6.1} phase={} {:?} esc {e} side {:?} clear {:.1}", sim.time(), s[X], s[Y], s[Z], s[Z] - world.terrain(s[X], s[Y]), s[PSI].to_degrees(), s[PHI].to_degrees(), show.phase(), sim.fs.mode, g.law.map(|l| l.side), sim.true_clear);
                 }
                 if sim.crashed {
