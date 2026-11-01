@@ -5,7 +5,10 @@ bounded, so that a terminal set around it can be proved:
 
 1. the speed term of the α command is `kV · max(v − vC, −vBand)`, continuous, instead of lawfirst's switch to gain
    0 below `vC` (that switch sat right at the climb speed, so the climb dynamics had a kink on the climb itself);
-2. the throttle comes back by 0.002 per metre above 2500 m, so the climb ends at a stable level-flight altitude
+2. the steady-pull pitch-rate reference uses lawfirst's kinematic load-factor estimate `nEst` (density, speed,
+   α) instead of the state's stored acceleration fields, so that inside the terminal set the law reads only the
+   slow state and its memory;
+3. the throttle comes back by 0.002 per metre above 2500 m, so the climb ends at a stable level-flight altitude
    (about 2620 m) instead of creeping up to the model's service ceiling.
 
 All arithmetic is on raw `Fx` integers. -/
@@ -34,12 +37,12 @@ def alphaCmd (p : P) (s : State) : Int :=
   let aN := if n > 19661 && ta > p.a0 then p.a0 + (ta - p.a0) * nL / n else p.aMax
   clampI p.aMin (min p.aMax aN) raw
 
-/-- lawfirst's `stepP` with the new α command and the scheduled throttle. -/
+/-- lawfirst's `stepP` with the new α command, the kinematic `qRef` and the scheduled throttle. -/
 def stepP (p : P) (m : Mem) (s : State) : Input × Mem :=
   let ta := tanA s
   let ac := clampI (m.ac - p.rDn) (m.ac + p.rUp) (alphaCmd p s)
   let err := ac - ta
-  let qRef := if p.qss then Ci.gRaw * (nRaw s - 65536) / max 65536 (speedRaw s) else 0
+  let qRef := if p.qss then Ci.gRaw * (nEst s ta - 65536) / max 65536 (speedRaw s) else 0
   let e := m.eI + p.kF * ac / 65536 + p.kA * err / 65536 - p.kQ * (s.q.raw - qRef) / 65536
   let eI' := clampI (-65536) 65536 (m.eI + p.kI * err / 65536)
   (⟨⟨clampI (-65536) 65536 e⟩, ⟨thrH s.h.raw⟩, ⟨0⟩, ⟨0⟩⟩, ⟨eI', ac⟩)

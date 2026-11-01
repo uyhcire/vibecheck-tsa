@@ -3,7 +3,7 @@ from pf import *
 from lin import ZI, STEP
 from reduce import Y as YI, G_ as GI
 Mall = np.load("man2.npy"); hsM = Mall[:,1]/65536
-PN = np.load("PN.npy"); GsN = np.load("GsN.npy"); HN = np.load("HN.npy")
+import os; PN = np.load(os.environ.get("PFILE", "PN.npy")); GsN = np.load("GsN.npy"); HN = np.load("HN.npy")
 S = np.array([STEP[i] for i in ZI], dtype=float)
 ZN = [NAMES[i] for i in ZI]
 yidx = [ZI[i] for i in YI]; gidx = [ZI[i] for i in GI]          # raw state indices
@@ -20,13 +20,15 @@ def coords(x):
     g = (x[gidx] - c[gidx]) / Sg
     return h, y, g - Gat(h) @ y
 def V(h, y): return y @ Pat(h) @ y
+CORNER = os.environ.get('CORNER') == '1'
 rng = np.random.default_rng(int(sys.argv[3]) if len(sys.argv) > 3 else 1)
-def sample(n, r, eg, hlo=10, hhi=2635):
+def sample(n, r, eg, hlo=10, hhi=2635, tolfun=None):
     pts = []
     for _ in range(n):
         h = rng.uniform(hlo, hhi); c = center(h); P = Pat(h)
         u = rng.normal(size=7); u /= np.sqrt(u @ P @ u); y = u * r * rng.uniform(0.9, 1.0) ** 0
-        g = Gat(h) @ y + eg * rng.uniform(-1, 1, size=len(GI))
+        if tolfun is not None: eg = tolfun(h)
+        g = Gat(h) @ y + eg * (rng.choice([-1.0, 1.0], size=len(GI)) if CORNER else rng.uniform(-1, 1, size=len(GI)))
         x = c.copy(); x[0] = 0; x[1] = h * 65536; x[11] = 0
         x[yidx] = c[yidx] + y * Sy; x[gidx] = c[gidx] + g * Sg
         x[20] = c[20]

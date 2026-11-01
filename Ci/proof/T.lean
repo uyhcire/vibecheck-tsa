@@ -6,8 +6,8 @@ manifold state (table at 10 m spacing, linear interpolation). With `d` the devia
 (vx, vz, dz, q, rpm, tmap, integrator eI) from `c(h)`, the set requires
 
 * `dᵀ P(h) d ≤ r²`, where `P(h)` interpolates per-altitude Lyapunov matrices of the linearised one-tick map;
-* every fast coordinate (dx, udot, wdot, ah, au, qd, ah1, au1, pvz, pvz2) within `tol` of `c(h) + G(h) d`, its
-  value slaved to the slow ones;
+* every fast coordinate (dx, udot, wdot, ah, au, qd, ah1, au1, pvz, pvz2) within `tol(h)` of `c(h) + G(h) d`, its
+  value slaved to the slow ones (`tol(h)` covers the kinks of the piecewise-linear lift and drag tables);
 * 10 m ≤ h ≤ 2640 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive).
 
 All arithmetic is on integers: two table lookups, two 7×7 quadratic forms and a 10×7 product. -/
@@ -15,6 +15,7 @@ All arithmetic is on integers: two table lookups, two 7×7 quadratic forms and a
 namespace Ci.Proof
 open Vibecheck Jsb Ci.Lawfirst
 
+-- centre table: frozen-altitude equilibria of the climb (h held fixed), see `Ci/proof/py/frozen_tab.py`
 def hLoT : Int := 10 * 65536
 def hHiT : Int := 2640 * 65536
 
@@ -70,7 +71,8 @@ def inT (p : State × Mem) : Bool := Id.run do
     let g1 := gmul gTab[j + 1]! d k
     let pred := lerp g0 g1 fP spanP / (2 ^ gK : Int)
     let e := dev (nSlow + k) - pred
-    if !(-tol[k]! ≤ e && e ≤ tol[k]!) then ok := false
+    let t := lerp (tolTab[j]!)[k]! (tolTab[j + 1]!)[k]! fP spanP
+    if !(-t ≤ e && e ≤ t) then ok := false
   return ok
 
 /-- The ci-proof law with the climb-manifold terminal set. -/

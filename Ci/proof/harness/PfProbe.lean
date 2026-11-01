@@ -46,6 +46,22 @@ def main (args : List String) : IO UInt32 := do
       let r := tickT L s m
       s := r.s; m := r.m
     return 0
+  | ["frozen", n] =>
+    -- equilibrium at a frozen altitude: h is reset to its initial value before every tick
+    let h := (← IO.getStdin)
+    let mut out : Array String := #[]
+    repeat
+      let line ← h.getLine
+      if line.isEmpty then break
+      let a := ((line.trimAscii.toString.splitOn " ").filter (· ≠ "") |>.map String.toInt!).toArray
+      if a.size < 21 then break
+      let mut s := toState a
+      let mut m : Mem := ⟨a[19]!, a[20]!⟩
+      for _ in [0:n.toNat!] do
+        let r := tickT L { s with h := ⟨a[1]!⟩, x := ⟨0⟩ } m
+        s := r.s; m := r.m
+      IO.println s!"{showA (ofState { s with h := ⟨a[1]!⟩, x := ⟨0⟩ })} {m.eI} {m.ac}"
+    return 0
   | ["tick", k] => loop (← IO.getStdin) (← IO.getStdout) k.toNat!; return 0
   | ["bench", i, n] =>
     let lines := (← IO.FS.lines "../../../Ci/data/bench.csv").toList.drop 1

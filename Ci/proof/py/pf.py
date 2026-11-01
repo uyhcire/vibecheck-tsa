@@ -33,3 +33,8 @@ def ticks_T(points, k=1):
     img = np.array([[int(v) for v in r[:21]] for r in rows], dtype=np.int64)
     b = lambda j: np.array([r[j] == "true" for r in rows])
     return img, b(21), b(22), b(23), b(24)
+
+def frozen(points, n):
+    inp = "\n".join(" ".join(str(int(v)) for v in p) for p in points) + "\n"
+    out = subprocess.run([EXE, "frozen", str(n)], input=inp, capture_output=True, text=True, check=True).stdout
+    return np.array([[int(v) for v in l.split()[:21]] for l in out.strip().split("\n")], dtype=np.int64)
