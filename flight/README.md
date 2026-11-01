@@ -353,22 +353,29 @@ the nearest building or terrain surface. The 2.0 m floor is exactly the
 margin new plans must keep (1 m + 0.5 m + 0.5 m slack), which shows the
 predictor and the aircraft agree.
 
-**San Francisco** (`harness 200 --quick --map sf`):
+**San Francisco** (`harness 200 --quick --map sf`, the 12.6 × 9.4 km map, about 133,000 obstacles):
 
 | Config | Crashes | Invariant violations | Min true clearance | Filter active | ms / tick |
 |---|---|---|---|---|---|
-| **P1 filter ON** | **0 / 200** | **0** | 2.0 m | 66% | 2.35 |
+| **P1 filter ON** | **0 / 200** | **0** | 2.0 m | 66% | 2.52 |
 | filter OFF | 200 / 200 | – | crash | – | – |
-| P1 ON + gusty wind | 0 / 195 | 2 eps | 8.7 m | 70% | 2.31 |
-| P1 ON + model error | 5 / 200 | 13 eps | crash | 67% | 2.35 |
+| P1 ON + gusty wind | 0 / 196 | 0 | 8.7 m | 70% | 2.66 |
+| P1 ON + model error | 5 / 200 | 13 eps | crash | 68% | 2.44 |
 
-- **Kamikaze:** survives all four SF scenarios (minimum clearance 2.2 to 2.3 m).
-- **Street coverage:** 93.6% of street states have a verified escape, and
-  77.4% of those below rooftop height. The grid city's are 98% and 93%: SF has
-  narrower canyons under taller walls.
-- **Gusty wind fails acceptance here:** two episodes briefly lost their
-  verified escape, though neither crashed. The grid city shows none, so this
-  is still open.
+- **Kamikaze:** survives all four SF scenarios (minimum clearance 2.2 to 2.4 m).
+- **Street coverage:** 98.0% of street states have a verified escape, and
+  82.5% of the 143 below rooftop height (73.4% with the nose 4° off the
+  street). The grid city's are 98% and 93%. Most of the larger map is
+  low-rise, so few street states lie below the rooftops at all.
+- **Gusty wind passes acceptance on the larger map** (0 of 196 episodes lost
+  their verified escape). On the old 6 km map two episodes did; a third of the
+  random starts now spread over the larger map, so this is not the same test,
+  and that earlier failure is not shown fixed.
+- **Flying under the Golden Gate:** the filter lets you pass under the deck
+  low (about 12–16 m above the water) and turns you away higher up (30 m):
+  every escape starts climbing at once, and a climb begun under the deck hits
+  it. An escape that holds its height before climbing would let higher
+  passes verify.
 
 **Flying between buildings.** Of 2,000 random states on street centrelines
 20–90 m above the ground, 93% of those below rooftop height have a verified
