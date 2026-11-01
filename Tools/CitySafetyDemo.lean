@@ -1,6 +1,6 @@
 import Spec.CitySafetyChecks
 
-/-! Runs `CitySafety.passThrough` on `CitySafety.tiny` and reports the first frame `vertexSweptCrash` holds. -/
+/-! Runs `CitySafety.passThrough` on `CitySafety.tiny` and reports the first frame `vertexCrash` holds. -/
 
 open CitySafety JsbExact
 
@@ -21,16 +21,16 @@ def run (name : String) (c : StartCond) (u : Surfaces) (frames : Nat) : IO Unit 
   IO.println s!"{name}: start {describe s}"
   for k in [0:frames] do
     let s' := (passThrough.frame (s, ()) u).1
-    if vertexSweptCrash tiny s s' then
-      IO.println s!"{name}: vertexSweptCrash on frame {k} -> {k + 1} (t = {(k + 1).toFloat / 128} s): {describe s'}"
+    if vertexCrash tiny s' then
+      IO.println s!"{name}: vertexCrash after frame {k + 1} (t = {(k + 1).toFloat / 128} s): {describe s'}"
       return
     s := s'
     if (k + 1) % (128 * 5) == 0 then IO.println s!"  t = {(k + 1) / 128} s: {describe s}"
-  IO.println s!"{name}: no vertexSweptCrash in {frames} frames: {describe s}"
+  IO.println s!"{name}: no vertexCrash in {frames} frames: {describe s}"
 
 def main : IO Unit := do
   for c in startConds do
-    let hit := vertexSweptCrash tiny c.state (passThrough.frame (c.state, ()) idle).1
-    IO.println s!"start psi={c.psi}: vertexSweptCrash tiny over one idle frame = {hit}"
+    let hit := vertexCrash tiny c.state
+    IO.println s!"start psi={c.psi}: vertexCrash tiny at the start = {hit}"
   run "cruise north into the tower" north cruise (128 * 60)
   run "dive south into the ground" ⟨0, 0, 1500, 50, 3.141592653589793, 0.0223⟩ ⟨0.5, 0, 0, 0⟩ (128 * 120)
