@@ -1,8 +1,9 @@
 import Tools.DumpRun
 
-/-! `jsbdrift RUN [--horizon N]`: drift check of `JsbExact` against a JSBSim dump log (`jsbx::DriftLog`).
+/-! `jsbdrift RUN [--horizon N] [--freeze]`: drift check of `JsbExact` against a JSBSim dump log (`jsbx::DriftLog`).
 Imports each episode's state with `CityJsb.fromDump`, steps it with the logged inputs alongside the log
-(re-importing every `N` frames, default never), and reports per field how far the two drift apart. -/
+(re-importing every `N` frames, default never), and reports per field how far the two drift apart. `--freeze` steps with `fuelFreeze` on, for a log from a host whose
+JSBSim has `propulsion/fuel_freeze` set (`drift_host ... freeze`); the modes must match. -/
 
 open JsbExact CityJsb DumpRun
 
@@ -20,11 +21,12 @@ def fmt (x : Float) : String :=
 
 def main (args : List String) : IO UInt32 := do
   let some pfx := args.head? | do
-    IO.println "usage: jsbdrift RUN [--horizon FRAMES]   (RUN.names + RUN.bin from jsbx::DriftLog or the harness)"
+    IO.println "usage: jsbdrift RUN [--horizon FRAMES] [--freeze]   (RUN.names + RUN.bin from jsbx::DriftLog or the harness)"
     return 2
   let horizon := match args.idxOf? "--horizon" with
     | some i => (args.getD (i + 1) "0").toNat!
     | none => 0
+  let ff := args.contains "--freeze"
   let r ← load pfx
   for n in dumpNames do
     if !r.index.contains n then
@@ -45,7 +47,7 @@ def main (args : List String) : IO UInt32 := do
       cur := fromDump dump
       since := 0
     let some s := cur | return 2
-    let (s', d) := step s (r.input k)
+    let (s', d) := step s (r.input k) (fuelFreeze := ff)
     cur := some s'
     since := since + 1
     steps := steps + 1
@@ -64,7 +66,7 @@ def main (args : List String) : IO UInt32 := do
         maxAbs := max st.maxAbs diff, maxRel := max st.maxRel rel,
         first := if st.first.isNone && !same then some (k, since) else st.first }
     if all then exactSteps := exactSteps + 1
-  let hz := if horizon > 0 then s!"re-imported every {horizon} frames" else "each episode from its first record"
+  let hz := (if horizon > 0 then s!"re-imported every {horizon} frames" else "each episode from its first record") ++ (if ff then ", fuel freeze" else "")
   IO.println s!"{pfx}: {exactSteps}/{steps} frames bit-exact in every field ({hz})"
   IO.println "field            bit-exact        max |diff|  max rel     first differing record (frames since import)"
   for n in order do

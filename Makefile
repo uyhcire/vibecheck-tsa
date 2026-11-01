@@ -32,6 +32,8 @@ verify:
 	lake env lean Tools/EnvelopeAudit.lean
 	lake env lean Tools/GateSafetyAudit.lean
 	lake env lean Tools/CityGateAudit.lean
+	lake build $(LAKE_OPTS) Spec.EndSetsExamples CityGate.EndSets
+	lake env lean Tools/EndSetsAudit.lean
 
 proofs:
 	cd proofs && lake exe cache get && lake build && lake env lean Proofs/Audit.lean

@@ -90,7 +90,9 @@ leads to a reachable crash.
   every filter. This is an assumption about the plant, not a property of the simulator. Relaxing it (for example
   bounding flight time, or counting a fuel-exhausted state as an end of the claim) is being investigated separately;
   removing it is a change to `specStep` alone. `JsbExact`'s fuel freeze matches JSBSim's bit for bit on harness
-  dumps written with the property set (`jsbx ... freeze`).
+  dumps written with the property set (`jsbx ... freeze`). The demos and the C library match: the Rust demo, gate and
+  tools fly and roll out with fuel freeze by default (`--fuel-drain` restores burning), and `gate_config.fuel_drain`
+  defaults to 0 (frozen).
 - **Numbers.** Plant states are `Float`. The reported pose (CG location and altitude, `Tb2l`) is the plant's own
   `Float` computation, read exactly; airframe points, hulls, terrain and buildings are exact rational arithmetic from
   there.

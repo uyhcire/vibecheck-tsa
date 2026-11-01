@@ -20,6 +20,8 @@ fn stats(name: &str, d: &[f64], expect: f64) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(feature = "jsb")]
+    cityflight::jsb::parse_fuel_args(&args);
+    #[cfg(feature = "jsb")]
     if !args.iter().any(|a| a == "--pm") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }

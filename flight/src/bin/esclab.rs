@@ -8,6 +8,7 @@ use std::time::Instant;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    cityflight::jsb::parse_fuel_args(&args);
     let what = args.first().map_or("trace", |s| s.as_str());
     if let Some(l) = args.iter().position(|a| a == "--law").and_then(|i| args.get(i + 1)) {
         LAW_SEL.store(parse_law(l), std::sync::atomic::Ordering::Relaxed);

@@ -1,11 +1,12 @@
 // Example host for the drift check: flies JSBSim's c172p with varied inputs and logs every frame with
-// jsbx::DriftLog; `jsbdrift OUT` then steps JsbExact alongside. usage: drift_host ROOT OUT [SECONDS] [SEED]
+// jsbx::DriftLog; `jsbdrift OUT` then steps JsbExact alongside. usage: drift_host ROOT OUT [SECONDS] [SEED] [freeze]
+// ("freeze": propulsion/fuel_freeze on after RunIC, for `jsbdrift OUT --freeze`.)
 #include "export_state.hpp"
 #include <random>
 
 int main(int argc, char** argv) {
   if (argc < 3) {
-    std::fprintf(stderr, "usage: drift_host JSBSIM_ROOT OUT [SECONDS] [SEED]\n");
+    std::fprintf(stderr, "usage: drift_host JSBSIM_ROOT OUT [SECONDS] [SEED] [freeze]\n");
     return 2;
   }
   double seconds = argc > 3 ? std::atof(argv[3]) : 120.0;
@@ -26,6 +27,7 @@ int main(int argc, char** argv) {
   fdm.Setdt(1.0 / 128);
   fdm.RunIC();
   fdm.SetPropertyValue("propulsion/set-running", -1);
+  if (argc > 5 && std::string(argv[5]) == "freeze") fdm.SetPropertyValue("propulsion/fuel_freeze", 1);
   jsbx::DriftLog log(argv[2]);
   if (!log.ok()) return 1;
   double elev = 0, ail = 0, rud = 0, thr = 0.7;
