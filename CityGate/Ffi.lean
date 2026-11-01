@@ -11,31 +11,29 @@ open GateSafety
 /-- The closed-loop state: the aircraft, the proposal layer's memory, and the held controller. -/
 abbrev GateState := Plane × (Mem × Ctl)
 
-/-- Frames per round when candidates are checked in rounds (`Gate.chooseR`). -/
-def ROUND_FRAMES : Nat := 64
-
 /-- The candidate chosen this frame. `par = 0`: one after another on this thread, stopping at the first that
-verifies (`Gate.choose` itself). `par ≥ 1`: in rounds of `ROUND_FRAMES` frames, up to `par` candidates at once in
+verifies (`Gate.choose` itself). `par ≥ 1`: in rounds of `round` frames, up to `par` candidates at once in
 their own tasks, dropping candidates behind one that verified (`Gate.chooseR`). Either way it is `Gate.choose`. -/
-def chooseOut (par : Nat) (g : GateState) (u : Surf) : Option Ctl :=
-  if par = 0 then cityGate.choose g.1 g.2.1 g.2.2 u else cityGate.chooseR ROUND_FRAMES par g.1 g.2.1 g.2.2 u
+def chooseOut (par round : Nat) (g : GateState) (u : Surf) : Option Ctl :=
+  if par = 0 then cityGate.choose g.1 g.2.1 g.2.2 u else cityGate.chooseR round par g.1 g.2.1 g.2.2 u
 
-theorem chooseOut_eq (par : Nat) (g : GateState) (u : Surf) : chooseOut par g u = cityGate.choose g.1 g.2.1 g.2.2 u := by
+theorem chooseOut_eq (par round : Nat) (g : GateState) (u : Surf) :
+    chooseOut par round g u = cityGate.choose g.1 g.2.1 g.2.2 u := by
   unfold chooseOut; split
   · rfl
   · exact Gate.chooseR_eq _ _ _ _ _ _ _
 
 /-- One frame under the pilot's input `u`: the next closed-loop state, and `[applied elev, ail, rud, thr,
 accepted (1 if a candidate was taken this frame, else 0), obs (22, `CityJsb.obs` layout), map x, y, z]`. -/
-def frameOut (par : Nat) (g : GateState) (u : Surf) : GateState × FloatArray :=
-  let r := cityGate.frameWith (chooseOut par g u) g u
+def frameOut (par round : Nat) (g : GateState) (u : Surf) : GateState × FloatArray :=
+  let r := cityGate.frameWith (chooseOut par round g u) g u
   let a := r.2.2
   let p := r.1.1.pos
   (r.1, ⟨#[a.elev, a.ail, a.rud, a.thr, if r.2.1.isSome then 1 else 0] ++ r.1.1.ob.data ++ #[p.1, p.2.1, p.2.2]⟩)
 
 /-- The host runs exactly the gate's frame, however it checks the candidates. -/
-theorem frameOut_fst (par : Nat) (g : GateState) (u : Surf) : (frameOut par g u).1 = cityGate.frame g u :=
-  frameWith_fst cityGate _ g u (chooseOut_eq par g u)
+theorem frameOut_fst (par round : Nat) (g : GateState) (u : Surf) : (frameOut par round g u).1 = cityGate.frame g u :=
+  frameWith_fst cityGate _ g u (chooseOut_eq par round g u)
 
 @[export citygate_new_lean]
 def newE (x y z v gam psi phi n thr : Float) : GateState := startState x y z v gam psi phi n thr
@@ -45,8 +43,8 @@ def newE (x y z v gam psi phi n thr : Float) : GateState := startState x y z v g
 def startOkE (g : GateState) : Bool := cityGate.rolloutOK cityGate.horizon (cityGate.start g.1, g.1)
 
 @[export citygate_frame_lean]
-def frameE (g : GateState) (par : UInt32) (elev ail rud thr : Float) : GateState × FloatArray :=
-  frameOut par.toNat g ⟨elev, ail, rud, thr⟩
+def frameE (g : GateState) (par round : UInt32) (elev ail rud thr : Float) : GateState × FloatArray :=
+  frameOut par.toNat round.toNat g ⟨elev, ail, rud, thr⟩
 
 /-- `predictPath` as `[x0, y0, z0, x1, …]`. -/
 @[export citygate_path_lean]
@@ -80,5 +78,26 @@ def traceE (g : GateState) : FloatArray :=
     c.pilot.elev, c.pilot.ail, c.pilot.rud, c.pilot.thr, c.pf.toFloat, l.esc.toFloat, l.t, l.ia, l.ib, l.iphi,
     l.psiRef, l.axis, l.side, l.nextTry, b l.captured, c.lk.toFloat, c.hist.size.toFloat, c.psiPrev, c.extra,
     c.cap.toFloat]⟩
+
+/-- Tooling only: a rollout check's verdict and the frames it flies. -/
+def countRoll : Nat → Ctl × Plane → Nat → Bool × Nat
+  | 0, x, k => (cityGate.clear x && cityGate.term x, k)
+  | n + 1, x, k =>
+    if !cityGate.clear x then (false, k) else if cityGate.term x then (true, k)
+    else countRoll n (cityGate.fly x) (k + 1)
+
+/-- Tooling only: the plant frames this gate frame steps when it checks candidates one after another (its own
+frame included), and in the low 32 bits instead of the high ones the longest rollout up to the first that verifies
+(the critical path when all candidates run at once). -/
+@[export citygate_frames_lean]
+def framesE (g : GateState) (elev ail rud thr : Float) : UInt64 :=
+  let cs := cityGate.propose g.2.1 g.1 g.2.2 ⟨elev, ail, rud, thr⟩
+  let rec go : List Ctl → Nat → Nat → Nat × Nat
+    | [], k, m => (k, m)
+    | c :: r, k, m =>
+      let (ok, f) := countRoll cityGate.horizon (c, g.1) 0
+      if ok then (k + f, max m f) else go r (k + f) (max m f)
+  let (k, m) := go cs 1 0
+  (k.toUInt64 <<< 32) ||| (m + 1).toUInt64
 
 end CityGate

@@ -1,7 +1,7 @@
 //! The Lean city gate (`CityGate/Ffi.lean`, `c/citygate.h`) as the demo's plant and filter (`--safety-filter exact-rollout-lean`). Every
 //! JSBSim frame goes through `citygate_frame`, which runs `cityGate.frame`, the frame `CityGate.city_safe` is
-//! about (`frameOut_fst`); the gate's candidate checks run in parallel rounds on Lean's task manager (`CITYGATE_PAR`
-//! = 0: one after another on the calling thread; N: up to N at once, default 4). The pilot stays in
+//! about (`frameOut_fst`); the gate's candidate checks run one after another on the calling thread, or with
+//! `CITYGATE_PAR=N` up to N at once on Lean's task manager, in rounds of `CITYGATE_ROUND` frames (default 64). The pilot stays in
 //! Rust: fly-by-wire demands become surfaces each frame from the gate's own observation (`jsb::fbw_law`), or
 //! raw surfaces pass straight through.
 
@@ -35,7 +35,8 @@ extern "C" {
     fn citygate_restart(g: *mut Raw) -> i32;
     fn citygate_obs(g: *const Raw, out: *mut f64);
     fn citygate_path(g: *const Raw, xyz: *mut f64, max_points: usize) -> usize;
-    fn citygate_set_parallel(g: *mut Raw, par: u32);
+    fn citygate_frames(g: *const Raw, elev: f64, ail: f64, rud: f64, thr: f64) -> u64;
+    fn citygate_set_parallel(g: *mut Raw, par: u32, round: u32);
     fn citygate_trace(g: *const Raw, out: *mut f64, max: usize) -> usize;
     fn citygate_free(g: *mut Raw);
 }
@@ -96,6 +97,10 @@ pub struct LeanGate {
     pub proc_ms: Vec<f32>,
     /// With `CITYGATE_TRACE` set: per frame, the frame's output and `citygate_trace`, as little-endian f64 bits.
     pub trace: Option<Vec<u8>>,
+    /// With `CITYGATE_COUNT` set: per tick, the plant frames a one-after-another check steps (computed separately).
+    pub frames_tick: Option<Vec<u32>>,
+    /// With `CITYGATE_COUNT`: per tick, the critical path in frames if every candidate ran at once.
+    pub crit_tick: Vec<u32>,
 }
 
 // The handle is only ever used by the thread that owns the `Sim`; the C ABI registers that thread with Lean.
@@ -112,8 +117,9 @@ impl LeanGate {
     pub fn new(s: &State) -> LeanGate {
         let raw = unsafe { citygate_new(s[X], s[Y], s[Z], s[V], s[GAM], s[PSI], s[PHI], s[N], s[THR]) };
         assert!(!raw.is_null(), "libcityjsb: Lean runtime failed to initialise");
-        if let Some(par) = std::env::var("CITYGATE_PAR").ok().and_then(|v| v.parse().ok()) {
-            unsafe { citygate_set_parallel(raw, par) };
+        let env = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<u32>().ok());
+        if env("CITYGATE_PAR").is_some() || env("CITYGATE_ROUND").is_some() {
+            unsafe { citygate_set_parallel(raw, env("CITYGATE_PAR").unwrap_or(0), env("CITYGATE_ROUND").unwrap_or(0)) };
         }
         let start_ok = unsafe { citygate_start_ok(raw) } != 0;
         let mut g = LeanGate {
@@ -136,6 +142,8 @@ impl LeanGate {
             cpu_ms: Vec::new(),
             proc_ms: Vec::new(),
             trace: std::env::var_os("CITYGATE_TRACE").map(|_| Vec::new()),
+            frames_tick: std::env::var_os("CITYGATE_COUNT").map(|_| Vec::new()),
+            crit_tick: Vec::new(),
         };
         let mut o = [0.0; NOBS + 3];
         unsafe { citygate_obs(raw, o.as_mut_ptr()) };
@@ -149,6 +157,10 @@ impl LeanGate {
     pub fn tick(&mut self, u: &Pilot, dt: f64, filter_on: bool) {
         let (w0, c0, p0) = (std::time::Instant::now(), crate::envfilter::thread_cpu(), proc_cpu());
         self.lag -= dt;
+        if let Some(f) = self.frames_tick.as_mut() {
+            f.push(0);
+            self.crit_tick.push(0);
+        }
         while self.lag < -1e-12 {
             // While an escape flies, keep the fly-by-wire bumpless to its surfaces, so a hand-back continues from them.
             if self.escaping {
@@ -169,6 +181,11 @@ impl LeanGate {
     }
 
     fn frame(&mut self, s: [f64; 4], filter_on: bool) {
+        if let (Some(f), true) = (self.frames_tick.as_mut(), filter_on) {
+            let n = unsafe { citygate_frames(self.raw, s[0], s[1], s[2], s[3]) };
+            *f.last_mut().unwrap() += (n >> 32) as u32;
+            *self.crit_tick.last_mut().unwrap() += (n & 0xffff_ffff) as u32;
+        }
         let mut out = [0.0; NOUT];
         unsafe {
             if filter_on {

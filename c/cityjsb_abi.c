@@ -1,6 +1,6 @@
 // C ABI over CityJsb/Plant.lean (cityjsb.h) and the Lean city gate, CityGate/Ffi.lean (citygate.h); no `main` here.
 // The runtime starts from CityGate.Ffi, which imports CityJsb.Plant; lean_runtime.h also starts Lean's task manager,
-// on which the gate's candidate checks run in parallel (Task.spawn), and registers every calling thread.
+// on which the gate's candidate checks can run in parallel (citygate_set_parallel), and registers every calling thread.
 #include <stdlib.h>
 #include <string.h>
 #include "cityjsb.h"
@@ -120,14 +120,15 @@ API void cityjsb_free(cityjsb *p) {
 lean_object *citygate_new_lean(double x, double y, double z, double v, double gam, double psi, double phi, double n,
                                double thr);
 uint8_t citygate_start_ok_lean(lean_obj_arg g);
-lean_object *citygate_frame_lean(lean_obj_arg g, uint32_t par, double elev, double ail, double rud, double thr);
+lean_object *citygate_frame_lean(lean_obj_arg g, uint32_t par, uint32_t round, double elev, double ail, double rud, double thr);
 lean_object *citygate_path_lean(lean_obj_arg g);
 lean_object *citygate_obs_lean(lean_obj_arg g);
 lean_object *citygate_bypass_lean(lean_obj_arg g, double elev, double ail, double rud, double thr);
 lean_object *citygate_restart_lean(lean_obj_arg g);
 lean_object *citygate_trace_lean(lean_obj_arg g);
+uint64_t citygate_frames_lean(lean_obj_arg g, double elev, double ail, double rud, double thr);
 
-struct citygate { lean_object *g; uint32_t par; };
+struct citygate { lean_object *g; uint32_t par, round; };
 
 API citygate *citygate_new(double x, double y, double z, double v, double gam, double psi, double phi, double n,
                            double thr) {
@@ -135,7 +136,8 @@ API citygate *citygate_new(double x, double y, double z, double v, double gam, d
   citygate *h = malloc(sizeof *h);
   if (!h) return NULL;
   h->g = citygate_new_lean(x, y, z, v, gam, psi, phi, n, thr);
-  h->par = 4;
+  h->par = 0;
+  h->round = 64;
   return h;
 }
 
@@ -159,7 +161,7 @@ static void citygate_take(citygate *h, lean_object *res, double out[CITYGATE_NOU
 
 API void citygate_frame(citygate *h, double elev, double ail, double rud, double thr, double out[CITYGATE_NOUT]) {
   lean_rt_ensure();
-  citygate_take(h, citygate_frame_lean(h->g, h->par, elev, ail, rud, thr), out); /* consumes the old h->g */
+  citygate_take(h, citygate_frame_lean(h->g, h->par, h->round, elev, ail, rud, thr), out); /* consumes the old h->g */
 }
 
 API void citygate_bypass(citygate *h, double elev, double ail, double rud, double thr, double out[CITYGATE_NOUT]) {
@@ -192,7 +194,16 @@ API size_t citygate_path(const citygate *h, double *xyz, size_t max_points) {
   return n;
 }
 
-API void citygate_set_parallel(citygate *h, unsigned par) { h->par = par; }
+API uint64_t citygate_frames(const citygate *h, double elev, double ail, double rud, double thr) {
+  lean_rt_ensure();
+  lean_inc(h->g);
+  return citygate_frames_lean(h->g, elev, ail, rud, thr);
+}
+
+API void citygate_set_parallel(citygate *h, unsigned par, unsigned round) {
+  h->par = par;
+  h->round = round ? round : 64;
+}
 
 API size_t citygate_trace(const citygate *h, double *out, size_t max) {
   lean_rt_ensure();

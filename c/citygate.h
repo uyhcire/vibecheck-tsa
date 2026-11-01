@@ -29,9 +29,9 @@ int citygate_start_ok(const citygate *g);
 void citygate_frame(citygate *g, double elev, double ail, double rud, double thr, double out[CITYGATE_NOUT]);
 
 // How citygate_frame checks candidates: 0 one after another on the calling thread, stopping at the first that
-// verifies; par >= 1 in rounds of 64 frames, up to par candidates at once on Lean's task manager (default 4). The
-// frame computed is the same either way (CityGate.frameOut_fst).
-void citygate_set_parallel(citygate *g, unsigned par);
+// verifies (the default); par >= 1 in rounds of `round` frames (0: 64), up to par candidates at once on Lean's
+// task manager. The frame computed is the same either way (CityGate.frameOut_fst).
+void citygate_set_parallel(citygate *g, unsigned par, unsigned round);
 
 // Display only: up to max_points points (x, y, z triples) of the held controller's predicted path into xyz;
 // returns the number of points available (which may exceed max_points).
@@ -49,6 +49,9 @@ int citygate_restart(citygate *g);
 
 // Tooling only: the proposal memory and held controller as numbers (CityGate.traceE); returns how many.
 size_t citygate_trace(const citygate *g, double *out, size_t max);
+
+// Tooling only: plant frames citygate_frame would step under this input, checking one candidate after another.
+unsigned long long citygate_frames(const citygate *g, double elev, double ail, double rud, double thr);
 
 void citygate_free(citygate *g);
 

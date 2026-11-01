@@ -165,6 +165,8 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
         st.cpu_ms = g.cpu_ms.clone();
         st.proc_ms = g.proc_ms.clone();
         st.trace = g.trace.clone();
+        st.frames = g.frames_tick.clone().unwrap_or_default();
+        st.frames_all = g.crit_tick.clone();
     }
     if let Some(g) = sim.env_gate.take() {
         st.first_accept = g.first_accept.unwrap_or(false);
@@ -397,7 +399,10 @@ fn main() {
     let mut fr_all: Vec<f32> = res.iter().flat_map(|r| r.3.frames_all.iter().map(|&f| f as f32)).collect();
     if cityflight::leangate::enabled() {
         let mut proc: Vec<f32> = res.iter().flat_map(|r| r.3.proc_ms.iter().copied()).collect();
-        for (label, v) in [("thread CPU ms", &mut cpu), ("process CPU ms", &mut proc), ("wall ms", &mut wall)] {
+        for (label, v) in [("thread CPU ms", &mut cpu), ("process CPU ms", &mut proc), ("wall ms", &mut wall), ("frames", &mut fr), ("crit. frames", &mut fr_all)] {
+            if v.is_empty() {
+                continue;
+            }
             let mean = v.iter().map(|&x| x as f64).sum::<f64>() / v.len().max(1) as f64;
             println!("lean tick {label:14}: median {:.2}  mean {mean:.2}  p99 {:.2}  p99.9 {:.2}  max {:.2}", pct(v, 0.5), pct(v, 0.99), pct(v, 0.999), pct(v, 1.0));
         }
