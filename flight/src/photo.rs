@@ -207,6 +207,9 @@ pub struct Photo {
     rt_reset: bool,
     dyn_pipe: mq::Pipeline,
     overlay_pipe: mq::Pipeline,
+    /// The overlay pipeline, writing depth: for the ribbons (trail, escape paths), so the fog and clouds
+    /// composited later stop at them instead of running on to whatever is behind (often sky and clouds).
+    ribbon_pipe: mq::Pipeline,
     fs_vb: mq::BufferId,
     fs_ib: mq::BufferId,
     dyn_lit: DynBuf,
@@ -457,21 +460,18 @@ impl Photo {
         let sdv = shader(ctx, &sdv_src, &[]);
         let dyn_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, dsh, rev_z);
         let shadow_dv_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, sdv, shadow_params);
-        let overlay_pipe = ctx.new_pipeline(
-            &[mq::BufferLayout::default()],
-            &dyn_attrs,
-            dsh,
-            mq::PipelineParams {
-                depth_test: mq::Comparison::GreaterOrEqual,
-                depth_write: false,
-                color_blend: Some(mq::BlendState::new(
-                    mq::Equation::Add,
-                    mq::BlendFactor::Value(mq::BlendValue::SourceAlpha),
-                    mq::BlendFactor::OneMinusValue(mq::BlendValue::SourceAlpha),
-                )),
-                ..Default::default()
-            },
-        );
+        let overlay_params = mq::PipelineParams {
+            depth_test: mq::Comparison::GreaterOrEqual,
+            depth_write: false,
+            color_blend: Some(mq::BlendState::new(
+                mq::Equation::Add,
+                mq::BlendFactor::Value(mq::BlendValue::SourceAlpha),
+                mq::BlendFactor::OneMinusValue(mq::BlendValue::SourceAlpha),
+            )),
+            ..Default::default()
+        };
+        let overlay_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, dsh, overlay_params);
+        let ribbon_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, dsh, mq::PipelineParams { depth_write: true, ..overlay_params });
         let fs_attr = [mq::VertexAttribute::new("in_pos", mq::VertexFormat::Float2)];
         let sky_src = shaders::sky();
         let ssh = shader(ctx, &sky_src, &["sky_lut"]);
@@ -545,6 +545,7 @@ impl Photo {
             rt_reset: true,
             dyn_pipe,
             overlay_pipe,
+            ribbon_pipe,
             fs_vb,
             fs_ib,
             dyn_lit,
@@ -733,7 +734,11 @@ impl Photo {
             ni as i32
         };
         let n_lit = upload(ctx, &self.dyn_lit, f.dyn_lit.0, f.dyn_lit.1);
-        let n_ov = upload(ctx, &self.dyn_ov, f.dyn_overlay.0, f.dyn_overlay.1);
+        // Ribbons first (they write depth), then the glow sprites and prop disc, which are mostly see-through and don't.
+        let (ov, oi) = f.dyn_overlay;
+        let (rib, rest): (Vec<&[u32]>, Vec<&[u32]>) = oi.chunks(3).partition(|t| ov[t[0] as usize].mat[0] == K_OVERLAY);
+        let n_ov = upload(ctx, &self.dyn_ov, ov, &[rib.concat(), rest.concat()].concat());
+        let n_rib = (rib.len() as i32 * 3).min(n_ov);
 
         if use_rt {
             let (v, i) = f.dyn_lit;
@@ -801,11 +806,13 @@ impl Photo {
         ctx.apply_bindings(&fs_bind(vec![self.sky_lut]));
         ctx.apply_uniforms(mq::UniformsSource::table(&u));
         ctx.draw(0, 3, 1);
-        if n_ov > 0 {
-            ctx.apply_pipeline(&self.overlay_pipe);
-            ctx.apply_bindings(&mq::Bindings { vertex_buffers: vec![self.dyn_ov.vb], index_buffer: self.dyn_ov.ib, images: vec![self.sky_lut] });
-            ctx.apply_uniforms(mq::UniformsSource::table(&u));
-            ctx.draw(0, n_ov, 1);
+        for (p, a, b) in [(&self.ribbon_pipe, 0, n_rib), (&self.overlay_pipe, n_rib, n_ov)] {
+            if b > a {
+                ctx.apply_pipeline(p);
+                ctx.apply_bindings(&mq::Bindings { vertex_buffers: vec![self.dyn_ov.vb], index_buffer: self.dyn_ov.ib, images: vec![self.sky_lut] });
+                ctx.apply_uniforms(mq::UniformsSource::table(&u));
+                ctx.draw(a, b - a, 1);
+            }
         }
         ctx.end_render_pass();
 
