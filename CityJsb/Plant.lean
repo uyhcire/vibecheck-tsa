@@ -96,4 +96,14 @@ def dumpLenE (_ : Unit) : USize := dumpNames.size.toUSize
 @[export cityjsb_dump_field_lean]
 def dumpFieldE (i : USize) : String := dumpNames.getD i.toNat ""
 
+/-- `stepE` with both wheel brakes at `brk` (0 released, 1 full), for a full-stop landing. -/
+@[export cityjsb_step_brake_lean]
+def stepBrakeE (s : State Float) (elev ail rud thr brk : Float) : State Float × FloatArray :=
+  let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := brk, brkR := brk }
+  (s', obs s' d)
+
+/-- `s` with `lb` pounds of fuel in each tank (the template carries 100), for low-fuel starts. -/
+@[export cityjsb_set_fuel_lean]
+def setFuelE (s : State Float) (lb : Float) : State Float := { s with tank0 := lb, tank1 := lb }
+
 end CityJsb
