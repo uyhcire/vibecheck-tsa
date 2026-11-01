@@ -1,6 +1,6 @@
 # Swappable safety-filter interface
 
-Status: design, doc-only. Nothing in this file is implemented yet.
+Status: design. The ABI in section 2 is implemented with the envelope filter behind it (`c/vcfilter.h`, `c/filter_abi.c`, `VcFilter/`; envelope-specific mappings in `docs/vcfilter-envelope.md`). The tube and rollout filters, the `SafetyFilter` structure of section 3 and the conservative `view` are not implemented.
 
 ## 1. Goals, non-goals, terminology
 
@@ -33,21 +33,31 @@ typedef struct { uint32_t abi_version, size;
 vc_filter *vc_filter_new(const vc_config *cfg, int *err);   // NULL on failure, *err set
 int  vc_filter_tick(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot,
                     vc_cmd *applied, vc_info *info);
+int  vc_filter_tick_substeps(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot,
+                             vc_cmd *applied, vc_info *info,
+                             const vc_obs *subs, uint32_t nsubs);   // plant states inside the tick ending at obs
 void vc_filter_reset(vc_filter *f);                 // forget plan and monitor state; next tick re-initialises
 void vc_filter_free(vc_filter *f);
+
+const char *vc_filter_guarantee(const vc_filter *f);      // name of the theorem in force
+uint32_t vc_filter_command_kind(const vc_filter *f);      // pilot command kind consumed
+uint32_t vc_filter_required_obs(const vc_filter *f);      // valid_mask bits the filter requires
+int64_t  vc_filter_live_handles(void);                    // handles not yet freed (leak tests)
 ```
 
+`vc_filter_tick` is `vc_filter_tick_substeps` with no substeps. A host whose plant moves in discrete steps inside a filter tick (JSBSim runs 16 steps of 1/128 s per 1/8 s envelope tick) passes those intermediate states so the filter can check the within-tick assumption of its theorem (for the envelope filter, `Envelope.substepOK`).
+
 **Observation (`vc_obs`).** Doubles, SI units, right-handed frame with x forward along the runway axis, z up (the 2D model's `x, h` map to `x, z`):
-`t` (s), `pos[3]` (m), `vel[3]` (m/s), `pitch, roll, yaw` (rad), `rates[3]` (rad/s), `elev_pos, throttle_pos` (actuator positions, normalised), `fuel` (s of full throttle, or `NaN` if unknown), `on_ground` flag, `valid_mask` bitfield naming the fields that were measured.
-Required fields per filter: *rollout* (2D Lean model): `pos` (x, z), `vel` (x, z), `pitch`, `rates[pitch]`, `elev_pos`, `fuel`, `on_ground`. *Tube*: same, plus the previous tick's applied command so the one-step residual can be computed. *Envelope*: `pos`, `vel`, `pitch`, `rates`, `throttle_pos` (the 3D point-mass and the envelope relation use a subset). A missing required field makes the tick return `VC_ERR_BAD_OBS` with the fallback below.
+`t` (s), `pos[3]` (m), `vel[3]` (m/s), `pitch, roll, yaw` (rad), `rates[3]` (rad/s), `elev_pos, throttle_pos` (actuator positions, normalised), `fuel` (s of full throttle, or `NaN` if unknown), `on_ground` flag, `valid_mask` bitfield naming the fields that were measured, and (appended) `airspeed` (true airspeed, m/s), which the envelope relation's `V` needs and no other field gives exactly.
+Required fields per filter: *rollout* (2D Lean model): `pos` (x, z), `vel` (x, z), `pitch`, `rates[pitch]`, `elev_pos`, `fuel`, `on_ground`. *Tube*: same, plus the previous tick's applied command so the one-step residual can be computed. *Envelope* (implemented): `pos`, `vel`, `airspeed` (`vc_filter_required_obs`); the envelope relation reads only `x, z`, `vel` along `x` and `z`, and `airspeed`. A missing required field makes the tick return `VC_ERR_BAD_OBS` with the fallback below.
 
-**Command (`vc_cmd`).** Two layers in one struct: `kind` is `VC_CMD_SURFACES` (normalised `elevator, aileron, rudder` in [-1,1], `throttle` in [0,1], `brake`) or `VC_CMD_DEMAND` (load-factor demand, roll-rate demand, throttle, matching the Rust frontend's 3-component `Cmd`). Each filter declares which kind it consumes and produces (`vc_filter_command_kind`); a *host adapter* (in the host, not the filter) maps its input device to that kind and maps the applied command back (for example surfaces to JSBSim's `fcs/elevator-cmd-norm`, demand to the Rust model's `Cmd`). The Lean 2D `Input` (`stick`, `throttle`, `brake`) is the `SURFACES` kind restricted to the elevator and throttle.
+**Command (`vc_cmd`).** Two layers in one struct: `kind` is `VC_CMD_SURFACES` (normalised `elevator, aileron, rudder` in [-1,1], `throttle` in [0,1], `brake`) or `VC_CMD_DEMAND` (load-factor demand, roll-rate demand, throttle, matching the Rust frontend's 3-component `Cmd`), or `VC_CMD_ESCAPE` (output only: fly the filter's escape maneuver; the host's escape autopilot executes it, for the envelope filter wings level, pull up and climb at full throttle, with the performance the theorem assumes reported in `vc_info`). Each filter declares which kind it consumes and produces (`vc_filter_command_kind`); a *host adapter* (in the host, not the filter) maps its input device to that kind and maps the applied command back (for example surfaces to JSBSim's `fcs/elevator-cmd-norm`, demand to the Rust model's `Cmd`). The Lean 2D `Input` (`stick`, `throttle`, `brake`) is the `SURFACES` kind restricted to the elevator and throttle.
 
-**Info (`vc_info`).** `verdict` (enum above), `margin` (filter-defined, non-negative, 0 means at the boundary; unit documented per filter), `escape_id`, `monitor_flags` (bitfield: which monitor clause failed), `us_total`, `us_lean` (wall-clock microseconds of the tick and of the Lean call), `tick_index`.
+**Info (`vc_info`).** `verdict` (enum above), `margin` (filter-defined, non-negative, 0 means at the boundary; unit documented per filter), `escape_id` (escapes committed since reset), `monitor_flags` (bitfield: which monitor clauses failed on this tick in the low 16 bits, the same bits latched since the last reset in the high 16 bits), `us_total`, `us_lean` (wall-clock microseconds of the tick and of the Lean call), `tick_index`, and (appended) `escape_phase` (ticks since the escape was committed) and `escape_pull`, `escape_climb`, `escape_vmin` (the escape performance the filter's guarantee assumes at the current state: vertical acceleration in m/s², climb rate and minimum airspeed in m/s).
 
-**Errors and fallback.** `applied` is always written, including on every error return. On error the fallback is, in order: continue the committed escape if one exists; otherwise the filter's fixed safe command (wings level, throttle idle, brake on ground); never the unchecked pilot command. The return value is `VC_OK`, or a negative code (`VC_ERR_BAD_OBS`, `VC_ERR_NOT_INIT`, `VC_ERR_INTERNAL`); `info->verdict` is set to `MONITOR_FAIL` where applicable and the error is also latched in `monitor_flags`.
+**Errors and fallback.** `applied` is always written, including on every error return. On error the fallback is, in order: continue the committed escape if one exists; otherwise the filter's fixed safe command; never the unchecked pilot command. The fixed safe command is per filter. For the landing-based filters (rollout, tube) it is wings level, throttle idle, brake on ground. For the envelope filter it is the escape (`VC_CMD_ESCAPE`, committed if not already): its escape climbs away from terrain, while idle throttle in flight near terrain gives up altitude and airspeed, which is exactly what its guarantee needs to keep. The return value is `VC_OK`, or a negative code (`VC_ERR_BAD_OBS`, `VC_ERR_NOT_INIT`, `VC_ERR_INTERNAL`, and from `vc_filter_new` `VC_ERR_BAD_CONFIG`, `VC_ERR_VERSION`, `VC_ERR_UNSUPPORTED`); `info->verdict` is set to `MONITOR_FAIL` where applicable and the error is also latched in `monitor_flags`.
 
-**Threading and runtime.** The first `vc_filter_new` in a process initialises the Lean runtime once (`lean_initialize_runtime_module`, the module initialisers, `lean_io_mark_end_initialization`, `lean_init_task_manager`) under a `pthread_once`; the library never finalises it. A `vc_filter` is not internally synchronised: one thread at a time per handle; distinct handles may be ticked concurrently. The calling thread needs a stack of at least 16 MiB (the host's thread, or the library spawns none); the current game uses 64 MiB for deep non-tail recursion. Lean objects the shim creates are freed (`lean_dec`) before return.
+**Threading and runtime.** The first `vc_filter_new` in a process initialises the Lean runtime once (`lean_initialize_runtime_module`, the module initialisers, `lean_io_mark_end_initialization`, `lean_init_task_manager`) under a `pthread_once`; the library never finalises it. Any other thread that ticks a handle is registered with `lean_initialize_thread` on its first call (and `lean_finalize_thread` at thread exit). A `vc_filter` is not internally synchronised: one thread at a time per handle; distinct handles may be ticked concurrently. The calling thread needs a stack of at least 16 MiB (the host's thread, or the library spawns none); the current game uses 64 MiB for deep non-tail recursion. Lean objects the shim creates are freed (`lean_dec`) before return.
 
 **Memory.** The host owns all `vc_obs`, `vc_cmd`, `vc_info` and `vc_config` memory; the library copies what it keeps (`params_path` is read during `vc_filter_new`). The library owns the `vc_filter` until `vc_filter_free`. No pointer into library memory is returned.
 
@@ -79,7 +89,7 @@ In each case the theorem is about the filter's Lean model of the aircraft and th
 2. **Robust-tube backup filter.** *Proved:* given a committed escape plan (one set per tick) whose every set pushed one tick through an interval step and widened by `D` lands inside the next set (a one-step inclusion check, verified in Lean for each plan the filter commits to), and whose sets avoid crash states, then any plant trajectory with per-tick residual inside `D` stays in the tube. Claim: for every pilot and every disturbance sequence inside `D`, no crash. *Checked at runtime:* the inclusion check on every new plan, and the residual of each observed tick against `D` (monitor). *Only measured:* the bound `D` itself, from JSBSim residuals (`sysid/`); the guarantee is conditional on it.
 3. **Point-rollout backup filter** (the current design). *Proved:* `flight_never_crashes`: against the Lean `step`, no pilot sequence crashes. *Checked at runtime:* only the rollout itself. *Only measured:* nothing is bounded; against any other plant (JSBSim's Cessna 172) the theorem does not apply, and the host must treat the Lean model's agreement with that plant as an unproved assumption. The monitor (observed state versus the Lean prediction, thresholded) flags disagreement but gives no soundness.
 
-Every verdict carries which guarantee it falls under: the `vc_filter_guarantee()` string names the theorem, and `MONITOR_FAIL` means "outside the guarantee from now on" until `vc_filter_reset`.
+Every verdict carries which guarantee it falls under: the `vc_filter_guarantee()` string names the theorem. The verdict is `MONITOR_FAIL` on each tick whose transition (or substep) the monitor rejects, and the applied command on that tick is still the filter's choice; the failed clauses stay latched in the high half of `monitor_flags`, which means "outside the guarantee from now on" until `vc_filter_reset`.
 
 ## 5. Host integration
 
@@ -98,7 +108,7 @@ pub trait Filter {
 
 ## 6. Testing
 
-**Shared harness.** One program, in the repo's `Tools/`, drives any filter through the C ABI against any plant adapter (Lean `step`, JSBSim, Rust point mass) with fixed seeds. Pilots: random (uniform and held-key), scripted adversarial (dive at terrain, stall, overspeed, full-throttle brake on ground, alternate extremes at the actuator rate limit), and recorded human flights. Metrics per run: crashes, monitor firings, intervention rate (ticks with verdict other than `PASS`), smoothness (sum of |applied change| per tick), `us_total` mean and max, margin distribution. Results are written as one CSV row per (filter, plant, pilot, seed) so filters compare on identical inputs.
+**Shared harness.** (Today: `host/lockstep.py` for the envelope filter against JSBSim, and `host/conformance.py` for the conformance list below.) One program, in the repo's `Tools/`, drives any filter through the C ABI against any plant adapter (Lean `step`, JSBSim, Rust point mass) with fixed seeds. Pilots: random (uniform and held-key), scripted adversarial (dive at terrain, stall, overspeed, full-throttle brake on ground, alternate extremes at the actuator rate limit), and recorded human flights. Metrics per run: crashes, monitor firings, intervention rate (ticks with verdict other than `PASS`), smoothness (sum of |applied change| per tick), `us_total` mean and max, margin distribution. Results are written as one CSV row per (filter, plant, pilot, seed) so filters compare on identical inputs.
 
 **ABI conformance (every filter must pass).**
 - `applied` is written on every call, including after errors and with NaN/out-of-range observations.
@@ -117,7 +127,7 @@ pub trait Filter {
 
 - **Open:** observation `valid_mask` versus a per-filter fixed input struct; the mask is flexible but moves a failure from compile time to run time.
 - **Open:** the conservative `view` for 3D observations (heading, bank) and a sensor-error bound: where its constants come from and who reviews them.
-- **Open:** whether `MONITOR_FAIL` latches until reset or the filter tries to re-enter its guarantee after the observed state returns inside the envelope.
+- **Decided for the envelope filter:** `MONITOR_FAIL` is reported per tick and the flags latch until reset; the filter keeps filtering after a failure. **Open:** whether a filter may re-enter its guarantee after the observed state returns inside the envelope.
 - **Open:** a single `Verdict` enum versus per-filter extensions; a shared enum makes the harness uniform but may be too coarse for the tube filter.
 - **Open:** `SafetyFilter.guarantee` as a structure field versus a companion theorem (a field forces every filter into one proof shape; a companion keeps `Certificate`-style proofs untouched).
 - **Open:** how the 2D Lean models (rollout, tube) are used in a 3D host (the Rust frontend): project to the vertical plane, or the filters are 2D-only and the 3D host uses the envelope filter.

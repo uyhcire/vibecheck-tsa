@@ -216,4 +216,4 @@ VC_API uint32_t vc_filter_command_kind(const vc_filter *f) { (void)f; return VC_
 
 VC_API uint32_t vc_filter_required_obs(const vc_filter *f) { (void)f; return REQUIRED_OBS; }
 
-VC_API int64_t vc_filter_live_objects(void) { return atomic_load(&live_handles); }
+VC_API int64_t vc_filter_live_handles(void) { return atomic_load(&live_handles); }

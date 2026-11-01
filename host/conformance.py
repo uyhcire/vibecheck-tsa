@@ -198,8 +198,8 @@ def main():
     end = rss_kb()
     f.close()
     check(f'no leak over {a.leak_ticks} ticks', mid - base < 2048, f'RSS {base} -> {mid} KiB')
-    check('no leak over 10^4 new/free', end - mid < 2048 and lib.vc_filter_live_objects() == 0,
-          f'RSS {mid} -> {end} KiB, live handles {lib.vc_filter_live_objects()}')
+    check('no leak over 10^4 new/free', end - mid < 2048 and lib.vc_filter_live_handles() == 0,
+          f'RSS {mid} -> {end} KiB, live handles {lib.vc_filter_live_handles()}')
 
     print(f'{len(FAILS)} failed' if FAILS else 'all passed')
     sys.exit(1 if FAILS else 0)

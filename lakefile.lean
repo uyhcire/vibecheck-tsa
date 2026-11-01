@@ -83,7 +83,7 @@ target libvcfilter pkg : FilePath := do
     buildFileUnlessUpToDate' lib do
       IO.FS.createDirAll (pkg.buildDir / "lib")
       proc {cmd := "cc", args := #["-shared", "-o", lib.toString, "-Wl,-force_load," ++ files[0]!.toString]
-        ++ (files.extract 1).map (·.toString) ++ #["-L", leanLib, "-L", sysLib, "-lInit", "-lStd", "-lLean", "-lleanrt",
+        ++ (files.extract 1).map (·.toString) ++ #["-L", leanLib, "-L", sysLib, "-lInit", "-lStd", "-lleanrt",
         "-lgmp", "-luv", "-lc++", "-Wl,-dead_strip", "-Wl,-exported_symbol,_vc_*",
         "-Wl,-install_name,@rpath/libvcfilter.dylib"]}
     return lib

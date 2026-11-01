@@ -61,7 +61,7 @@ def load(path=LIB_PATH):
     lib.vc_filter_command_kind.argtypes = [C.c_void_p]
     lib.vc_filter_required_obs.restype = C.c_uint32
     lib.vc_filter_required_obs.argtypes = [C.c_void_p]
-    lib.vc_filter_live_objects.restype = C.c_int64
+    lib.vc_filter_live_handles.restype = C.c_int64
     return lib
 
 

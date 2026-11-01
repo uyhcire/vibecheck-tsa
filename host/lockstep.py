@@ -114,7 +114,7 @@ def episode(ep, seed, filt, T, log):
         pilot_cmd = vc.surfaces(p_elev, p_thr)
         o = observe(fdm, x, k / 8)
         if filt:
-            ret, applied, info = filt.tick(o, pilot_cmd, subs)
+            _, applied, info = filt.tick(o, pilot_cmd, subs)
             res['verdicts'][info.verdict] += 1
             res['us_lean'].append(info.us_lean)
             res['us_total'].append(info.us_total)
@@ -129,7 +129,7 @@ def episode(ep, seed, filt, T, log):
             if applied.kind == vc.CMD_ESCAPE and res['escaped_at'] is None:
                 res['escaped_at'] = k
         else:
-            applied, info, ret = pilot_cmd, None, 0
+            applied, info = pilot_cmd, None
         if log is not None:
             log.writerow(dict(ep=ep, k=k, x=x, h=o.pos[2], vx=o.vel[0], vz=o.vel[2], V=o.airspeed,
                               terrain=height_at(T, x), pilot_elev=p_elev, pilot_thr=p_thr, applied_kind=applied.kind,

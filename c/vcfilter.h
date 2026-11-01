@@ -87,7 +87,7 @@ void vc_filter_free(vc_filter *f);
 const char *vc_filter_guarantee(const vc_filter *f);
 uint32_t vc_filter_command_kind(const vc_filter *f);
 uint32_t vc_filter_required_obs(const vc_filter *f);
-int64_t vc_filter_live_objects(void);
+int64_t vc_filter_live_handles(void);
 
 #ifdef __cplusplus
 }
