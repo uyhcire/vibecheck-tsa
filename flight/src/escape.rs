@@ -244,11 +244,12 @@ pub const ACC_BLD: f64 = 0.5;
 const BLD_QUERY_EXTRA: f64 = 10.0;
 
 impl<'a> Pred<'a> {
-    /// Street-grid orientation at (x, y): the procedural city's streets run
-    /// along x and y everywhere.
+    /// Street-grid orientation at (x, y), modulo 90 deg (`World::street_axis`):
+    /// along x and y everywhere in the grid city, from the street centrelines
+    /// in San Francisco.
     #[inline]
-    pub fn street_axis(&self, _x: f64, _y: f64) -> Option<f64> {
-        Some(0.0)
+    pub fn street_axis(&self, x: f64, y: f64) -> Option<f64> {
+        self.world.street_axis(x, y)
     }
 
     /// A new escape's ground path from state `s`.

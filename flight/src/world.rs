@@ -1,12 +1,16 @@
-//! Procedural city + terrain, the true collision geometry, and the 2.5D
-//! clearance maps used by the safety filter.
+//! The maps (terrain + buildings), the true collision geometry, and the 2.5D
+//! clearance maps used by the safety filter. Two maps share all of this:
+//! the procedural grid city (`MapId::Grid`) and San Francisco, built from
+//! DataSF footprints, OpenStreetMap and USGS terrain (`MapId::SanFrancisco`,
+//! see `data/sf/`).
 //!
 //! Truth: terrain is the piecewise-linear surface over a 20 m vertex grid
-//! (each quad split along the same diagonal the renderer uses), buildings
-//! are axis-aligned boxes. Collisions are always checked against this.
+//! (each quad split along the same diagonal the renderer uses). Buildings
+//! are vertical prisms: axis-aligned boxes in the grid city, convex polygon
+//! footprints in San Francisco. Collisions are always checked against this.
 //!
 //! Safety checks: buildings are checked exactly, as the distance from each
-//! predicted path segment to each nearby box (`seg_building_dist`). Terrain
+//! predicted path segment to each nearby prism (`seg_building_dist`). Terrain
 //! uses a 2.5 m max-height raster, dilated sideways by `LAT_CELLS` cells and
 //! raised by `VERT_MARGIN`: a point with `z - Hc(cell) >= 0` is at least
 //! `VERT_MARGIN` above any terrain within `LAT_MARGIN` metres horizontally.
@@ -39,6 +43,59 @@ pub const CITY_HALF: f64 = 1200.0;
 pub const STREET_PITCH: f64 = 120.0;
 const BUCKET: f64 = 40.0;
 const NB: usize = 150;
+/// Most vertices a building footprint may have.
+pub const MAX_POLY: usize = 32;
+/// San Francisco water surface (NAVD88 m); terrain is never below it.
+pub const SF_WATER: f64 = 1.0;
+/// Street-axis field: cell size, blur radius (cells), and the street length
+/// and coherence needed before escapes snap to a street direction.
+const AXIS_CELL: f64 = 50.0;
+const NA: usize = 120;
+const AXIS_BLUR: usize = 3;
+const AXIS_MIN_LEN: f32 = 150.0;
+const AXIS_MIN_COHERENCE: f32 = 0.6;
+
+static SF_BIN: &[u8] = include_bytes!("../data/sf/sf_world.bin");
+
+/// Which map to fly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapId {
+    /// Procedural grid city with a ridge and a mountain rim.
+    Grid,
+    /// Downtown San Francisco, 6 km square around Kearny & Market.
+    SanFrancisco,
+}
+
+impl MapId {
+    pub const ALL: [MapId; 2] = [MapId::Grid, MapId::SanFrancisco];
+
+    /// `grid` / `city`, or `sf` / `san-francisco`.
+    pub fn parse(s: &str) -> Option<MapId> {
+        match s.to_ascii_lowercase().as_str() {
+            "grid" | "city" | "procedural" => Some(MapId::Grid),
+            "sf" | "san-francisco" | "sanfrancisco" | "san_francisco" => Some(MapId::SanFrancisco),
+            _ => None,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            MapId::Grid => "Grid city",
+            MapId::SanFrancisco => "San Francisco",
+        }
+    }
+    pub fn key(self) -> &'static str {
+        match self {
+            MapId::Grid => "grid",
+            MapId::SanFrancisco => "sf",
+        }
+    }
+    pub fn next(self) -> MapId {
+        match self {
+            MapId::Grid => MapId::SanFrancisco,
+            MapId::SanFrancisco => MapId::Grid,
+        }
+    }
+}
 
 /// Robust (Phase 3) maps: extra lateral dilation, in cells (check maps; the
 /// acceptance maps use one more cell each).
@@ -111,6 +168,21 @@ pub fn smoothstep(e0: f64, e1: f64, x: f64) -> f64 {
 
 // ---------------------------------------------------------------- world
 
+/// What a prism stands for (rendering only; all are solid obstacles).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Building,
+    /// Bay Bridge West Span: a curtain from the water up to its cables.
+    Bridge,
+    /// Elevated freeway: a curtain from the ground up past its deck.
+    Viaduct,
+    /// A bridge tower or anchorage (a building inside the bridge envelope).
+    BridgeTower,
+}
+
+/// A vertical prism: footprint x [z0, z1]. `x0..y1` is the footprint's
+/// bounding box; the footprint itself is that box (`pn == 0`) or the convex
+/// polygon `World::pts[p0 .. p0 + pn]`, counter-clockwise.
 #[derive(Clone, Copy, Debug)]
 pub struct Building {
     pub x0: f64,
@@ -121,20 +193,66 @@ pub struct Building {
     pub z1: f64,
     /// 0..1 colour variation for rendering.
     pub tint: f32,
-    /// Index of the lot this box belongs to (tiers of a tower share it).
+    /// Index of the lot this box belongs to (tiers of a tower, or pieces of
+    /// one footprint, share it).
     pub lot: u32,
+    pub p0: u32,
+    pub pn: u32,
+    pub kind: Kind,
 }
 
 impl Building {
-    pub fn dist(&self, p: [f64; 3]) -> f64 {
-        let dx = (self.x0 - p[0]).max(0.0).max(p[0] - self.x1);
-        let dy = (self.y0 - p[1]).max(0.0).max(p[1] - self.y1);
-        let dz = (self.z0 - p[2]).max(0.0).max(p[2] - self.z1);
-        (dx * dx + dy * dy + dz * dz).sqrt()
+    fn aabb(x0: f64, x1: f64, y0: f64, y1: f64, z0: f64, z1: f64, tint: f32, lot: u32) -> Building {
+        Building { x0, x1, y0, y1, z0, z1, tint, lot, p0: 0, pn: 0, kind: Kind::Building }
     }
 }
 
+/// An OpenStreetMap street centreline (San Francisco).
+#[derive(Clone, Debug)]
+pub struct Street {
+    /// Index into `STREET_CLASSES`.
+    pub class: u8,
+    pub bridge: bool,
+    /// Index into `World::street_names`.
+    pub name: u16,
+    pub pts: Vec<[f64; 2]>,
+}
+
+pub const STREET_CLASSES: [&str; 11] = [
+    "motorway",
+    "trunk",
+    "primary",
+    "secondary",
+    "tertiary",
+    "unclassified",
+    "residential",
+    "motorway_link",
+    "trunk_link",
+    "primary_link",
+    "secondary_link",
+];
+
+impl Street {
+    /// A city street at ground level: not a motorway, ramp or bridge. (Trunk
+    /// roads count: in San Francisco they are surface streets such as Van
+    /// Ness Avenue and Lombard Street, signed as US-101.)
+    pub fn is_surface(&self) -> bool {
+        (1..=6).contains(&self.class) && !self.bridge
+    }
+}
+
+/// A straight street fitted as a line: from `p0`, `len` metres along `dir`.
+#[derive(Clone, Copy, Debug)]
+pub struct StreetLine {
+    pub p0: [f64; 2],
+    pub dir: f64,
+    pub len: f64,
+    /// RMS distance of the street's points from the line (m).
+    pub rms: f64,
+}
+
 pub struct World {
+    pub map: MapId,
     pub seed: u64,
     /// Terrain vertex heights, `TN x TN`, index `j*TN + i`.
     pub terr: Vec<f32>,
@@ -152,19 +270,91 @@ pub struct World {
     /// Tallest box top in each bucket (to skip buckets a segment is above).
     bucket_top: Vec<f32>,
     pub tallest: usize,
+    /// Grid city only: parks, street widths, ridge crest line `y`.
     pub parks: Vec<[f64; 4]>,
     pub street_w: Vec<f64>,
-    /// Ridge crest line `y` and half-length in x.
     pub ridge_y: f64,
+    /// Footprint vertices of polygon buildings (`Building::p0`).
+    pub pts: Vec<[f64; 2]>,
+    /// San Francisco only: street centrelines and their names.
+    pub streets: Vec<Street>,
+    pub street_names: Vec<String>,
+    /// San Francisco only: per `AXIS_CELL` cell, blurred street length
+    /// weighted by (cos 4θ, sin 4θ, 1) of the street direction θ.
+    axis: Vec<[f32; 3]>,
 }
 
 pub fn street_x(k: usize) -> f64 {
     -CITY_HALF + STREET_PITCH * k as f64
 }
 
+/// Little-endian reader for `sf_world.bin`.
+struct Rd<'a> {
+    b: &'a [u8],
+    o: usize,
+}
+
+impl Rd<'_> {
+    fn take(&mut self, n: usize) -> &[u8] {
+        let s = &self.b[self.o..self.o + n];
+        self.o += n;
+        s
+    }
+    fn u8(&mut self) -> u8 {
+        self.take(1)[0]
+    }
+    fn u16(&mut self) -> u16 {
+        u16::from_le_bytes(self.take(2).try_into().unwrap())
+    }
+    fn u32(&mut self) -> u32 {
+        u32::from_le_bytes(self.take(4).try_into().unwrap())
+    }
+    fn f32(&mut self) -> f32 {
+        f32::from_le_bytes(self.take(4).try_into().unwrap())
+    }
+    fn f64(&mut self) -> f64 {
+        f64::from_le_bytes(self.take(8).try_into().unwrap())
+    }
+    fn xy(&mut self) -> [f64; 2] {
+        [self.f32() as f64, self.f32() as f64]
+    }
+}
+
+/// Convex hull, counter-clockwise, without collinear points (monotone chain).
+pub fn convex_hull(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    let mut p = pts.to_vec();
+    p.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    p.dedup();
+    if p.len() < 3 {
+        return p;
+    }
+    let cross = |o: [f64; 2], a: [f64; 2], b: [f64; 2]| (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    let mut h: Vec<[f64; 2]> = Vec::with_capacity(2 * p.len());
+    for pass in 0..2 {
+        let start = h.len();
+        let it: Box<dyn Iterator<Item = &[f64; 2]>> = if pass == 0 { Box::new(p.iter()) } else { Box::new(p.iter().rev()) };
+        for &q in it {
+            while h.len() >= start + 2 && cross(h[h.len() - 2], h[h.len() - 1], q) <= 0.0 {
+                h.pop();
+            }
+            h.push(q);
+        }
+        h.pop();
+    }
+    h
+}
+
 impl World {
-    pub fn new(seed: u64) -> World {
-        let mut w = World {
+    pub fn load(map: MapId) -> World {
+        match map {
+            MapId::Grid => World::new(1337),
+            MapId::SanFrancisco => World::san_francisco(),
+        }
+    }
+
+    fn empty(map: MapId, seed: u64) -> World {
+        World {
+            map,
             seed,
             terr: vec![0.0; TN * TN],
             boxes: Vec::new(),
@@ -179,14 +369,366 @@ impl World {
             parks: Vec::new(),
             street_w: Vec::new(),
             ridge_y: -2050.0,
-        };
+            pts: Vec::new(),
+            streets: Vec::new(),
+            street_names: Vec::new(),
+            axis: Vec::new(),
+        }
+    }
+
+    fn finish(&mut self) {
+        self.rasterize();
+        self.hc = dilate(&self.raw_terr, LAT_CELLS, VERT_MARGIN as f32);
+        self.hc_acc = dilate(&self.raw_terr, LAT_CELLS + 1, VERT_MARGIN as f32);
+        self.build_buckets();
+    }
+
+    /// The procedural grid city.
+    pub fn new(seed: u64) -> World {
+        let mut w = World::empty(MapId::Grid, seed);
         w.gen_terrain();
         w.gen_city();
-        w.rasterize();
-        w.hc = dilate(&w.raw_terr, LAT_CELLS, VERT_MARGIN as f32);
-        w.hc_acc = dilate(&w.raw_terr, LAT_CELLS + 1, VERT_MARGIN as f32);
-        w.build_buckets();
+        w.finish();
         w
+    }
+
+    /// San Francisco from `data/sf/sf_world.bin` (see `data/sf/build.py`).
+    pub fn san_francisco() -> World {
+        let mut w = World::empty(MapId::SanFrancisco, 0);
+        let mut r = Rd { b: SF_BIN, o: 0 };
+        assert_eq!(r.take(4), b"SFW1", "sf_world.bin: bad magic");
+        assert_eq!(r.u32(), 1, "sf_world.bin: unknown version");
+        let (_lon, _lat, _e0, _n0, half) = (r.f64(), r.f64(), r.f64(), r.f64(), r.f64());
+        assert_eq!(half, MAP_HALF, "sf_world.bin: map size");
+        assert_eq!((r.u32() as usize, r.f32() as f64), (TN, TSP), "sf_world.bin: terrain grid");
+        for h in w.terr.iter_mut() {
+            *h = r.f32().max(SF_WATER as f32);
+        }
+        let n = r.u32() as usize;
+        w.boxes.reserve(n);
+        for _ in 0..n {
+            let (z0, z1, kind, nv, _pad, group) = (r.f32() as f64, r.f32() as f64, r.u8(), r.u8(), r.u16(), r.u32());
+            let raw: Vec<[f64; 2]> = (0..nv).map(|_| r.xy()).collect();
+            // f32 rounding can bend a nearly straight edge inward: re-hull
+            // (it can only grow the footprint). A needle that rounding
+            // flattened to a line becomes a 10 cm wide rectangle around it.
+            let mut poly = convex_hull(&raw);
+            if poly.len() < 3 {
+                let (p, q) = (poly[0], *poly.last().unwrap());
+                let (dx, dy) = (q[0] - p[0], q[1] - p[1]);
+                let l = (dx * dx + dy * dy).sqrt().max(1e-9);
+                let (nx, ny) = (-dy / l * 0.05, dx / l * 0.05);
+                let (ex, ey) = (dx / l * 0.05, dy / l * 0.05);
+                poly = convex_hull(&[
+                    [p[0] - ex + nx, p[1] - ey + ny],
+                    [p[0] - ex - nx, p[1] - ey - ny],
+                    [q[0] + ex + nx, q[1] + ey + ny],
+                    [q[0] + ex - nx, q[1] + ey - ny],
+                ]);
+            }
+            assert!((3..=MAX_POLY).contains(&poly.len()), "sf_world.bin: footprint with {} vertices", poly.len());
+            let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+            for q in &poly {
+                (x0, x1, y0, y1) = (x0.min(q[0]), x1.max(q[0]), y0.min(q[1]), y1.max(q[1]));
+            }
+            let zb = w.terrain_min_under(&poly).min(z0) - 1.5;
+            let kind = match kind {
+                2 => Kind::Bridge,
+                3 => Kind::Viaduct,
+                _ => Kind::Building,
+            };
+            let mut hr = Rng(group as u64 ^ 0x5F0C);
+            let tint = hr.f() as f32;
+            w.boxes.push(Building {
+                x0,
+                x1,
+                y0,
+                y1,
+                z0: zb,
+                z1: z1.max(zb + 2.0),
+                tint,
+                lot: group,
+                p0: w.pts.len() as u32,
+                pn: poly.len() as u32,
+                kind,
+            });
+            w.pts.extend_from_slice(&poly);
+        }
+        let nn = r.u32() as usize;
+        for _ in 0..nn {
+            let len = r.u16() as usize;
+            w.street_names.push(String::from_utf8_lossy(r.take(len)).into_owned());
+        }
+        let ns = r.u32() as usize;
+        for _ in 0..ns {
+            let (class, flags, name, np) = (r.u8(), r.u8(), r.u16(), r.u32() as usize);
+            let pts = (0..np).map(|_| r.xy()).collect();
+            w.streets.push(Street { class, bridge: flags & 1 != 0, name, pts });
+        }
+        assert_eq!(r.o, SF_BIN.len(), "sf_world.bin: trailing bytes");
+        // OSM maps the Bay Bridge towers and anchorage as buildings: mark the
+        // ones standing inside the bridge curtain (rendering only).
+        let bridge: Vec<usize> = (0..w.boxes.len()).filter(|&k| w.boxes[k].kind == Kind::Bridge).collect();
+        for k in 0..w.boxes.len() {
+            let b = w.boxes[k];
+            if b.kind != Kind::Building {
+                continue;
+            }
+            let c = [0.5 * (b.x0 + b.x1), 0.5 * (b.y0 + b.y1)];
+            if bridge.iter().any(|&q| pt_poly_dist2(c, w.footprint(&w.boxes[q])) < 25.0) {
+                w.boxes[k].kind = Kind::BridgeTower;
+            }
+        }
+        w.tallest = (0..w.boxes.len())
+            .filter(|&k| w.boxes[k].kind == Kind::Building)
+            .max_by(|&a, &b| w.boxes[a].z1.partial_cmp(&w.boxes[b].z1).unwrap())
+            .unwrap_or(0);
+        w.build_axis();
+        w.finish();
+        w
+    }
+
+    /// Lowest terrain under a footprint: at its vertices, edge midpoints and
+    /// the grid nodes inside.
+    fn terrain_min_under(&self, poly: &[[f64; 2]]) -> f64 {
+        let n = poly.len();
+        let mut m = f64::INFINITY;
+        for i in 0..n {
+            let (a, b) = (poly[i], poly[(i + 1) % n]);
+            m = m.min(self.terrain(a[0], a[1])).min(self.terrain(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])));
+        }
+        let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for q in poly {
+            (x0, x1, y0, y1) = (x0.min(q[0]), x1.max(q[0]), y0.min(q[1]), y1.max(q[1]));
+        }
+        let gi = |v: f64| ((v + MAP_HALF) / TSP).clamp(0.0, (TN - 1) as f64);
+        for j in gi(y0).ceil() as usize..=gi(y1).floor() as usize {
+            for i in gi(x0).ceil() as usize..=gi(x1).floor() as usize {
+                let (x, y) = (-MAP_HALF + i as f64 * TSP, -MAP_HALF + j as f64 * TSP);
+                if pt_poly_dist2([x, y], poly) == 0.0 {
+                    m = m.min(self.terr[j * TN + i] as f64);
+                }
+            }
+        }
+        m
+    }
+
+    /// Footprint polygon of a polygon building (empty for a box).
+    #[inline]
+    pub fn footprint(&self, b: &Building) -> &[[f64; 2]] {
+        &self.pts[b.p0 as usize..(b.p0 + b.pn) as usize]
+    }
+
+    /// Footprint corners, counter-clockwise, for boxes and polygons alike.
+    pub fn outline(&self, b: &Building) -> Vec<[f64; 2]> {
+        if b.pn == 0 {
+            vec![[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]]
+        } else {
+            self.footprint(b).to_vec()
+        }
+    }
+
+    /// Exact squared distance from `p` to building `b`.
+    #[inline]
+    pub fn bld_dist2(&self, b: &Building, p: [f64; 3]) -> f64 {
+        if b.pn == 0 {
+            let dx = (b.x0 - p[0]).max(0.0).max(p[0] - b.x1);
+            let dy = (b.y0 - p[1]).max(0.0).max(p[1] - b.y1);
+            let dz = (b.z0 - p[2]).max(0.0).max(p[2] - b.z1);
+            dx * dx + dy * dy + dz * dz
+        } else {
+            pt_prism_dist2(p, self.footprint(b), b.z0, b.z1)
+        }
+    }
+
+    /// Exact squared distance from the segment `a`-`b` to building `bx`, or
+    /// anything >= `stop` if it is at least that far.
+    #[inline]
+    pub fn seg_bld_dist2(&self, bx: &Building, a: [f64; 3], b: [f64; 3], stop: f64) -> f64 {
+        let box_d2 = seg_aabb_dist2(a, b, [bx.x0, bx.y0, bx.z0], [bx.x1, bx.y1, bx.z1]);
+        if bx.pn == 0 || box_d2 >= stop {
+            box_d2
+        } else {
+            seg_prism_dist2(a, b, self.footprint(bx), bx.z0, bx.z1)
+        }
+    }
+
+    /// Street-axis field from the street centrelines (San Francisco).
+    fn build_axis(&mut self) {
+        let mut acc = vec![[0f32; 3]; NA * NA];
+        for st in self.streets.iter().filter(|s| s.is_surface()) {
+            for w in st.pts.windows(2) {
+                let (dx, dy) = (w[1][0] - w[0][0], w[1][1] - w[0][1]);
+                let len = (dx * dx + dy * dy).sqrt();
+                if len < 5.0 {
+                    continue;
+                }
+                let th = 4.0 * dy.atan2(dx);
+                let k = (len / 25.0).ceil() as usize;
+                for s in 0..k {
+                    let f = (s as f64 + 0.5) / k as f64;
+                    let (x, y) = (w[0][0] + f * dx, w[0][1] + f * dy);
+                    let (i, j) = (((x + MAP_HALF) / AXIS_CELL).floor(), ((y + MAP_HALF) / AXIS_CELL).floor());
+                    if i < 0.0 || j < 0.0 || i >= NA as f64 || j >= NA as f64 {
+                        continue;
+                    }
+                    let c = &mut acc[j as usize * NA + i as usize];
+                    let l = (len / k as f64) as f32;
+                    c[0] += l * th.cos() as f32;
+                    c[1] += l * th.sin() as f32;
+                    c[2] += l;
+                }
+            }
+        }
+        // Separable box blur.
+        let r = AXIS_BLUR as i64;
+        let n = NA as i64;
+        let mut tmp = vec![[0f32; 3]; NA * NA];
+        for j in 0..n {
+            for i in 0..n {
+                let mut s = [0f32; 3];
+                for d in -r..=r {
+                    let ii = i + d;
+                    if (0..n).contains(&ii) {
+                        let c = acc[(j * n + ii) as usize];
+                        (s[0], s[1], s[2]) = (s[0] + c[0], s[1] + c[1], s[2] + c[2]);
+                    }
+                }
+                tmp[(j * n + i) as usize] = s;
+            }
+        }
+        self.axis = vec![[0f32; 3]; NA * NA];
+        for j in 0..n {
+            for i in 0..n {
+                let mut s = [0f32; 3];
+                for d in -r..=r {
+                    let jj = j + d;
+                    if (0..n).contains(&jj) {
+                        let c = tmp[(jj * n + i) as usize];
+                        (s[0], s[1], s[2]) = (s[0] + c[0], s[1] + c[1], s[2] + c[2]);
+                    }
+                }
+                self.axis[(j * n + i) as usize] = s;
+            }
+        }
+    }
+
+    /// Street grid direction at (x, y), modulo 90 deg, if the streets around
+    /// agree on one: the grid city is axis-aligned everywhere; in San
+    /// Francisco it comes from the street centrelines (none where grids meet,
+    /// as along Market Street, or away from streets). Continuous in position.
+    pub fn street_axis(&self, x: f64, y: f64) -> Option<f64> {
+        if self.map == MapId::Grid {
+            return Some(0.0);
+        }
+        let fx = (x + MAP_HALF) / AXIS_CELL - 0.5;
+        let fy = (y + MAP_HALF) / AXIS_CELL - 0.5;
+        let (ix, iy) = (fx.floor(), fy.floor());
+        let (tx, ty) = ((fx - ix) as f32, (fy - iy) as f32);
+        let get = |i: f64, j: f64| -> [f32; 3] {
+            if i < 0.0 || j < 0.0 || i >= NA as f64 || j >= NA as f64 {
+                [0.0; 3]
+            } else {
+                self.axis[j as usize * NA + i as usize]
+            }
+        };
+        let (a, b, c, d) = (get(ix, iy), get(ix + 1.0, iy), get(ix, iy + 1.0), get(ix + 1.0, iy + 1.0));
+        let mut s = [0f32; 3];
+        for k in 0..3 {
+            s[k] = (a[k] * (1.0 - tx) + b[k] * tx) * (1.0 - ty) + (c[k] * (1.0 - tx) + d[k] * tx) * ty;
+        }
+        if s[2] < AXIS_MIN_LEN || (s[0] * s[0] + s[1] * s[1]).sqrt() < AXIS_MIN_COHERENCE * s[2] {
+            return None;
+        }
+        Some((s[1] as f64).atan2(s[0] as f64) / 4.0)
+    }
+
+    /// The longest straight run of the named street (San Francisco): the
+    /// street segment whose line collects the most street length within
+    /// `STRAIGHT_TOL` m and `STRAIGHT_ANGLE` of it, refitted to those
+    /// segments. Streets bend (Mission Street turns south at 13th), so a
+    /// plain fit over all of it would miss the street.
+    pub fn street_line(&self, name: &str) -> Option<StreetLine> {
+        const STRAIGHT_TOL: f64 = 4.0;
+        const STRAIGHT_ANGLE: f64 = 0.05;
+        let k = self.street_names.iter().position(|n| n == name)? as u16;
+        let segs: Vec<([f64; 2], [f64; 2])> = self
+            .streets
+            .iter()
+            .filter(|s| s.name == k && s.is_surface())
+            .flat_map(|s| s.pts.windows(2).map(|w| (w[0], w[1])))
+            .filter(|(a, b)| {
+                let inside = |p: &[f64; 2]| p[0].abs() < MAP_HALF - 50.0 && p[1].abs() < MAP_HALF - 50.0;
+                inside(a) && inside(b) && ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt() > 1.0
+            })
+            .collect();
+        let on_line = |(a, b): &([f64; 2], [f64; 2]), o: [f64; 2], th: f64| -> bool {
+            let (c, s) = (th.cos(), th.sin());
+            let off = |p: &[f64; 2]| ((p[1] - o[1]) * c - (p[0] - o[0]) * s).abs();
+            let ang = (b[1] - a[1]).atan2(b[0] - a[0]) - th;
+            let ang = (ang + std::f64::consts::FRAC_PI_2).rem_euclid(std::f64::consts::PI) - std::f64::consts::FRAC_PI_2;
+            off(a) <= STRAIGHT_TOL && off(b) <= STRAIGHT_TOL && ang.abs() <= STRAIGHT_ANGLE
+        };
+        let len = |(a, b): &([f64; 2], [f64; 2])| ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        let mut best: Option<(f64, [f64; 2], f64)> = None;
+        for sg in &segs {
+            let th = (sg.1[1] - sg.0[1]).atan2(sg.1[0] - sg.0[0]);
+            let total: f64 = segs.iter().filter(|q| on_line(q, sg.0, th)).map(len).sum();
+            if best.map_or(true, |b| total > b.0) {
+                best = Some((total, sg.0, th));
+            }
+        }
+        let (_, o, th) = best?;
+        let pts: Vec<[f64; 2]> = segs.iter().filter(|q| on_line(q, o, th)).flat_map(|q| [q.0, q.1]).collect();
+        let m = pts.len() as f64;
+        let (cx, cy) = (pts.iter().map(|p| p[0]).sum::<f64>() / m, pts.iter().map(|p| p[1]).sum::<f64>() / m);
+        let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
+        for p in &pts {
+            let (dx, dy) = (p[0] - cx, p[1] - cy);
+            sxx += dx * dx;
+            sxy += dx * dy;
+            syy += dy * dy;
+        }
+        let dir = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+        let (c, s) = (dir.cos(), dir.sin());
+        let (mut lo, mut hi, mut e2) = (f64::INFINITY, f64::NEG_INFINITY, 0.0);
+        for p in &pts {
+            let (dx, dy) = (p[0] - cx, p[1] - cy);
+            let along = dx * c + dy * s;
+            (lo, hi) = (lo.min(along), hi.max(along));
+            e2 += (dy * c - dx * s).powi(2);
+        }
+        Some(StreetLine { p0: [cx + lo * c, cy + lo * s], dir, len: hi - lo, rms: (e2 / m).sqrt() })
+    }
+
+    /// Highest terrain node within `r` metres of `c`.
+    pub fn hilltop_near(&self, c: [f64; 2], r: f64) -> [f64; 3] {
+        let mut best = [c[0], c[1], f64::NEG_INFINITY];
+        for j in 0..TN {
+            for i in 0..TN {
+                let (x, y) = (-MAP_HALF + i as f64 * TSP, -MAP_HALF + j as f64 * TSP);
+                let h = self.terr[j * TN + i] as f64;
+                if (x - c[0]).powi(2) + (y - c[1]).powi(2) <= r * r && h > best[2] {
+                    best = [x, y, h];
+                }
+            }
+        }
+        best
+    }
+
+    /// Highest terrain point at least `border` metres inside the map.
+    pub fn highest_point(&self, border: f64) -> [f64; 3] {
+        let mut best = [0.0, 0.0, f64::NEG_INFINITY];
+        for j in 0..TN {
+            for i in 0..TN {
+                let (x, y) = (-MAP_HALF + i as f64 * TSP, -MAP_HALF + j as f64 * TSP);
+                let h = self.terr[j * TN + i] as f64;
+                if x.abs() <= MAP_HALF - border && y.abs() <= MAP_HALF - border && h > best[2] {
+                    best = [x, y, h];
+                }
+            }
+        }
+        best
     }
 
     fn terrain_fn(&self, x: f64, y: f64) -> f64 {
@@ -248,7 +790,7 @@ impl World {
             zmin = zmin.min(self.terrain(x, y));
         }
         let zc = self.terrain(0.5 * (x0 + x1), 0.5 * (y0 + y1));
-        self.boxes.push(Building { x0, x1, y0, y1, z0: zmin - 1.5, z1: zc + h, tint, lot });
+        self.boxes.push(Building::aabb(x0, x1, y0, y1, zmin - 1.5, zc + h, tint, lot));
     }
 
     /// A building of height `h`; tall ones get setback tiers.
@@ -351,10 +893,21 @@ impl World {
             }
         }
         self.raw_terr = self.raw.clone();
+        let ci = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
         for b in &self.boxes {
-            let ci = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
             for j in ci(b.y0)..=ci(b.y1) {
-                for i in ci(b.x0)..=ci(b.x1) {
+                // Polygon: only the cells its slice of this row touches.
+                let (xa, xb) = if b.pn == 0 {
+                    (b.x0, b.x1)
+                } else {
+                    let poly = &self.pts[b.p0 as usize..(b.p0 + b.pn) as usize];
+                    let ya = -MAP_HALF + j as f64 * CELL;
+                    match strip_x_range(poly, ya, ya + CELL) {
+                        Some(r) => r,
+                        None => continue,
+                    }
+                };
+                for i in ci(xa)..=ci(xb) {
                     let c = &mut self.raw[j * NC + i];
                     *c = c.max(b.z1 as f32);
                 }
@@ -384,7 +937,7 @@ impl World {
         &m[accept as usize]
     }
 
-    /// Exact distance from the segment `a`-`b` to the nearest building box,
+    /// Exact distance from the segment `a`-`b` to the nearest building,
     /// or infinity if none is within `q`.
     #[inline]
     pub fn seg_building_dist(&self, a: [f64; 3], b: [f64; 3], q: f64) -> f64 {
@@ -404,7 +957,7 @@ impl World {
                     if bx.x1 < x0 || bx.x0 > x1 || bx.y1 < y0 || bx.y0 > y1 || bx.z1 < z0 || bx.z0 > z1 {
                         continue;
                     }
-                    let e = seg_aabb_dist2(a, b, [bx.x0, bx.y0, bx.z0], [bx.x1, bx.y1, bx.z1]);
+                    let e = self.seg_bld_dist2(bx, a, b, d2);
                     if e < d2 {
                         d2 = e;
                         hit = true;
@@ -420,14 +973,31 @@ impl World {
     }
 
     /// Distance from `p` to the nearest building surface, capped at `cap`.
+    /// Visits buckets in rings outward from `p` and stops once a ring is
+    /// farther than the best distance so far (a building's nearest point lies
+    /// in a bucket it is registered in, so nothing skipped can be closer).
     pub fn building_dist(&self, p: [f64; 3], cap: f64) -> f64 {
-        let lo = |v: f64| (((v - cap + MAP_HALF) / BUCKET).floor().max(0.0) as usize).min(NB - 1);
-        let hi = |v: f64| (((v + cap + MAP_HALF) / BUCKET).floor().max(0.0) as usize).min(NB - 1);
+        let bi = |v: f64| (((v + MAP_HALF) / BUCKET).floor().max(0.0) as usize).min(NB - 1);
+        let (ilo, ihi, jlo, jhi) = (bi(p[0] - cap), bi(p[0] + cap), bi(p[1] - cap), bi(p[1] + cap));
+        let (ci, cj) = (bi(p[0]), bi(p[1]));
+        let rmax = (ci - ilo).max(ihi - ci).max(cj - jlo).max(jhi - cj);
         let mut d = cap;
-        for j in lo(p[1])..=hi(p[1]) {
-            for i in lo(p[0])..=hi(p[0]) {
-                for &n in &self.buckets[j * NB + i] {
-                    d = d.min(self.boxes[n as usize].dist(p));
+        for r in 0..=rmax {
+            if r >= 1 && (r - 1) as f64 * BUCKET >= d {
+                break;
+            }
+            for j in jlo.max(cj.saturating_sub(r))..=jhi.min(cj + r) {
+                let edge_row = j + r == cj || j == cj + r;
+                for i in ilo.max(ci.saturating_sub(r))..=ihi.min(ci + r) {
+                    if !edge_row && i + r != ci && i != ci + r {
+                        continue;
+                    }
+                    if p[2] - self.bucket_top[j * NB + i] as f64 >= d {
+                        continue;
+                    }
+                    for &n in &self.buckets[j * NB + i] {
+                        d = d.min(self.bld_dist2(&self.boxes[n as usize], p).sqrt());
+                    }
                 }
             }
         }
@@ -534,6 +1104,176 @@ pub fn seg_aabb_dist2(a: [f64; 3], b: [f64; 3], lo: [f64; 3], hi: [f64; 3]) -> f
     best.max(0.0)
 }
 
+/// Squared distance from `q` to a convex counter-clockwise polygon in the
+/// plane (0 inside). Outside, the nearest point lies on an edge.
+#[inline]
+pub fn pt_poly_dist2(q: [f64; 2], poly: &[[f64; 2]]) -> f64 {
+    let n = poly.len();
+    let mut inside = true;
+    let mut best = f64::INFINITY;
+    for i in 0..n {
+        let (v, w) = (poly[i], poly[(i + 1) % n]);
+        let (ex, ey) = (w[0] - v[0], w[1] - v[1]);
+        let (qx, qy) = (q[0] - v[0], q[1] - v[1]);
+        if ex * qy - ey * qx < 0.0 {
+            inside = false;
+        }
+        let s = ((qx * ex + qy * ey) / (ex * ex + ey * ey)).clamp(0.0, 1.0);
+        let (dx, dy) = (qx - s * ex, qy - s * ey);
+        best = best.min(dx * dx + dy * dy);
+    }
+    if inside {
+        0.0
+    } else {
+        best
+    }
+}
+
+/// Squared distance from `p` to the prism `poly x [z0, z1]`. The prism is a
+/// product of a plane set and an interval, so the squared distance splits
+/// into the two parts.
+#[inline]
+pub fn pt_prism_dist2(p: [f64; 3], poly: &[[f64; 2]], z0: f64, z1: f64) -> f64 {
+    let dz = (z0 - p[2]).max(0.0).max(p[2] - z1);
+    pt_poly_dist2([p[0], p[1]], poly) + dz * dz
+}
+
+/// Exact squared distance between the segment `a`-`b` and the vertical prism
+/// `poly x [z0, z1]` (`poly` convex, counter-clockwise, at most `MAX_POLY`
+/// vertices).
+///
+/// As in `pt_prism_dist2`, d^2(t) = d_poly(q(t))^2 + d_z(z(t))^2 along the
+/// segment. Outside a convex polygon, the nearest boundary feature is the
+/// edge whose perpendicular slab holds the point or the vertex between two
+/// slabs, so the feature (or "inside") only changes where the ground track
+/// q(t) crosses an edge's line or a line through an edge's endpoint
+/// perpendicular to it; the z part only changes where z(t) crosses z0 or z1.
+/// Between consecutive crossings both parts are fixed quadratics in t (the
+/// squared distance to one line, one point, or zero), so minimise each piece.
+pub fn seg_prism_dist2(a: [f64; 3], b: [f64; 3], poly: &[[f64; 2]], z0: f64, z1: f64) -> f64 {
+    let n = poly.len();
+    debug_assert!((3..=MAX_POLY).contains(&n));
+    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let mut ts = [0.0f64; 3 * MAX_POLY + 4];
+    ts[1] = 1.0;
+    let mut m = 2;
+    let mut add = |t: f64, m: &mut usize| {
+        if t > 0.0 && t < 1.0 {
+            ts[*m] = t;
+            *m += 1;
+        }
+    };
+    for i in 0..n {
+        let (v, w) = (poly[i], poly[(i + 1) % n]);
+        let (ex, ey) = (w[0] - v[0], w[1] - v[1]);
+        // Edge line: e x (q - v) = 0.
+        let den = ex * d[1] - ey * d[0];
+        if den.abs() > 1e-12 {
+            add(-(ex * (a[1] - v[1]) - ey * (a[0] - v[0])) / den, &mut m);
+        }
+        // Perpendiculars at both ends: e . (q - v) = 0 and e . (q - w) = 0.
+        let den = ex * d[0] + ey * d[1];
+        if den.abs() > 1e-12 {
+            add((ex * (v[0] - a[0]) + ey * (v[1] - a[1])) / den, &mut m);
+            add((ex * (w[0] - a[0]) + ey * (w[1] - a[1])) / den, &mut m);
+        }
+    }
+    if d[2].abs() > 1e-12 {
+        add((z0 - a[2]) / d[2], &mut m);
+        add((z1 - a[2]) / d[2], &mut m);
+    }
+    let ts = &mut ts[..m];
+    ts.sort_by(|p, q| p.partial_cmp(q).unwrap());
+    let mut best = f64::INFINITY;
+    for k in 0..m - 1 {
+        let (t0, t1) = (ts[k], ts[k + 1]);
+        if t1 <= t0 && k > 0 {
+            continue;
+        }
+        let tm = 0.5 * (t0 + t1);
+        let q = [a[0] + d[0] * tm, a[1] + d[1] * tm];
+        let (mut qa, mut qb, mut qc) = (0.0, 0.0, 0.0);
+        // Nearest polygon feature at the midpoint: inside, an edge, a vertex.
+        let mut inside = true;
+        let mut near = (f64::INFINITY, 0usize, 0.0f64);
+        for i in 0..n {
+            let (v, w) = (poly[i], poly[(i + 1) % n]);
+            let (ex, ey) = (w[0] - v[0], w[1] - v[1]);
+            let (qx, qy) = (q[0] - v[0], q[1] - v[1]);
+            if ex * qy - ey * qx < 0.0 {
+                inside = false;
+            }
+            let s = ((qx * ex + qy * ey) / (ex * ex + ey * ey)).clamp(0.0, 1.0);
+            let (dx, dy) = (qx - s * ex, qy - s * ey);
+            let e2 = dx * dx + dy * dy;
+            if e2 < near.0 {
+                near = (e2, i, s);
+            }
+        }
+        if !inside {
+            let (_, i, s) = near;
+            let (v, w) = (poly[i], poly[(i + 1) % n]);
+            if s > 0.0 && s < 1.0 {
+                // Distance to the edge's line: (e x (q - v)) / |e|, linear in t.
+                let (ex, ey) = (w[0] - v[0], w[1] - v[1]);
+                let l = (ex * ex + ey * ey).sqrt();
+                let c0 = (ex * (a[1] - v[1]) - ey * (a[0] - v[0])) / l;
+                let c1 = (ex * d[1] - ey * d[0]) / l;
+                qa += c1 * c1;
+                qb += 2.0 * c0 * c1;
+                qc += c0 * c0;
+            } else {
+                let c = if s <= 0.0 { v } else { w };
+                for ax in 0..2 {
+                    let e = a[ax] - c[ax];
+                    qa += d[ax] * d[ax];
+                    qb += 2.0 * e * d[ax];
+                    qc += e * e;
+                }
+            }
+        }
+        let zm = a[2] + d[2] * tm;
+        let zc = if zm < z0 {
+            Some(z0)
+        } else if zm > z1 {
+            Some(z1)
+        } else {
+            None
+        };
+        if let Some(zc) = zc {
+            let e = a[2] - zc;
+            qa += d[2] * d[2];
+            qb += 2.0 * e * d[2];
+            qc += e * e;
+        }
+        let t = if qa > 1e-15 { (-qb / (2.0 * qa)).clamp(t0, t1) } else { t0 };
+        best = best.min(qa * t * t + qb * t + qc);
+    }
+    best.max(0.0)
+}
+
+/// x-range of a convex polygon inside the horizontal strip `ya <= y <= yb`,
+/// or `None` if they do not meet: the strip cuts out a convex polygon whose
+/// corners are the polygon's vertices inside the strip and the edges'
+/// crossings of its two lines.
+fn strip_x_range(poly: &[[f64; 2]], ya: f64, yb: f64) -> Option<(f64, f64)> {
+    let n = poly.len();
+    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for i in 0..n {
+        let (v, w) = (poly[i], poly[(i + 1) % n]);
+        if v[1] >= ya && v[1] <= yb {
+            (lo, hi) = (lo.min(v[0]), hi.max(v[0]));
+        }
+        for y in [ya, yb] {
+            if (v[1] - y) * (w[1] - y) < 0.0 {
+                let x = v[0] + (y - v[1]) / (w[1] - v[1]) * (w[0] - v[0]);
+                (lo, hi) = (lo.min(x), hi.max(x));
+            }
+        }
+    }
+    (lo <= hi).then_some((lo, hi))
+}
+
 #[inline]
 fn cell_at(map: &[f32], i: i64, j: i64) -> f64 {
     let n = NC as i64;
@@ -609,4 +1349,221 @@ pub fn dilate(raw: &[f32], r: usize, vm: f32) -> Vec<f32> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rand_poly(r: &mut Rng) -> Vec<[f64; 2]> {
+        let (cx, cy, s) = (r.range(-20.0, 20.0), r.range(-20.0, 20.0), r.range(2.0, 30.0));
+        let k = 3 + (r.f() * 12.0) as usize;
+        let pts: Vec<[f64; 2]> = (0..k).map(|_| [cx + s * r.range(-1.0, 1.0), cy + s * r.range(-1.0, 1.0)]).collect();
+        convex_hull(&pts)
+    }
+
+    fn rand_pt(r: &mut Rng) -> [f64; 3] {
+        [r.range(-60.0, 60.0), r.range(-60.0, 60.0), r.range(-20.0, 60.0)]
+    }
+
+    /// Reference: minimum over dense samples, and its guaranteed error. The
+    /// distance is 1-Lipschitz in position, so the true minimum is within
+    /// half a sample spacing of the best sample.
+    fn sampled(a: [f64; 3], b: [f64; 3], poly: &[[f64; 2]], z0: f64, z1: f64) -> (f64, f64) {
+        let k = 4000;
+        let mut m = f64::INFINITY;
+        for s in 0..=k {
+            let t = s as f64 / k as f64;
+            let p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+            m = m.min(pt_prism_dist2(p, poly, z0, z1).sqrt());
+        }
+        let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+        (m, 0.5 * len / k as f64)
+    }
+
+    #[test]
+    fn hull_is_ccw_and_convex() {
+        let mut r = Rng::new(7);
+        for _ in 0..2000 {
+            let p = rand_poly(&mut r);
+            let n = p.len();
+            for i in 0..n {
+                let (a, b, c) = (p[i], p[(i + 1) % n], p[(i + 2) % n]);
+                assert!((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) > 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn point_poly_matches_boundary_sampling() {
+        let mut r = Rng::new(11);
+        for _ in 0..3000 {
+            let poly = rand_poly(&mut r);
+            let q = [r.range(-60.0, 60.0), r.range(-60.0, 60.0)];
+            let d = pt_poly_dist2(q, &poly).sqrt();
+            // Inside iff winding test says so; outside: min over finely sampled edges.
+            let n = poly.len();
+            let mut m = f64::INFINITY;
+            let mut inside = true;
+            for i in 0..n {
+                let (v, w) = (poly[i], poly[(i + 1) % n]);
+                if (w[0] - v[0]) * (q[1] - v[1]) - (w[1] - v[1]) * (q[0] - v[0]) < 0.0 {
+                    inside = false;
+                }
+                for s in 0..=200 {
+                    let t = s as f64 / 200.0;
+                    let p = [v[0] + (w[0] - v[0]) * t, v[1] + (w[1] - v[1]) * t];
+                    m = m.min(((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2)).sqrt());
+                }
+            }
+            if inside {
+                assert_eq!(d, 0.0);
+            } else {
+                assert!(d <= m + 1e-9 && d >= m - 0.2, "d {d} sampled {m}");
+            }
+        }
+    }
+
+    #[test]
+    fn seg_prism_matches_dense_sampling() {
+        let mut r = Rng::new(3);
+        for _ in 0..4000 {
+            let poly = rand_poly(&mut r);
+            let z0 = r.range(-10.0, 10.0);
+            let z1 = z0 + r.range(1.0, 50.0);
+            let a = rand_pt(&mut r);
+            // Mix long segments with short ones, as the predictor uses.
+            let b = if r.chance(0.5) {
+                rand_pt(&mut r)
+            } else {
+                [a[0] + r.range(-6.0, 6.0), a[1] + r.range(-6.0, 6.0), a[2] + r.range(-2.0, 2.0)]
+            };
+            let d = seg_prism_dist2(a, b, &poly, z0, z1).sqrt();
+            let (m, err) = sampled(a, b, &poly, z0, z1);
+            assert!(d <= m + 1e-9, "exact {d} above a sample {m}");
+            assert!(d >= m - err - 1e-9, "exact {d} below the sampling bound {m} - {err}");
+        }
+    }
+
+    #[test]
+    fn seg_prism_axis_aligned_equals_box() {
+        let mut r = Rng::new(5);
+        for _ in 0..4000 {
+            let (x0, y0, z0) = (r.range(-30.0, 30.0), r.range(-30.0, 30.0), r.range(-5.0, 5.0));
+            let (x1, y1, z1) = (x0 + r.range(1.0, 40.0), y0 + r.range(1.0, 40.0), z0 + r.range(1.0, 40.0));
+            let poly = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+            let (a, b) = (rand_pt(&mut r), rand_pt(&mut r));
+            let p = seg_prism_dist2(a, b, &poly, z0, z1);
+            let q = seg_aabb_dist2(a, b, [x0, y0, z0], [x1, y1, z1]);
+            assert!((p - q).abs() <= 1e-7 * (1.0 + q), "prism {p} box {q}");
+        }
+    }
+
+    #[test]
+    fn degenerate_segments() {
+        let poly = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        // A point, a vertical segment through the roof, one along an edge line.
+        assert!((seg_prism_dist2([15.0, 5.0, 5.0], [15.0, 5.0, 5.0], &poly, 0.0, 20.0) - 25.0).abs() < 1e-12);
+        assert_eq!(seg_prism_dist2([5.0, 5.0, 30.0], [5.0, 5.0, 10.0], &poly, 0.0, 20.0), 0.0);
+        assert!((seg_prism_dist2([-5.0, 0.0, 5.0], [-5.0, 10.0, 5.0], &poly, 0.0, 20.0) - 25.0).abs() < 1e-12);
+        assert!((seg_prism_dist2([12.0, -3.0, 25.0], [12.0, 13.0, 25.0], &poly, 0.0, 20.0) - 29.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn strip_range_matches_sampling() {
+        let mut r = Rng::new(13);
+        for _ in 0..2000 {
+            let poly = rand_poly(&mut r);
+            let ya = r.range(-50.0, 50.0);
+            let yb = ya + 2.5;
+            let got = strip_x_range(&poly, ya, yb);
+            // Reference: clip the polygon to the strip (Sutherland-Hodgman).
+            let clip = |p: Vec<[f64; 2]>, keep: &dyn Fn(f64) -> f64| -> Vec<[f64; 2]> {
+                let mut out = Vec::new();
+                for i in 0..p.len() {
+                    let (u, v) = (p[i], p[(i + 1) % p.len()]);
+                    let (fu, fv) = (keep(u[1]), keep(v[1]));
+                    if fu >= 0.0 {
+                        out.push(u);
+                    }
+                    if (fu >= 0.0) != (fv >= 0.0) {
+                        let t = fu / (fu - fv);
+                        out.push([u[0] + t * (v[0] - u[0]), u[1] + t * (v[1] - u[1])]);
+                    }
+                }
+                out
+            };
+            let c = clip(clip(poly.clone(), &|y| y - ya), &|y| yb - y);
+            match got {
+                None => assert!(c.is_empty()),
+                Some((a, b)) => {
+                    let lo = c.iter().map(|q| q[0]).fold(f64::INFINITY, f64::min);
+                    let hi = c.iter().map(|q| q[0]).fold(f64::NEG_INFINITY, f64::max);
+                    assert!((a - lo).abs() < 1e-9 && (b - hi).abs() < 1e-9, "{a} {b} vs {lo} {hi}");
+                }
+            }
+            // And every inside sample falls in the range.
+            for sx in 0..=600 {
+                let x = -60.0 + 120.0 * sx as f64 / 600.0;
+                for y in [ya, 0.5 * (ya + yb), yb] {
+                    if pt_poly_dist2([x, y], &poly) == 0.0 {
+                        let (a, b) = got.unwrap();
+                        assert!(x >= a - 1e-9 && x <= b + 1e-9);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn building_dist_ring_search_is_exact() {
+        // Ring pruning must agree with brute force over every building.
+        let w = World::new(1337);
+        let mut r = Rng::new(17);
+        for _ in 0..3000 {
+            let p = [r.range(-1500.0, 1500.0), r.range(-1500.0, 1500.0), r.range(0.0, 300.0)];
+            let brute = w.boxes.iter().fold(200.0f64, |d, b| d.min(w.bld_dist2(b, p).sqrt()));
+            assert_eq!(w.building_dist(p, 200.0), brute);
+        }
+    }
+
+    #[test]
+    fn san_francisco_loads() {
+        let w = World::san_francisco();
+        assert!(w.boxes.len() > 30_000);
+        let tc = w.tallest_center();
+        // Salesforce Tower: 326 m, about (691, -138) in the map frame.
+        assert!((tc[0] - 691.0).abs() < 40.0 && (tc[1] + 138.0).abs() < 40.0, "{tc:?}");
+        assert!(tc[2] > 320.0 && tc[2] < 335.0, "{tc:?}");
+        for b in &w.boxes {
+            assert!(b.z1 > b.z0 && b.pn >= 3);
+            let poly = w.footprint(b);
+            // Every footprint vertex is at most on the boundary of its prism.
+            assert!(poly.iter().all(|q| pt_poly_dist2(*q, poly) == 0.0));
+        }
+        for name in ["Market Street", "Mission Street", "Folsom Street", "California Street", "Van Ness Avenue", "Geary Street"] {
+            let l = w.street_line(name).expect(name);
+            eprintln!("{name:<18} p0 ({:>6.0},{:>6.0}) dir {:>6.1} deg  len {:>5.0} m  rms {:.2} m", l.p0[0], l.p0[1], l.dir.to_degrees(), l.len, l.rms);
+            assert!(l.len > 1500.0 && l.rms < 3.0, "{name}: {l:?}");
+        }
+        let nob = w.hilltop_near([-800.0, 200.0], 400.0);
+        assert!(nob[2] > 100.0, "{nob:?}");
+        // Street axes: the grid north of Market runs ~9.6 deg off the map's
+        // x axis, the SoMa grid parallel to Market Street (~45 deg), so they
+        // differ by ~35 deg modulo 90.
+        let (n, so) = (w.street_axis(-900.0, 600.0).unwrap(), w.street_axis(300.0, -900.0).unwrap());
+        let california = w.street_line("California Street").unwrap().dir;
+        let mission = w.street_line("Mission Street").unwrap().dir;
+        let m90 = |a: f64| (a + std::f64::consts::FRAC_PI_4).rem_euclid(std::f64::consts::FRAC_PI_2) - std::f64::consts::FRAC_PI_4;
+        eprintln!("axis north of Market {:.1} deg, SoMa {:.1} deg", n.to_degrees(), so.to_degrees());
+        assert!(m90(n - california).abs() < 0.03 && m90(so - mission).abs() < 0.03);
+        assert!((m90(n - so).abs() - 35f64.to_radians()).abs() < 3f64.to_radians());
+        // Ring search agrees with brute force in the dense SF data too.
+        let mut r = Rng::new(19);
+        for _ in 0..300 {
+            let p = [r.range(-2500.0, 2500.0), r.range(-2500.0, 2500.0), r.range(0.0, 200.0)];
+            let brute = w.boxes.iter().fold(200.0f64, |d, b| d.min(w.bld_dist2(b, p).sqrt()));
+            assert_eq!(w.building_dist(p, 200.0), brute);
+        }
+    }
 }

@@ -184,12 +184,26 @@ fn below_roof(world: &World, x: f64, y: f64, z: f64) -> bool {
 /// (random sign), as a keyboard pilot always does a little.
 pub fn street_coverage(world: &World, n: usize, threads: usize, heading_err_deg: f64) -> Coverage {
     use crate::escape::{Pred, ESC_ORDER};
+    let segs = SfStreetSegs::new(world);
     let rs = par_map(
         (0..n as u64).collect(),
         threads,
         |&i| {
             let mut rng = Rng::new(i ^ 0x57EE7);
             loop {
+                if world.map == MapId::SanFrancisco {
+                    let (x, y, psi) = segs.sample(&mut rng, heading_err_deg.to_radians());
+                    let ground = world.terrain(x, y);
+                    let agl = rng.range(20.0, 90.0);
+                    let s = trimmed(x, y, ground + agl, rng.range(40.0, 50.0), 0.0, psi, 0.64);
+                    if world.true_clearance([x, y, s[2]]) <= 0.0 {
+                        continue;
+                    }
+                    let below = below_roof(world, x, y, s[2]);
+                    let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true, gust: 0.0, gust_z: 0.0 };
+                    let h = pred.best(&s, None, &ESC_ORDER, 0.0).0;
+                    return (h >= 0.0, below);
+                }
                 let k = 1 + (rng.f() * 19.0) as usize;
                 let along = rng.range(-1100.0, 1100.0);
                 let lat = street_x(k) + rng.range(-2.0, 2.0);
@@ -224,11 +238,57 @@ pub fn street_coverage(world: &World, n: usize, threads: usize, heading_err_deg:
     c
 }
 
+/// San Francisco street segments (surface streets inside the map), for
+/// length-weighted sampling of points on street centrelines.
+struct SfStreetSegs {
+    segs: Vec<([f64; 2], [f64; 2])>,
+    cum: Vec<f64>,
+}
+
+impl SfStreetSegs {
+    fn new(world: &World) -> SfStreetSegs {
+        let mut segs = Vec::new();
+        let mut cum = Vec::new();
+        let mut total = 0.0;
+        for st in world.streets.iter().filter(|s| s.is_surface()) {
+            for w in st.pts.windows(2) {
+                if w.iter().all(|p| p[0].abs() < MAP_HALF - 100.0 && p[1].abs() < MAP_HALF - 100.0) {
+                    total += ((w[1][0] - w[0][0]).powi(2) + (w[1][1] - w[0][1]).powi(2)).sqrt();
+                    segs.push((w[0], w[1]));
+                    cum.push(total);
+                }
+            }
+        }
+        SfStreetSegs { segs, cum }
+    }
+
+    /// A point within 2 m of a centreline, flying along the street either
+    /// way, `herr` off its axis (random sign).
+    fn sample(&self, rng: &mut Rng, herr: f64) -> (f64, f64, f64) {
+        let u = rng.f() * self.cum.last().copied().unwrap_or(0.0);
+        let k = self.cum.partition_point(|&c| c < u).min(self.segs.len() - 1);
+        let (a, b) = self.segs[k];
+        let f = rng.f();
+        let dir = (b[1] - a[1]).atan2(b[0] - a[0]);
+        let lat = rng.range(-2.0, 2.0);
+        let (x, y) = (a[0] + (b[0] - a[0]) * f - lat * dir.sin(), a[1] + (b[1] - a[1]) * f + lat * dir.cos());
+        let back = if rng.chance(0.5) { std::f64::consts::PI } else { 0.0 };
+        let sign = if rng.chance(0.5) { 1.0 } else { -1.0 };
+        (x, y, dir + back + sign * herr)
+    }
+}
+
+/// The streets the San Francisco street autopilot flies: long straight runs.
+pub const SF_PILOT_STREETS: [&str; 6] = ["Market Street", "Mission Street", "Folsom Street", "California Street", "Van Ness Avenue", "Geary Street"];
+
 /// A street-following autopilot tries to hold 40 m above the ground on the
 /// centreline of six streets for 30 s each. Returns (share of time below
 /// rooftop height, mean intervention, crashes).
 pub fn street_pilot(world: &World, filter_on: bool, phase: Phase) -> (f64, f64, usize) {
     use std::f64::consts::PI;
+    if world.map == MapId::SanFrancisco {
+        return street_pilot_sf(world, filter_on, phase);
+    }
     let streets: [(usize, bool, f64); 6] = [(4, true, 1.0), (7, true, 1.0), (13, false, -1.0), (16, false, 1.0), (8, false, 1.0), (12, true, -1.0)];
     let (mut below, mut total, mut lam, mut crashes) = (0usize, 0usize, 0.0, 0usize);
     for &(k, ns, dir) in &streets {
@@ -245,6 +305,44 @@ pub fn street_pilot(world: &World, filter_on: bool, phase: Phase) -> (f64, f64, 
             let off = if ns { st[X] - lat } else { st[Y] - lat };
             let lat_err = if ns { -off * dir } else { off * dir };
             let herr = (psi - st[PSI] + PI).rem_euclid(2.0 * PI) - PI + (-0.02 * lat_err).clamp(-0.3, 0.3);
+            fbw.phi_ref = (1.5 * herr).clamp(-0.5, 0.5);
+            let agl = st[Z] - world.terrain(st[X], st[Y]);
+            fbw.g_ref = (0.02 * (40.0 - agl)).clamp(-0.2, 0.2);
+            fbw.thr = 0.65;
+            let u = fbw.cmd(&sim.prm_ctrl, &sim.s);
+            sim.tick(u);
+            total += 1;
+            lam += if sim.fs.mode == crate::filter::Mode::Commit { 1.0 } else { sim.fs.lam };
+            if below_roof(world, sim.s[X], sim.s[Y], sim.s[Z]) {
+                below += 1;
+            }
+            if sim.crashed {
+                crashes += 1;
+                break;
+            }
+        }
+    }
+    (below as f64 / total.max(1) as f64, lam / total.max(1) as f64, crashes)
+}
+
+/// `street_pilot` on San Francisco's `SF_PILOT_STREETS`, each fitted as a
+/// line and flown from 60 m in along its direction.
+fn street_pilot_sf(world: &World, filter_on: bool, phase: Phase) -> (f64, f64, usize) {
+    use std::f64::consts::PI;
+    let (mut below, mut total, mut lam, mut crashes) = (0usize, 0usize, 0.0, 0usize);
+    for (k, name) in SF_PILOT_STREETS.iter().enumerate() {
+        let Some(l) = world.street_line(name) else { continue };
+        let (c, sn) = (l.dir.cos(), l.dir.sin());
+        let (x, y) = (l.p0[0] + 60.0 * c, l.p0[1] + 60.0 * sn);
+        let s0 = trimmed(x, y, world.terrain(x, y) + 40.0, 45.0, 0.0, l.dir, 0.6);
+        let cfg = SimCfg { filter_on, filter: FilterCfg { phase, robust: false }, wind: false, model_error: false, seed: k as u64 + 1 };
+        let mut sim = Sim::new(world, s0, cfg);
+        let mut fbw = Fbw::from_state(&s0);
+        for _ in 0..(30.0 / DT_F) as usize {
+            let st = sim.s;
+            // Offset to the left of the line.
+            let lat_err = (st[Y] - l.p0[1]) * c - (st[X] - l.p0[0]) * sn;
+            let herr = (l.dir - st[PSI] + PI).rem_euclid(2.0 * PI) - PI + (-0.02 * lat_err).clamp(-0.3, 0.3);
             fbw.phi_ref = (1.5 * herr).clamp(-0.5, 0.5);
             let agl = st[Z] - world.terrain(st[X], st[Y]);
             fbw.g_ref = (0.02 * (40.0 - agl)).clamp(-0.2, 0.2);
@@ -367,7 +465,7 @@ pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usiz
         |&id| run_episode(world, p1, 1000 + id as u64, Some(scenario_start(world, id)), PilotSel::Kamikaze, o.kamikaze_secs),
         |d, n| progress("kamikaze", d, n),
     );
-    let kamikaze: Vec<(String, EpResult)> = kres.into_iter().enumerate().map(|(i, r)| (SCENARIOS[i].to_string(), r)).collect();
+    let kamikaze: Vec<(String, EpResult)> = kres.into_iter().enumerate().map(|(i, r)| (scenario_names(world.map)[i].to_string(), r)).collect();
     // No nuisance.
     let mut nb = 0;
     let mut nt = 0;

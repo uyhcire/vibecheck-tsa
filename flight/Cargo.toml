@@ -6,10 +6,12 @@ default-run = "cityflight"
 
 [features]
 default = ["gui"]
-gui = ["dep:macroquad"]
+gui = ["dep:macroquad", "dep:image"]
 
 [dependencies]
 macroquad = { version = "0.4", optional = true, default-features = false }
+# Same image crate macroquad uses, plus JPEG for the San Francisco aerial photo.
+image = { version = "0.24", optional = true, default-features = false, features = ["jpeg"] }
 
 [[bin]]
 name = "cityflight"

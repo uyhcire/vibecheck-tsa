@@ -251,10 +251,22 @@ fn safe_h(world: &World, s: &State) -> f64 {
 }
 
 pub const SCENARIOS: [&str; 4] = ["Tower run", "Dive", "Ridge", "Slow and low"];
+pub const SF_SCENARIOS: [&str; 4] = ["Salesforce run", "Dive", "Nob Hill", "Slow and low"];
+
+/// Scenario names on a map.
+pub fn scenario_names(map: MapId) -> [&'static str; 4] {
+    match map {
+        MapId::Grid => SCENARIOS,
+        MapId::SanFrancisco => SF_SCENARIOS,
+    }
+}
 
 /// Deterministic scenario starts, each searched so that a verified escape
 /// exists at spawn (inside the safe set).
 pub fn scenario_start(world: &World, id: usize) -> State {
+    if world.map == MapId::SanFrancisco {
+        return sf_scenario_start(world, id);
+    }
     let tc = world.tallest_center();
     match id {
         // 60 m up a street, aimed at the tallest tower.
@@ -335,6 +347,101 @@ pub fn scenario_start(world: &World, id: usize) -> State {
                 }
             }
             best.map(|b| b.1).unwrap_or_else(|| trimmed(-900.0, -900.0, 50.0, v, 0.0, 0.0, 0.5))
+        }
+    }
+}
+
+/// San Francisco scenarios: the same four ideas on real geometry.
+fn sf_scenario_start(world: &World, id: usize) -> State {
+    let tc = world.tallest_center();
+    let ok = |s: &State, need: f64, room: f64| safe_h(world, s) >= need && world.true_clearance([s[X], s[Y], s[Z]]) > room;
+    match id {
+        // 60 m up Mission Street, aimed at Salesforce Tower (1st & Mission).
+        0 => {
+            if let Some(l) = world.street_line("Mission Street") {
+                let (c, sn) = (l.dir.cos(), l.dir.sin());
+                let along = (tc[0] - l.p0[0]) * c + (tc[1] - l.p0[1]) * sn;
+                for need in [45.0, 25.0, 5.0] {
+                    for d in (500..1800).step_by(25) {
+                        let a = along - d as f64;
+                        if a < 0.0 {
+                            break;
+                        }
+                        let (x, y) = (l.p0[0] + a * c, l.p0[1] + a * sn);
+                        let z = world.terrain(x, y) + 60.0;
+                        let s = trimmed(x, y, z, 50.0, 0.0, (tc[1] - y).atan2(tc[0] - x), 0.64);
+                        if ok(&s, need, 20.0) {
+                            return s;
+                        }
+                    }
+                }
+            }
+            trimmed(tc[0] - 1200.0, tc[1] - 1200.0, 260.0, 50.0, 0.0, PI / 4.0, 0.64)
+        }
+        // 700 m above downtown, diving at 30 deg at the tower.
+        1 => {
+            let (x, y) = (tc[0] - 900.0, tc[1] - 300.0);
+            let z = world.terrain(tc[0], tc[1]) + 700.0;
+            trimmed(x, y, z, 50.0, -30f64.to_radians(), (tc[1] - y).atan2(tc[0] - x), 0.64)
+        }
+        // 50 m above the street, heading up Nob Hill from below: of 16
+        // approach bearings, the safe start that faces the most climb.
+        2 => {
+            let top = world.hilltop_near([-800.0, 200.0], 400.0);
+            let mut best: Option<(f64, State)> = None;
+            for k in 0..16 {
+                let b = k as f64 * PI / 8.0;
+                for d in (700..1300).step_by(50) {
+                    let (x, y) = (top[0] + d as f64 * b.cos(), top[1] + d as f64 * b.sin());
+                    let g = world.terrain(x, y);
+                    let s = trimmed(x, y, g + 50.0, 50.0, 0.0, b + PI, 0.64);
+                    if ok(&s, 5.0, 15.0) {
+                        let climb = top[2] - g;
+                        if best.as_ref().map_or(true, |bb| climb > bb.0) {
+                            best = Some((climb, s));
+                        }
+                        break;
+                    }
+                }
+            }
+            best.map(|b| b.1).unwrap_or_else(|| trimmed(top[0], top[1] - 1000.0, 120.0, 50.0, 0.0, PI / 2.0, 0.64))
+        }
+        // 40 m up at 1.3x stall, along a street among mid-rises: the
+        // densest safe spot of points every 120 m along streets 600-1500 m
+        // from downtown.
+        _ => {
+            let v = 1.3 * V_STALL;
+            let mut best: Option<(f64, State)> = None;
+            for st in world.streets.iter().filter(|s| s.is_surface()) {
+                for w in st.pts.windows(2) {
+                    let (dx, dy) = (w[1][0] - w[0][0], w[1][1] - w[0][1]);
+                    let len = (dx * dx + dy * dy).sqrt();
+                    let mut a = 60.0;
+                    while a < len {
+                        let (x, y) = (w[0][0] + dx * a / len, w[0][1] + dy * a / len);
+                        a += 120.0;
+                        let r = ((x - tc[0]).powi(2) + (y - tc[1]).powi(2)).sqrt();
+                        let g = world.terrain(x, y);
+                        if !(600.0..1500.0).contains(&r) || world.surface(x, y) > g + 1.0 {
+                            continue;
+                        }
+                        let mut dens = 0.0;
+                        for i in -6..=6 {
+                            for j in -6..=6 {
+                                dens += world.surface(x + i as f64 * 15.0, y + j as f64 * 15.0) - g;
+                            }
+                        }
+                        if best.as_ref().map_or(false, |b| dens <= b.0) {
+                            continue;
+                        }
+                        let s = trimmed(x, y, g + 40.0, v, 0.0, dy.atan2(dx), 0.5);
+                        if ok(&s, 3.0, 0.0) {
+                            best = Some((dens, s));
+                        }
+                    }
+                }
+            }
+            best.map(|b| b.1).unwrap_or_else(|| trimmed(-900.0, -900.0, 120.0, v, 0.0, 0.0, 0.5))
         }
     }
 }

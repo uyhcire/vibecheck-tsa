@@ -4,3 +4,7 @@
 
 # Rust demo build output
 flight/target/
+
+# San Francisco raw downloads (regenerate with flight/data/sf/fetch.py)
+flight/data/sf/raw/
+flight/data/sf/__pycache__/

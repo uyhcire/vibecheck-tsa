@@ -1,9 +1,12 @@
 //! Backup-CBF City Flight: the interactive demo.
 //!
-//! Static geometry (terrain, ~2k buildings) lives in immutable GPU buffers
-//! drawn through raw miniquad; dynamic things (aircraft, escape paths, trail,
-//! HUD) go through macroquad. The simulation and the safety filter come from
-//! the library, the same code the headless harness runs.
+//! Static geometry (terrain, buildings: ~2k boxes in the grid city, ~41k
+//! prisms in San Francisco) lives in immutable GPU buffers drawn through raw
+//! miniquad with one shader: a per-pixel sky, linear lighting with a filmic
+//! tone map, glass and water that reflect the sky, and aerial perspective.
+//! Dynamic things (aircraft, escape paths, trail, HUD) go through macroquad.
+//! The simulation and the safety filter come from the library, the same code
+//! the headless harness runs. Tab switches maps; each loads once.
 
 use cityflight::escape::*;
 use cityflight::filter::*;
@@ -19,8 +22,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const SUN: [f32; 3] = [-0.45, -0.55, 0.70];
-const FOG: [f32; 3] = [0.74, 0.81, 0.89];
-const SKY_TOP: Color = Color::new(0.30, 0.50, 0.82, 1.0);
+const SF_SUN: [f32; 3] = [0.40, -0.50, 0.77];
+const FOG: [f32; 3] = [0.70, 0.79, 0.90];
 const TEX: usize = 4096;
 
 fn window_conf() -> Conf {
@@ -37,6 +40,15 @@ fn window_conf() -> Conf {
 
 fn sun_n() -> Vec3 {
     vec3(SUN[0], SUN[1], SUN[2]).normalize()
+}
+
+/// Sun direction per map. San Francisco's matches the aerial photo's shadows
+/// (late morning), so baked photo shadows and our lighting agree.
+fn sun_for(map: MapId) -> Vec3 {
+    match map {
+        MapId::Grid => sun_n(),
+        MapId::SanFrancisco => vec3(SF_SUN[0], SF_SUN[1], SF_SUN[2]).normalize(),
+    }
 }
 
 // ------------------------------------------------------------------ static scene
@@ -58,15 +70,60 @@ struct SU {
     sun: [f32; 3],
     fog: [f32; 3],
     dens: f32,
+    water_z: f32,
+    time: f32,
 }
+
+#[repr(C)]
+struct SkyU {
+    ivp: [f32; 16],
+    cam: [f32; 3],
+    sun: [f32; 3],
+    fog: [f32; 3],
+}
+
+/// Material ids, passed per vertex (`SV::win`).
+const MAT_GROUND: f32 = 0.0;
+const MAT_WALL: f32 = 1.0;
+const MAT_ROOF_PHOTO: f32 = 2.0;
+const MAT_ROOF: f32 = 3.0;
+const MAT_PLAIN: f32 = 4.0;
+const MAT_GLASS: f32 = 5.0;
+/// See-through safety envelope (drawn last, blended).
+const MAT_ENV: f32 = 6.0;
 
 struct StaticScene {
     pipe: mq::Pipeline,
+    sky_pipe: mq::Pipeline,
+    sky: mq::Bindings,
     terr: mq::Bindings,
     terr_n: i32,
     bld: mq::Bindings,
     bld_n: i32,
+    env_pipe: mq::Pipeline,
+    env: mq::Bindings,
+    env_n: i32,
+    sun: Vec3,
+    water_z: f32,
 }
+
+/// Shared shader code: sky radiance (linear), filmic tone map.
+const SKY_GLSL: &str = r#"
+vec3 lin(vec3 c) { return c * c; }
+vec3 sky(vec3 d, vec3 sun, vec3 fog) {
+    vec3 hor = lin(fog) * 0.92;
+    vec3 zen = vec3(0.035, 0.13, 0.46);
+    vec3 c = mix(hor, zen, pow(clamp(d.z, 0.0, 1.0), 0.5));
+    if (d.z < 0.0) c = hor * (1.0 - 0.2 * min(-d.z * 4.0, 1.0));
+    float s = max(dot(d, sun), 0.0);
+    c += vec3(1.0, 0.80, 0.55) * (0.16 * pow(s, 6.0) + 0.35 * pow(s, 64.0));
+    return c;
+}
+vec3 tonemap(vec3 x) {
+    x *= 1.1;
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+"#;
 
 const VS: &str = r#"#version 100
 attribute vec3 in_pos;
@@ -75,10 +132,6 @@ attribute vec3 in_col;
 attribute vec2 in_uv;
 attribute float in_win;
 uniform mat4 mvp;
-uniform vec3 cam;
-uniform vec3 sun;
-uniform vec3 fog;
-uniform float dens;
 varying highp vec3 v_pos;
 varying mediump vec3 v_nrm;
 varying mediump vec3 v_col;
@@ -89,39 +142,139 @@ void main() {
     v_pos = in_pos; v_nrm = in_nrm; v_col = in_col; v_uv = in_uv; v_win = in_win;
 }"#;
 
-const FS: &str = r#"#version 100
-precision highp float;
+/// Scene shader. Materials (`v_win`): 0 ground (texture), 1 wall with
+/// punched windows, 2 roof from the aerial photo, 3 plain roof, 4 plain wall,
+/// 5 glass curtain wall. Walls carry (distance along the footprint, height
+/// above the base) in `v_uv`. Lighting is linear with a filmic tone map;
+/// glass and water reflect the sky; distance fades into the sky colour in
+/// that direction (aerial perspective, thinner with height).
+const FS_MAIN: &str = r#"
 uniform sampler2D tex;
 uniform mat4 mvp;
 uniform vec3 cam;
 uniform vec3 sun;
 uniform vec3 fog;
 uniform float dens;
+uniform float water_z;
+uniform float time;
 varying highp vec3 v_pos;
 varying mediump vec3 v_nrm;
 varying mediump vec3 v_col;
 varying highp vec2 v_uv;
 varying mediump float v_win;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// 1 on [a, b] of a period (x in 0..1), edges blurred over `fw` periods.
+float pulse(float x, float a, float b, float fw) {
+    fw = max(fw, 1e-3);
+    return smoothstep(a - fw, a + fw, x) - smoothstep(b - fw, b + fw, x);
+}
 void main() {
     vec3 n = normalize(v_nrm);
-    vec3 alb = v_col * texture2D(tex, v_uv).rgb;
-    float d = length(v_pos - cam);
-    if (v_win > 0.5 && abs(n.z) < 0.5) {
-        float s = abs(n.x) > 0.5 ? v_pos.y : v_pos.x;
-        float fl = fract(v_pos.z / 3.6);
-        float cl = fract(s / 3.1);
-        float w = step(0.30, fl) * step(fl, 0.86) * step(0.16, cl) * step(cl, 0.84);
-        float far = smoothstep(500.0, 1800.0, d);
-        w = mix(w, 0.42, far);
-        vec3 glass = mix(vec3(0.13, 0.17, 0.23), vec3(0.50, 0.62, 0.76), 0.35 + 0.35 * max(dot(n, -sun), 0.0));
-        alb = mix(alb, glass, w * 0.8);
+    vec3 vd = v_pos - cam;
+    float d = length(vd);
+    vec3 v = -vd / d;
+    float mat = v_win;
+    vec3 alb;
+    if (mat < 0.5) alb = lin(texture2D(tex, v_uv).rgb) * lin(v_col);
+    else if (mat < 2.5 && mat > 1.5) alb = lin(texture2D(tex, v_uv).rgb) * 1.05;
+    else alb = lin(v_col);
+    bool wall = (mat > 0.5 && mat < 1.5) || mat > 4.5;
+    float ao = 1.0;
+    if (wall || (mat > 3.5 && mat < 4.5)) ao = 0.5 + 0.5 * smoothstep(0.0, 14.0, v_uv.y);
+    float gloss = 0.0;
+    float tint = 1.0;
+    // Facades: window stripes filtered over the pixel's footprint on the
+    // wall (it grows with distance), fading to their average far away.
+    if (wall && abs(n.z) < 0.5) {
+        float s = v_uv.x;
+        float hb = v_uv.y;
+        float px = d * 0.0007;
+        float fl = fract(hb / 3.6);
+        float ff = px / 3.6;
+        float w;
+        float mean;
+        if (mat > 4.5) {
+            float cl = fract(s / 1.55);
+            float fc = px / 1.55;
+            w = pulse(cl, 0.05, 0.95, fc) * pulse(fl, 0.24, 1.0, ff);
+            mean = 0.68;
+            w = mix(w, mean, smoothstep(0.12, 0.45, max(fc, ff)));
+            alb *= 0.55;
+        } else {
+            float cl = fract(s / 3.1);
+            float fc = px / 3.1;
+            if (hb < 4.2) {
+                w = pulse(hb / 4.2, 0.12, 0.86, px / 4.2) * pulse(cl, 0.06, 0.94, fc);
+                mean = 0.65;
+            } else {
+                w = pulse(fl, 0.30, 0.86, ff) * pulse(cl, 0.18, 0.82, fc);
+                mean = 0.36;
+            }
+            w = mix(w, mean, smoothstep(0.12, 0.45, max(fc, ff)));
+        }
+        gloss = w;
+        tint = 0.85 + 0.3 * hash(vec2(floor(hb / 3.6), floor(s / 3.1)));
     }
     float diff = max(dot(n, sun), 0.0);
-    float sky = 0.5 + 0.5 * n.z;
-    vec3 lit = alb * (vec3(0.36, 0.40, 0.48) * (0.55 + 0.45 * sky) + vec3(1.0, 0.95, 0.86) * diff * 0.82);
-    float f = 1.0 - exp(-pow(d * dens, 1.5));
-    gl_FragColor = vec4(mix(lit, fog, clamp(f, 0.0, 1.0)), 1.0);
+    vec3 sunc = vec3(1.0, 0.93, 0.82) * 2.0;
+    vec3 amb = mix(vec3(0.09, 0.085, 0.08), vec3(0.17, 0.23, 0.36), 0.5 + 0.5 * n.z);
+    vec3 col = alb * (amb * ao + sunc * diff * (0.55 + 0.45 * ao));
+    if (gloss > 0.0) {
+        vec3 r = reflect(-v, n);
+        float fres = 0.05 + 0.95 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+        vec3 rc = r.z > 0.0 ? sky(r, sun, fog) : lin(vec3(0.30, 0.30, 0.31)) * (amb + sunc * 0.3);
+        vec3 glass = lin(vec3(0.06, 0.09, 0.12)) * (amb + sunc * diff * 0.3) + rc * fres * tint;
+        glass += sunc * pow(max(dot(r, sun), 0.0), 300.0) * 1.5;
+        col = mix(col, glass, gloss * 0.9);
+    }
+    if (mat < 0.5 && v_pos.z <= water_z + 0.05) {
+        // Sum of a few travelling waves in different directions, calming
+        // with distance (no visible repetition far out).
+        vec2 p = v_pos.xy;
+        vec2 g = vec2(0.0);
+        vec2 k1 = vec2(0.093, 0.041); g += 0.45 * k1 * cos(dot(p, k1) + time * 1.3);
+        vec2 k2 = vec2(-0.061, 0.137); g += 0.35 * k2 * cos(dot(p, k2) - time * 1.7);
+        vec2 k3 = vec2(0.211, -0.173); g += 0.16 * k3 * cos(dot(p, k3) + time * 2.3);
+        vec2 k4 = vec2(0.317, 0.289); g += 0.10 * k4 * cos(dot(p, k4) - time * 2.9);
+        vec2 k5 = vec2(-0.53, 0.47); g += 0.05 * k5 * cos(dot(p, k5) + time * 3.7);
+        vec3 wn = normalize(vec3(-0.6 * g * (1.0 - smoothstep(200.0, 2500.0, d)), 1.0));
+        vec3 r = reflect(-v, wn);
+        float fres = 0.02 + 0.98 * pow(1.0 - max(dot(wn, v), 0.0), 5.0);
+        vec3 deep = alb * (amb + sunc * 0.35);
+        col = mix(deep, sky(r, sun, fog), fres) + sunc * pow(max(dot(r, sun), 0.0), 500.0) * 2.5;
+    }
+    float hz = max(0.5 * (cam.z + v_pos.z), 0.0);
+    float f = 1.0 - exp(-d * dens * exp(-hz / 900.0));
+    col = mix(col, sky(-v, sun, fog), clamp(f, 0.0, 1.0));
+    float alpha = mat > 5.5 ? 0.07 + 0.25 * pow(1.0 - abs(dot(n, v)), 2.0) : 1.0;
+    gl_FragColor = vec4(sqrt(tonemap(col)), alpha);
 }"#;
+
+const SKY_VS: &str = r#"#version 100
+attribute vec2 in_pos;
+varying highp vec2 v_ndc;
+void main() {
+    gl_Position = vec4(in_pos, 0.0, 1.0);
+    v_ndc = in_pos;
+}"#;
+
+const FS_SKY: &str = r#"
+uniform mat4 ivp;
+uniform vec3 cam;
+uniform vec3 sun;
+uniform vec3 fog;
+varying highp vec2 v_ndc;
+void main() {
+    vec4 p = ivp * vec4(v_ndc, 1.0, 1.0);
+    vec3 d = normalize(p.xyz / p.w - cam);
+    vec3 c = sky(d, sun, fog);
+    c += vec3(1.0, 0.92, 0.75) * 40.0 * smoothstep(0.99990, 0.99996, dot(d, sun));
+    gl_FragColor = vec4(sqrt(tonemap(c)), 1.0);
+}"#;
+
+fn frag(body: &str) -> String {
+    format!("#version 100\nprecision highp float;\n{SKY_GLSL}\n{body}")
+}
 
 fn hash01(x: i64, y: i64) -> f64 {
     let mut r = Rng::new((x as u64).wrapping_mul(0x9E37_79B1) ^ (y as u64).wrapping_mul(0x85EB_CA77));
@@ -202,7 +355,86 @@ fn ground_color(w: &World, x: f64, y: f64) -> [f64; 3] {
     c
 }
 
+/// San Francisco streets rasterised at texture resolution: 0 none,
+/// 1 sidewalk edge, 2 asphalt, 3 centre line (busier streets).
+fn street_mask(w: &World) -> Vec<u8> {
+    let mut m = vec![0u8; TEX * TEX];
+    let px = 2.0 * MAP_HALF / TEX as f64;
+    for st in w.streets.iter().filter(|s| !s.bridge) {
+        let hw = [11.0, 10.0, 9.0, 8.0, 7.0, 5.5, 5.5, 4.0, 4.0, 4.0, 4.0][st.class as usize];
+        let walk = st.class >= 2 && st.class <= 6;
+        let line = st.class <= 3;
+        for seg in st.pts.windows(2) {
+            let (a, b) = (seg[0], seg[1]);
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let l2 = (dx * dx + dy * dy).max(1e-9);
+            let ti = |v: f64| (((v + MAP_HALF) / px).floor().max(0.0) as usize).min(TEX - 1);
+            for j in ti(a[1].min(b[1]) - hw)..=ti(a[1].max(b[1]) + hw) {
+                let y = -MAP_HALF + (j as f64 + 0.5) * px;
+                for i in ti(a[0].min(b[0]) - hw)..=ti(a[0].max(b[0]) + hw) {
+                    let x = -MAP_HALF + (i as f64 + 0.5) * px;
+                    let t = (((x - a[0]) * dx + (y - a[1]) * dy) / l2).clamp(0.0, 1.0);
+                    let d = ((x - a[0] - t * dx).powi(2) + (y - a[1] - t * dy).powi(2)).sqrt();
+                    let along = t * l2.sqrt();
+                    let code = if d > hw {
+                        0
+                    } else if line && d < 0.8 && (along / 9.0).rem_euclid(1.0) < 0.55 {
+                        3
+                    } else if walk && d > hw - 2.2 {
+                        1
+                    } else {
+                        2
+                    };
+                    // Where streets overlap, asphalt beats a centre line beats
+                    // a sidewalk (no lines painted through intersections).
+                    let rank = |c: u8| [0, 1, 3, 2][c as usize];
+                    let c = &mut m[j * TEX + i];
+                    if rank(code) > rank(*c) {
+                        *c = code;
+                    }
+                }
+            }
+        }
+    }
+    m
+}
+
+/// San Francisco ground: bay water, paved lots, OSM streets, sun shadows
+/// from the buildings.
+fn ground_color_sf(w: &World, street: u8, x: f64, y: f64) -> [f64; 3] {
+    let h = w.terrain(x, y);
+    let speck = hash01((x / 6.0).floor() as i64, (y / 6.0).floor() as i64);
+    if h <= SF_WATER + 0.05 {
+        let ripple = 0.5 + 0.5 * ((x * 0.013 + y * 0.007).sin() * (y * 0.011 - x * 0.005).cos());
+        return mix3([0.12, 0.26, 0.35], [0.16, 0.32, 0.41], 0.6 * ripple + 0.4 * speck);
+    }
+    let mut c = match street {
+        1 => [0.62, 0.61, 0.58],
+        2 => mix3([0.21, 0.21, 0.23], [0.26, 0.26, 0.28], speck * 0.5),
+        3 => [0.85, 0.85, 0.82],
+        _ => mix3([0.54, 0.53, 0.49], [0.62, 0.61, 0.57], speck),
+    };
+    let s = sun_for(MapId::SanFrancisco);
+    let hl = ((s.x * s.x + s.y * s.y) as f64).sqrt();
+    let (sx, sy, te) = (s.x as f64 / hl, s.y as f64 / hl, s.z as f64 / hl);
+    let mut t = 3.0;
+    while t < 600.0 {
+        let hz = h + t * te;
+        if hz > 340.0 {
+            break;
+        }
+        if w.surface(x + sx * t, y + sy * t) > hz + 0.3 {
+            c = [c[0] * 0.52, c[1] * 0.55, c[2] * 0.62];
+            break;
+        }
+        t += 3.0;
+    }
+    c
+}
+
 fn terrain_texture(w: &World) -> Vec<u8> {
+    let mask = if w.map == MapId::SanFrancisco { street_mask(w) } else { Vec::new() };
+    let mask = &mask;
     let mut px = vec![0u8; TEX * TEX * 4];
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     let rows_per = TEX.div_ceil(threads);
@@ -214,7 +446,7 @@ fn terrain_texture(w: &World) -> Vec<u8> {
                     let y = -MAP_HALF + (py as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
                     for i in 0..TEX {
                         let x = -MAP_HALF + (i as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
-                        let c = ground_color(w, x, y);
+                        let c = if w.map == MapId::SanFrancisco { ground_color_sf(w, mask[py * TEX + i], x, y) } else { ground_color(w, x, y) };
                         row[i * 4] = (c[0].clamp(0.0, 1.0) * 255.0) as u8;
                         row[i * 4 + 1] = (c[1].clamp(0.0, 1.0) * 255.0) as u8;
                         row[i * 4 + 2] = (c[2].clamp(0.0, 1.0) * 255.0) as u8;
@@ -228,6 +460,12 @@ fn terrain_texture(w: &World) -> Vec<u8> {
 }
 
 fn building_color(b: &Building) -> [f32; 3] {
+    match b.kind {
+        Kind::Bridge => return [0.62, 0.78, 0.95],
+        Kind::BridgeTower => return [0.62, 0.65, 0.68],
+        Kind::Viaduct => return [0.63, 0.62, 0.59],
+        Kind::Building => {}
+    }
     let t = b.tint;
     let tall = b.z1 - b.z0 > 70.0;
     let pal_tall = [[0.50, 0.58, 0.67], [0.40, 0.46, 0.53], [0.66, 0.70, 0.74], [0.56, 0.62, 0.58]];
@@ -239,9 +477,148 @@ fn building_color(b: &Building) -> [f32; 3] {
     }
 }
 
+/// Push a vertical quad from `p` to `q` (ground track), `z0..z1`.
+fn push_quad(v: &mut Vec<SV>, i: &mut Vec<u32>, p: [f64; 2], q: [f64; 2], z: [f32; 4], col: [f32; 3], mat: f32) {
+    let (ex, ey) = ((q[0] - p[0]) as f32, (q[1] - p[1]) as f32);
+    let l = (ex * ex + ey * ey).sqrt().max(1e-4);
+    let nrm = [ey / l, -ex / l, 0.0];
+    let (px, py, qx, qy) = (p[0] as f32, p[1] as f32, q[0] as f32, q[1] as f32);
+    let k = v.len() as u32;
+    for (pos, h) in [([px, py, z[0]], 0.0), ([qx, qy, z[1]], 0.0), ([qx, qy, z[3]], 1.0), ([px, py, z[2]], 1.0)] {
+        v.push(SV { pos, nrm, col, uv: [0.0, h * 50.0], win: mat });
+    }
+    i.extend_from_slice(&[k, k + 1, k + 2, k, k + 2, k + 3]);
+}
+
+/// The Bay Bridge as it looks: a deck, two main cables and suspenders
+/// (pushed into the opaque mesh), plus its collision curtain as a faint
+/// see-through envelope (returned). The curtain pieces are ordered along
+/// the bridge; the cable runs through each piece's top.
+fn bridge_meshes(w: &World, bv: &mut Vec<SV>, bi: &mut Vec<u32>) -> (Vec<SV>, Vec<u32>) {
+    let (mut ev, mut ei) = (Vec::new(), Vec::new());
+    let pieces: Vec<&Building> = w.boxes.iter().filter(|b| b.kind == Kind::Bridge).collect();
+    if pieces.len() < 2 {
+        return (ev, ei);
+    }
+    let cen: Vec<[f64; 2]> = pieces
+        .iter()
+        .map(|b| {
+            let o = w.outline(b);
+            let n = o.len() as f64;
+            [o.iter().map(|q| q[0]).sum::<f64>() / n, o.iter().map(|q| q[1]).sum::<f64>() / n]
+        })
+        .collect();
+    let m = cen.len() as f64;
+    let (cx, cy) = (cen.iter().map(|c| c[0]).sum::<f64>() / m, cen.iter().map(|c| c[1]).sum::<f64>() / m);
+    let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
+    for c in &cen {
+        let (dx, dy) = (c[0] - cx, c[1] - cy);
+        sxx += dx * dx;
+        sxy += dx * dy;
+        syy += dy * dy;
+    }
+    let th = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    let (ux, uy) = (th.cos(), th.sin());
+    let (nx, ny) = (-uy, ux);
+    let mut order: Vec<usize> = (0..pieces.len()).collect();
+    order.sort_by(|&a, &b| {
+        let pa = (cen[a][0] - cx) * ux + (cen[a][1] - cy) * uy;
+        let pb = (cen[b][0] - cx) * ux + (cen[b][1] - cy) * uy;
+        pa.partial_cmp(&pb).unwrap()
+    });
+    let steel = [0.55, 0.58, 0.62];
+    let deck_col = [0.42, 0.43, 0.45];
+    // Per piece: centre, half-width across the bridge, cable and deck height.
+    let info: Vec<([f64; 2], f64, f32, f32)> = order
+        .iter()
+        .map(|&k| {
+            let b = pieces[k];
+            let c = cen[k];
+            let hw = w.outline(b).iter().map(|q| ((q[0] - c[0]) * nx + (q[1] - c[1]) * ny).abs()).fold(0.0, f64::max);
+            let cable = (b.z1 - 1.0) as f32;
+            let deck = ((b.z1 - 8.0).min(66.0)).max(w.terrain(c[0], c[1]) + 6.0) as f32;
+            (c, hw, cable, deck)
+        })
+        .collect();
+    for (k, &idx) in order.iter().enumerate() {
+        let b = pieces[idx];
+        let (c, hw, cable, deck) = info[k];
+        // Deck slab: the piece's footprint, 7 m deep.
+        let o = w.outline(b);
+        let n = o.len();
+        for e in 0..n {
+            push_quad(bv, bi, o[e], o[(e + 1) % n], [deck - 7.0, deck - 7.0, deck, deck], deck_col, MAT_PLAIN);
+        }
+        let i0 = bv.len() as u32;
+        for q in &o {
+            bv.push(SV { pos: [q[0] as f32, q[1] as f32, deck], nrm: [0.0, 0.0, 1.0], col: deck_col, uv: [0.5, 0.5], win: MAT_ROOF });
+        }
+        for t in 1..n.saturating_sub(1) as u32 {
+            bi.extend_from_slice(&[i0, i0 + t, i0 + t + 1]);
+        }
+        // Envelope: the curtain piece itself, see-through. Walls across the
+        // bridge are internal seams between pieces; only the two ends keep
+        // theirs.
+        let col = building_color(b);
+        let (z0, z1) = (b.z0 as f32, b.z1 as f32);
+        let end = k == 0 || k + 1 == order.len();
+        for e in 0..n {
+            let (a, q) = (o[e], o[(e + 1) % n]);
+            let (dx, dy) = (q[0] - a[0], q[1] - a[1]);
+            let across = ((dx * ux + dy * uy) / (dx * dx + dy * dy).sqrt().max(1e-9)).abs() < 0.5;
+            if across && !end {
+                continue;
+            }
+            push_quad(&mut ev, &mut ei, a, q, [z0, z0, z1, z1], col, MAT_ENV);
+        }
+        let i0 = ev.len() as u32;
+        for q in &o {
+            ev.push(SV { pos: [q[0] as f32, q[1] as f32, z1], nrm: [0.0, 0.0, 1.0], col, uv: [0.5, 0.5], win: MAT_ENV });
+        }
+        for t in 1..n.saturating_sub(1) as u32 {
+            ei.extend_from_slice(&[i0, i0 + t, i0 + t + 1]);
+        }
+        for side in [-1.0, 1.0] {
+            let off = side * (hw - 1.5).max(1.0);
+            let p = [c[0] + nx * off, c[1] + ny * off];
+            // Suspender from the deck up to the cable.
+            if cable - deck > 4.0 {
+                let p2 = [p[0] + ux * 0.4, p[1] + uy * 0.4];
+                push_quad(bv, bi, p, p2, [deck, deck, cable, cable], steel, MAT_PLAIN);
+            }
+            // Main cable to the next piece.
+            if let Some(&(c2, hw2, cable2, _)) = info.get(k + 1) {
+                let off2 = side * (hw2 - 1.5).max(1.0);
+                let q = [c2[0] + nx * off2, c2[1] + ny * off2];
+                push_quad(bv, bi, p, q, [cable - 1.2, cable2 - 1.2, cable, cable2], steel, MAT_PLAIN);
+            }
+        }
+    }
+    (ev, ei)
+}
+
+/// San Francisco aerial photo (USDA NAIP via USGS, public domain), RGBA with
+/// row 0 at the map's south edge; `None` if the file is missing.
+fn sf_photo() -> Option<(Vec<u8>, usize)> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/data/sf/sf_naip.jpg");
+    let bytes = std::fs::read(path).ok()?;
+    let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).ok()?.to_rgba8();
+    let n = img.width() as usize;
+    if img.height() as usize != n {
+        return None;
+    }
+    let raw = img.into_raw();
+    let mut px = vec![0u8; raw.len()];
+    for r in 0..n {
+        px[r * n * 4..(r + 1) * n * 4].copy_from_slice(&raw[(n - 1 - r) * n * 4..(n - r) * n * 4]);
+    }
+    Some((px, n))
+}
+
 impl StaticScene {
     fn new(w: &World) -> StaticScene {
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
+        let uv_of = |x: f64, y: f64| [((x + MAP_HALF) / (2.0 * MAP_HALF)) as f32, ((y + MAP_HALF) / (2.0 * MAP_HALF)) as f32];
         // Terrain: same vertices and triangle split as the collision truth.
         let mut tv = Vec::with_capacity(TN * TN);
         for j in 0..TN {
@@ -252,13 +629,7 @@ impl StaticScene {
                 let dx = hh(i + 1, j) - hh(i.saturating_sub(1), j);
                 let dy = hh(i, j + 1) - hh(i, j.saturating_sub(1));
                 let n = vec3(-dx, -dy, 2.0 * TSP as f32).normalize();
-                tv.push(SV {
-                    pos: [x as f32, y as f32, w.terr[j * TN + i]],
-                    nrm: [n.x, n.y, n.z],
-                    col: [1.0, 1.0, 1.0],
-                    uv: [((x + MAP_HALF) / (2.0 * MAP_HALF)) as f32, ((y + MAP_HALF) / (2.0 * MAP_HALF)) as f32],
-                    win: 0.0,
-                });
+                tv.push(SV { pos: [x as f32, y as f32, w.terr[j * TN + i]], nrm: [n.x, n.y, n.z], col: [1.0, 1.0, 1.0], uv: uv_of(x, y), win: MAT_GROUND });
             }
         }
         let mut ti: Vec<u32> = Vec::with_capacity((TN - 1) * (TN - 1) * 6);
@@ -271,7 +642,11 @@ impl StaticScene {
                 ti.extend_from_slice(&[a, b, c, a, c, d]);
             }
         }
-        let px = terrain_texture(w);
+        // Ground texture: the aerial photo in San Francisco (if present),
+        // else the painted one.
+        let photo = if w.map == MapId::SanFrancisco { sf_photo() } else { None };
+        let has_photo = photo.is_some();
+        let (px, size) = photo.unwrap_or_else(|| (terrain_texture(w), TEX));
         let tex = ctx.new_texture(
             mq::TextureAccess::Static,
             mq::TextureSource::Bytes(&px),
@@ -281,47 +656,83 @@ impl StaticScene {
                 min_filter: mq::FilterMode::Linear,
                 mag_filter: mq::FilterMode::Linear,
                 mipmap_filter: mq::MipmapFilterMode::Linear,
-                width: TEX as u32,
-                height: TEX as u32,
+                width: size as u32,
+                height: size as u32,
                 allocate_mipmaps: true,
                 ..Default::default()
             },
         );
         ctx.texture_generate_mipmaps(tex);
-        let white = ctx.new_texture_from_rgba8(1, 1, &[255, 255, 255, 255]);
+        drop(px);
 
-        // Buildings: five faces per box.
-        let mut bv: Vec<SV> = Vec::with_capacity(w.boxes.len() * 20);
-        let mut bi: Vec<u32> = Vec::with_capacity(w.boxes.len() * 30);
+        // Buildings: a wall per footprint edge plus the roof (boxes are four
+        // walls). Walls carry (distance along the outline, height above the
+        // base) for the window grid; low roofs in San Francisco show the
+        // aerial photo, which is the real roof.
+        let mut bv: Vec<SV> = Vec::with_capacity(w.boxes.len() * 26);
+        let mut bi: Vec<u32> = Vec::with_capacity(w.boxes.len() * 42);
         for b in &w.boxes {
             let col = building_color(b);
             let roof = [col[0] * 0.62 + 0.08, col[1] * 0.62 + 0.08, col[2] * 0.62 + 0.09];
-            let (x0, x1, y0, y1, z0, z1) = (b.x0 as f32, b.x1 as f32, b.y0 as f32, b.y1 as f32, b.z0 as f32, b.z1 as f32);
-            let faces: [([f32; 3], [[f32; 3]; 4], [f32; 3], f32); 5] = [
-                ([1.0, 0.0, 0.0], [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], col, 1.0),
-                ([-1.0, 0.0, 0.0], [[x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]], col, 1.0),
-                ([0.0, 1.0, 0.0], [[x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]], col, 1.0),
-                ([0.0, -1.0, 0.0], [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], col, 1.0),
-                ([0.0, 0.0, 1.0], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], roof, 0.0),
-            ];
-            for (n, q, c, wflag) in faces {
-                let base = bv.len() as u32;
-                for p in q {
-                    bv.push(SV { pos: p, nrm: n, col: c, uv: [0.5, 0.5], win: wflag });
+            let base = b.z0 + 1.5;
+            let height = b.z1 - base;
+            if b.kind == Kind::Bridge {
+                continue;
+            }
+            let (wall_mat, roof_mat) = match b.kind {
+                Kind::Building if has_photo && height < 25.0 => (MAT_WALL, MAT_ROOF_PHOTO),
+                Kind::Building if height > 60.0 => (MAT_GLASS, MAT_ROOF),
+                Kind::Building => (MAT_WALL, MAT_ROOF),
+                _ => (MAT_PLAIN, MAT_ROOF),
+            };
+            let poly = w.outline(b);
+            let n = poly.len();
+            let (z0, z1) = (b.z0 as f32, b.z1 as f32);
+            let (h0, h1) = ((b.z0 - base) as f32, height as f32);
+            let mut along = 0.0f32;
+            for k in 0..n {
+                let (p, q) = (poly[k], poly[(k + 1) % n]);
+                let (ex, ey) = ((q[0] - p[0]) as f32, (q[1] - p[1]) as f32);
+                let l = (ex * ex + ey * ey).sqrt();
+                if l < 1e-4 {
+                    continue;
                 }
-                bi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                let nrm = [ey / l, -ex / l, 0.0];
+                let (px, py, qx, qy) = (p[0] as f32, p[1] as f32, q[0] as f32, q[1] as f32);
+                let i0 = bv.len() as u32;
+                for (pos, uv) in [
+                    ([px, py, z0], [along, h0]),
+                    ([qx, qy, z0], [along + l, h0]),
+                    ([qx, qy, z1], [along + l, h1]),
+                    ([px, py, z1], [along, h1]),
+                ] {
+                    bv.push(SV { pos, nrm, col, uv, win: wall_mat });
+                }
+                bi.extend_from_slice(&[i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
+                along += l;
+            }
+            let i0 = bv.len() as u32;
+            let rc = if roof_mat == MAT_ROOF_PHOTO { [1.0, 1.0, 1.0] } else { roof };
+            for p in &poly {
+                bv.push(SV { pos: [p[0] as f32, p[1] as f32, z1], nrm: [0.0, 0.0, 1.0], col: rc, uv: uv_of(p[0], p[1]), win: roof_mat });
+            }
+            for k in 1..n.saturating_sub(1) as u32 {
+                bi.extend_from_slice(&[i0, i0 + k, i0 + k + 1]);
             }
         }
+        let (ev, ei) = bridge_meshes(w, &mut bv, &mut bi);
         let mk = |ctx: &mut dyn mq::RenderingBackend, v: &[SV], i: &[u32], img: mq::TextureId| mq::Bindings {
             vertex_buffers: vec![ctx.new_buffer(mq::BufferType::VertexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(v))],
             index_buffer: ctx.new_buffer(mq::BufferType::IndexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(i)),
             images: vec![img],
         };
         let terr = mk(ctx, &tv, &ti, tex);
-        let bld = mk(ctx, &bv, &bi, white);
+        let bld = mk(ctx, &bv, &bi, tex);
+        let env = mk(ctx, &ev, &ei, tex);
+        let fs = frag(FS_MAIN);
         let shader = ctx
             .new_shader(
-                mq::ShaderSource::Glsl { vertex: VS, fragment: FS },
+                mq::ShaderSource::Glsl { vertex: VS, fragment: &fs },
                 mq::ShaderMeta {
                     images: vec!["tex".to_string()],
                     uniforms: mq::UniformBlockLayout {
@@ -331,6 +742,8 @@ impl StaticScene {
                             mq::UniformDesc::new("sun", mq::UniformType::Float3),
                             mq::UniformDesc::new("fog", mq::UniformType::Float3),
                             mq::UniformDesc::new("dens", mq::UniformType::Float1),
+                            mq::UniformDesc::new("water_z", mq::UniformType::Float1),
+                            mq::UniformDesc::new("time", mq::UniformType::Float1),
                         ],
                     },
                 },
@@ -348,21 +761,94 @@ impl StaticScene {
             shader,
             mq::PipelineParams { depth_test: mq::Comparison::LessOrEqual, depth_write: true, ..Default::default() },
         );
-        StaticScene { pipe, terr, terr_n: ti.len() as i32, bld, bld_n: bi.len() as i32 }
+        let env_pipe = ctx.new_pipeline(
+            &[mq::BufferLayout::default()],
+            &[
+                mq::VertexAttribute::new("in_pos", mq::VertexFormat::Float3),
+                mq::VertexAttribute::new("in_nrm", mq::VertexFormat::Float3),
+                mq::VertexAttribute::new("in_col", mq::VertexFormat::Float3),
+                mq::VertexAttribute::new("in_uv", mq::VertexFormat::Float2),
+                mq::VertexAttribute::new("in_win", mq::VertexFormat::Float1),
+            ],
+            shader,
+            mq::PipelineParams {
+                depth_test: mq::Comparison::LessOrEqual,
+                depth_write: false,
+                color_blend: Some(mq::BlendState::new(
+                    mq::Equation::Add,
+                    mq::BlendFactor::Value(mq::BlendValue::SourceAlpha),
+                    mq::BlendFactor::OneMinusValue(mq::BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
+        );
+        // Sky: one screen-covering triangle; each pixel looks up its view ray.
+        let sky_fs = frag(FS_SKY);
+        let sky_shader = ctx
+            .new_shader(
+                mq::ShaderSource::Glsl { vertex: SKY_VS, fragment: &sky_fs },
+                mq::ShaderMeta {
+                    images: vec![],
+                    uniforms: mq::UniformBlockLayout {
+                        uniforms: vec![
+                            mq::UniformDesc::new("ivp", mq::UniformType::Mat4),
+                            mq::UniformDesc::new("cam", mq::UniformType::Float3),
+                            mq::UniformDesc::new("sun", mq::UniformType::Float3),
+                            mq::UniformDesc::new("fog", mq::UniformType::Float3),
+                        ],
+                    },
+                },
+            )
+            .expect("sky shader");
+        let sky_pipe = ctx.new_pipeline(
+            &[mq::BufferLayout::default()],
+            &[mq::VertexAttribute::new("in_pos", mq::VertexFormat::Float2)],
+            sky_shader,
+            mq::PipelineParams { depth_test: mq::Comparison::Always, depth_write: false, ..Default::default() },
+        );
+        let tri: [[f32; 2]; 3] = [[-1.0, -1.0], [3.0, -1.0], [-1.0, 3.0]];
+        let sky = mq::Bindings {
+            vertex_buffers: vec![ctx.new_buffer(mq::BufferType::VertexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(&tri))],
+            index_buffer: ctx.new_buffer(mq::BufferType::IndexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(&[0u16, 1, 2])),
+            images: vec![],
+        };
+        let water_z = if w.map == MapId::SanFrancisco { SF_WATER as f32 } else { -1.0e4 };
+        StaticScene {
+            pipe,
+            sky_pipe,
+            sky,
+            terr,
+            terr_n: ti.len() as i32,
+            bld,
+            bld_n: bi.len() as i32,
+            env_pipe,
+            env,
+            env_n: ei.len() as i32,
+            sun: sun_for(w.map),
+            water_z,
+        }
     }
 
     fn draw(&self, cam: &Camera3D) {
         let mut gl = unsafe { get_internal_gl() };
         gl.flush();
         let ctx = gl.quad_context;
+        let vp = cam.matrix();
+        let sky = SkyU { ivp: vp.inverse().to_cols_array(), cam: cam.position.to_array(), sun: self.sun.to_array(), fog: FOG };
         let u = SU {
-            mvp: cam.matrix().to_cols_array(),
+            mvp: vp.to_cols_array(),
             cam: cam.position.to_array(),
-            sun: sun_n().to_array(),
+            sun: self.sun.to_array(),
             fog: FOG,
-            dens: 1.0 / 3600.0,
+            dens: 1.0 / 9000.0,
+            water_z: self.water_z,
+            time: get_time() as f32,
         };
         ctx.begin_default_pass(mq::PassAction::Nothing);
+        ctx.apply_pipeline(&self.sky_pipe);
+        ctx.apply_bindings(&self.sky);
+        ctx.apply_uniforms(mq::UniformsSource::table(&sky));
+        ctx.draw(0, 3, 1);
         ctx.apply_pipeline(&self.pipe);
         ctx.apply_bindings(&self.terr);
         ctx.apply_uniforms(mq::UniformsSource::table(&u));
@@ -370,6 +856,12 @@ impl StaticScene {
         ctx.apply_bindings(&self.bld);
         ctx.apply_uniforms(mq::UniformsSource::table(&u));
         ctx.draw(0, self.bld_n, 1);
+        if self.env_n > 0 {
+            ctx.apply_pipeline(&self.env_pipe);
+            ctx.apply_bindings(&self.env);
+            ctx.apply_uniforms(mq::UniformsSource::table(&u));
+            ctx.draw(0, self.env_n, 1);
+        }
         ctx.end_render_pass();
     }
 }
@@ -561,6 +1053,8 @@ struct App {
     act: f32,
     harness: Option<HarnessJob>,
     seed: u64,
+    /// Tab pressed: switch to the other map before the next frame.
+    switch_map: bool,
 }
 
 const CAM_NAMES: [&str; 4] = ["chase", "cockpit", "orbit", "overhead"];
@@ -635,6 +1129,9 @@ impl App {
         if is_key_pressed(KeyCode::Space) || clicked {
             let on = !self.sim.cfg.filter_on;
             self.sim.set_filter(on);
+        }
+        if is_key_pressed(KeyCode::Tab) {
+            self.switch_map = true;
         }
         if is_key_pressed(KeyCode::B) {
             self.show_paths = !self.show_paths;
@@ -820,26 +1317,6 @@ impl App {
         Camera3D { position: pos, target, up, fovy: 1.0, z_near: 0.5, z_far: 16000.0, ..Default::default() }
     }
 
-    fn draw_sky(&self, cam: &Camera3D) {
-        set_default_camera();
-        let (w, h) = (screen_width(), screen_height());
-        let fwd = (cam.target - cam.position).normalize_or_zero();
-        let fh = vec3(fwd.x, fwd.y, 0.0).normalize_or_zero();
-        let far = cam.position + fh * 8000.0;
-        let clip = cam.matrix() * far.extend(1.0);
-        let hy = if clip.w > 0.0 { (1.0 - (clip.y / clip.w)) * 0.5 * h } else { h * 0.5 };
-        let hy = hy.clamp(-h, 2.0 * h);
-        let fog = Color::new(FOG[0], FOG[1], FOG[2], 1.0);
-        let verts = vec![
-            Vertex::new(0.0, hy - h * 0.9, 0.0, 0.0, 0.0, SKY_TOP),
-            Vertex::new(w, hy - h * 0.9, 0.0, 0.0, 0.0, SKY_TOP),
-            Vertex::new(w, hy, 0.0, 0.0, 0.0, fog),
-            Vertex::new(0.0, hy, 0.0, 0.0, 0.0, fog),
-        ];
-        draw_rectangle(0.0, 0.0, w, (hy - h * 0.9).max(0.0), SKY_TOP);
-        draw_mesh(&Mesh { vertices: verts, indices: vec![0, 1, 2, 0, 2, 3], texture: None });
-        draw_rectangle(0.0, hy, w, (h - hy).max(0.0), fog);
-    }
 
     fn draw_world_dynamic(&self, cam: &Camera3D) {
         set_camera(cam);
@@ -993,9 +1470,11 @@ impl App {
         }
         // Bottom bar.
         let hint = format!(
-            "{} · H help · Space filter · B escapes · C camera ({}) · 1-4 scenarios · K kamikaze · T harness · R reset",
-            SCENARIOS[self.scenario],
-            CAM_NAMES[self.cam_mode]
+            "{} · {} · H help · Tab map · Space filter · B escapes · C camera ({}) · 1-4 scenarios · K kamikaze · T harness · R reset{}",
+            self.world.map.name(),
+            scenario_names(self.world.map)[self.scenario],
+            CAM_NAMES[self.cam_mode],
+            if self.world.map == MapId::SanFrancisco { " · map data: DataSF, © OpenStreetMap contributors, USGS" } else { "" }
         );
         draw_rectangle(0.0, h - 30.0, w, 30.0, Color::new(0.04, 0.06, 0.09, 0.55));
         ui.text(&hint, 14.0, h - 10.0, 13.0, dim, false);
@@ -1027,6 +1506,7 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
+        let scen = scenario_names(self.world.map).join(" · ").to_lowercase();
         let lines: [(&str, &str); 16] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
@@ -1038,17 +1518,17 @@ impl App {
             ("N", "wind: 7 m/s steady + bounded gusts (filter knows the envelope)"),
             ("M", "model error: a weaker, slower aircraft than the filter assumes"),
             ("C", "camera: chase · cockpit · orbit · overhead"),
-            ("1 2 3 4", "tower run · dive · ridge · slow and low"),
+            ("1 2 3 4", scen.as_str()),
             ("K", "kamikaze autopilot (flies at buildings and terrain)"),
             ("T", "run the 200-episode headless harness"),
             ("R", "reset the scenario"),
             ("H / Esc", "toggle / close this help"),
-            ("", ""),
+            ("Tab", "map: grid city · San Francisco"),
         ];
         let ph = 150.0 + lines.len() as f32 * 24.0;
         let (x, y) = ((w - pw) * 0.5, (h - ph) * 0.5);
         draw_rectangle(x, y, pw, ph, Color::new(0.03, 0.05, 0.08, 0.9));
-        ui.text("Backup-CBF City Flight", x + 24.0, y + 40.0, 26.0, WHITE, false);
+        ui.text(&format!("Backup-CBF City Flight · {}", self.world.map.name()), x + 24.0, y + 40.0, 26.0, WHITE, false);
         ui.text(
             "Fly anywhere. Near buildings and terrain, a backup control barrier function filter",
             x + 24.0,
@@ -1118,8 +1598,19 @@ async fn main() {
 
     clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
     next_frame().await;
-    let world: &'static World = Box::leak(Box::new(World::new(1337)));
-    let scene = StaticScene::new(world);
+    let map = match arg("--map") {
+        None => MapId::Grid,
+        Some(m) => MapId::parse(&m).unwrap_or_else(|| {
+            eprintln!("--map takes grid or sf");
+            std::process::exit(2)
+        }),
+    };
+    // Each map is loaded (and its GPU scene built) once, on first use.
+    let mut worlds: [Option<&'static World>; 2] = [None, None];
+    let mut scenes: [Option<StaticScene>; 2] = [None, None];
+    let world: &'static World = Box::leak(Box::new(World::load(map)));
+    worlds[map as usize] = Some(world);
+    scenes[map as usize] = Some(StaticScene::new(world));
     let ui = Ui {
         mono: load_font(&["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"]),
         sans: load_font(&["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"]),
@@ -1152,16 +1643,42 @@ async fn main() {
         act: 0.0,
         harness: None,
         seed: 1,
+        switch_map: false,
     };
     app.reset(scenario);
     if args.iter().any(|a| a == "--kamikaze") {
         app.kamikaze = Some(Kamikaze::new(app.seed));
+    }
+    // --at x,y,agl,heading_deg: start anywhere (map metres), level at 50 m/s.
+    if let Some(at) = arg("--at") {
+        let v: Vec<f64> = at.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        if v.len() == 4 {
+            let s0 = trimmed(v[0], v[1], app.world.terrain(v[0], v[1]) + v[2], 50.0, 0.0, v[3].to_radians(), 0.64);
+            app.sim = Sim::new(app.world, s0, app.cfg(true));
+            app.fbw = Fbw::from_state(&s0);
+            let (f, _, _) = body_axes(&s0);
+            app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
+        }
     }
     if args.iter().any(|a| a == "--off") {
         app.sim.set_filter(false);
     }
     let mut frame = 0u32;
     loop {
+        if std::mem::take(&mut app.switch_map) {
+            let m = app.world.map.next();
+            if scenes[m as usize].is_none() {
+                clear_background(Color::new(0.03, 0.05, 0.08, 1.0));
+                let t = format!("Loading {}...", m.name());
+                ui.text(&t, (screen_width() - ui.width(&t, 28.0, false)) * 0.5, screen_height() * 0.5, 28.0, WHITE, false);
+                next_frame().await;
+                let w: &'static World = *worlds[m as usize].get_or_insert_with(|| Box::leak(Box::new(World::load(m))));
+                scenes[m as usize] = Some(StaticScene::new(w));
+            }
+            app.world = worlds[m as usize].unwrap();
+            app.reset(app.scenario);
+        }
+        let scene = scenes[app.world.map as usize].as_ref().unwrap();
         let dt = get_frame_time().min(0.1) as f64;
         if shot.is_none() {
             app.input(dt);
@@ -1178,7 +1695,6 @@ async fn main() {
 
         let cam = app.camera(dt as f32);
         clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
-        app.draw_sky(&cam);
         scene.draw(&cam);
         app.draw_world_dynamic(&cam);
         set_default_camera();

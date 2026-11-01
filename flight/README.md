@@ -1,9 +1,10 @@
 # Backup-CBF City Flight
 
-Fly a light aircraft through a procedural city with the keyboard. A backup
-control barrier function (bCBF) safety filter stays silent far from obstacles,
-takes over near buildings and terrain, then hands control back. Space toggles
-the filter, so you can fly the same crash attempt with and without it.
+Fly a light aircraft through a city with the keyboard: a procedural grid city
+or downtown San Francisco, built from real data. A backup control barrier
+function (bCBF) safety filter stays silent far from obstacles, takes over near
+buildings and terrain, then hands control back. Space toggles the filter, so
+you can fly the same crash attempt with and without it.
 
 Native Rust: the simulation, filter and harness are a GUI-free library; the
 demo renders with macroquad, with terrain and buildings held in static GPU
@@ -13,18 +14,43 @@ buffers through raw miniquad (about 120 fps at 2880×1800 with 4× MSAA on an M3
 
 ```sh
 cd flight
-cargo run --release                                   # the demo
+cargo run --release                                   # the demo (grid city)
+cargo run --release -- --map sf                       # the demo in San Francisco
 cargo run --release --no-default-features --bin harness              # acceptance harness (200 episodes)
+cargo run --release --no-default-features --bin harness -- --map sf  # the same in San Francisco
 cargo run --release --no-default-features --bin harness -- --extended  # + Phase 2 / Phase 3 rows
 cargo run --release --no-default-features --bin harness -- --coverage  # street coverage only
 ```
 
-Harness flags: `[episodes] [--threads N] [--quick] [--extended] [--coverage]`. `--quick`
+Harness flags: `[episodes] [--map grid|sf] [--threads N] [--quick] [--extended] [--coverage] [--only NAME]`. `--quick`
 shortens the kamikaze endurance runs from 300 s to 60 s. The harness exits
 non-zero if any acceptance check fails.
 
-Demo flags (handy for screenshots): `--scenario 1..4`, `--off`, `--kamikaze`,
-`--paths`, `--cam 0..3`, `--shot out.png --frames N`.
+Demo flags (handy for screenshots): `--map grid|sf`, `--scenario 1..4`,
+`--at x,y,agl,heading` (start anywhere, map metres and degrees), `--off`,
+`--kamikaze`, `--paths`, `--cam 0..3`, `--shot out.png --frames N`.
+
+## Maps
+
+- **Grid city** (default): procedural, 2,145 boxes on a street grid, with a
+  ridge and a mountain rim.
+- **San Francisco** (`--map sf`, or Tab in flight): the 6 km square from
+  Alamo Square to Yerba Buena Island and from Mission Dolores to Pier 39.
+  About 41,000 buildings come from DataSF footprints and their LiDAR peak
+  heights, plus OpenStreetMap for everything built after the 2010 LiDAR
+  (Salesforce Tower is 326 m). Terrain is USGS 3DEP, and the Bay Bridge West
+  Span and the elevated freeways are included. Buildings are convex prisms
+  checked exactly, like the grid city's boxes. All of it is in
+  `data/sf/sf_world.bin`, compiled into the binary, so nothing downloads at
+  run time. `data/sf/README.md` covers the sources, the frame, and how every
+  step only ever enlarges obstacles.
+  - **Aerial photo (optional):** with `data/sf/sf_naip.jpg` present
+    (`python3 data/sf/fetch_naip.py`, USDA NAIP, public domain), the ground
+    and the roofs of low buildings show the real city. Without it, streets
+    are painted from OpenStreetMap.
+  - **Bay Bridge:** drawn as the bridge, with its collision curtain shown as
+    a faint glass envelope, because the filter keeps you outside that
+    envelope.
 
 ## Controls
 
@@ -40,9 +66,10 @@ Demo flags (handy for screenshots): `--scenario 1..4`, `--off`, `--kamikaze`,
 | N | wind: 7 m/s steady + bounded gusts (the filter knows the envelope) |
 | M | model error: a weaker, slower aircraft than the filter assumes |
 | C | camera: chase, cockpit, orbit, overhead |
-| 1–4 | scenarios: tower run, dive, ridge, slow and low |
+| 1–4 | scenarios: tower run (Salesforce run in SF), dive, ridge (Nob Hill in SF), slow and low |
 | K | kamikaze autopilot |
 | T | run the 200-episode harness in the background |
+| Tab | switch map: grid city ↔ San Francisco |
 | R / H | reset / help |
 
 The trail is coloured by what the filter was doing: blue = pilot in control,
@@ -51,9 +78,14 @@ orange = blending, red = committed escape, white = filter off.
 ## How it works
 
 **Clearance checks** (`world.rs`). **Buildings are checked exactly:** each
-predicted path segment's distance to every nearby box (exact segment-to-box
-distance, found through a bucket grid) must exceed the aircraft's 4.5 m
-radius plus 1 m. New plans need another 0.5 m plus 0.5 m of overall slack, so
+predicted path segment's distance to every nearby building must exceed the
+aircraft's 4.5 m radius plus 1 m. Buildings are found through a bucket grid.
+Boxes use exact segment-to-box distance. San Francisco's convex prisms use
+exact segment-to-prism distance (`seg_prism_dist2`): along the segment, the
+squared distance is a quadratic in each interval between the parameters where
+the ground track crosses an edge line or an edge-end perpendicular, or the
+height crosses the floor or roof. Unit tests check it against dense sampling
+and against the box distance. New plans need another 0.5 m plus 0.5 m of overall slack, so
 a verified plan can pass about 2 m from a wall. **Terrain** (piecewise-linear
 over a 20 m grid, the same triangles the renderer draws) uses a 2.5 m
 max-height map dilated sideways by 7.5 m and raised by 6.5 m. Each path
@@ -149,6 +181,23 @@ the nearest building or terrain surface. The 2.0 m floor is exactly the
 margin new plans must keep (1 m + 0.5 m + 0.5 m slack), which shows the
 predictor and the aircraft agree.
 
+**San Francisco** (`harness 200 --quick --map sf`):
+
+| Config | Crashes | Invariant violations | Min true clearance | Filter active | ms / tick |
+|---|---|---|---|---|---|
+| **P1 filter ON** | **0 / 200** | **0** | 2.0 m | 66% | 2.35 |
+| filter OFF | 200 / 200 | – | crash | – | – |
+| P1 ON + gusty wind | 0 / 195 | 2 eps | 8.7 m | 70% | 2.31 |
+| P1 ON + model error | 5 / 200 | 13 eps | crash | 67% | 2.35 |
+
+- **Kamikaze:** survives all four SF scenarios (minimum clearance 2.2 to 2.3 m).
+- **Street coverage:** 93.6% of street states have a verified escape, and
+  77.4% of those below rooftop height. The grid city's are 98% and 93%: SF has
+  narrower canyons under taller walls.
+- **Gusty wind fails acceptance here:** two episodes briefly lost their
+  verified escape, though neither crashed. The grid city shows none, so this
+  is still open.
+
 **Flying between buildings.** Of 2,000 random states on street centrelines
 20–90 m above the ground, 93% of those below rooftop height have a verified
 escape, even with the nose 4° off the street axis. (It was 5.9% with the
@@ -182,8 +231,9 @@ The safety claim rests only on:
    reaches the terminal helix.
 2. **If that check fails, the aircraft flies the last verified plan**
    (gatekeeper), so a verified escape always exists.
-3. **The clearance checks are conservative:** exact segment-to-box distance
-   for buildings; a dilated, swept height map for terrain.
+3. **The clearance checks are conservative:** exact segment-to-box and
+   segment-to-convex-prism distance for buildings; a dilated, swept height
+   map for terrain.
 4. **The predictor uses the same equations as the aircraft.**
 5. **Wind is the steady wind plus gusts within the stated envelope.**
 
@@ -204,5 +254,10 @@ they can be tuned for feel without touching what needs certifying.
   wind, the same test crashed 89 times in 200.
 - **Model error (M) is not covered:** a weaker aircraft than the filter
   assumes crashed 1/200 times. Phase 3 margins (G) cover it: 0/198.
+- **San Francisco's geometry is only as good as its data:** 2010 LiDAR plus
+  OpenStreetMap, and conservative estimates for the bridge and freeways (see
+  `data/sf/README.md`). Each footprint is one prism at its highest LiDAR
+  return, so tapered towers such as the Transamerica Pyramid are boxes:
+  safe, but blockier than the real building.
 - The safety argument is engineering-level and tested, not machine-checked.
   The trusted core above is the part to prove formally.

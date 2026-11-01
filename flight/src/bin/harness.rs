@@ -1,7 +1,7 @@
 //! Headless acceptance harness.
-//! `cargo run --release --no-default-features --bin harness -- [episodes] [--threads N] [--quick] [--extended] [--coverage]`
+//! `cargo run --release --no-default-features --bin harness -- [episodes] [--map grid|sf] [--threads N] [--quick] [--extended] [--coverage]`
 use cityflight::harness::*;
-use cityflight::world::World;
+use cityflight::world::{MapId, World};
 use std::io::Write;
 use std::time::Instant;
 
@@ -10,7 +10,7 @@ fn main() {
     let episodes = args
         .iter()
         .enumerate()
-        .find(|(i, a)| a.parse::<usize>().is_ok() && (*i == 0 || args[i - 1] != "--threads"))
+        .find(|(i, a)| a.parse::<usize>().is_ok() && (*i == 0 || (args[i - 1] != "--threads" && args[i - 1] != "--map")))
         .map(|(_, a)| a.parse().unwrap())
         .unwrap_or(200);
     let extended = args.iter().any(|a| a == "--extended");
@@ -20,9 +20,17 @@ fn main() {
         .position(|a| a == "--threads")
         .and_then(|i| args.get(i + 1)?.parse().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4));
+    let map = match args.iter().position(|a| a == "--map").map(|i| args.get(i + 1).and_then(|m| MapId::parse(m))) {
+        None => MapId::Grid,
+        Some(Some(m)) => m,
+        Some(None) => {
+            eprintln!("--map takes grid or sf");
+            std::process::exit(2);
+        }
+    };
     let t0 = Instant::now();
-    let world = World::new(1337);
-    eprintln!("world: {} boxes, built in {:.2}s; {} threads", world.boxes.len(), t0.elapsed().as_secs_f64(), threads);
+    let world = World::load(map);
+    eprintln!("{}: {} buildings, built in {:.2}s; {} threads", map.name(), world.boxes.len(), t0.elapsed().as_secs_f64(), threads);
     if args.iter().any(|a| a == "--coverage") {
         let t = Instant::now();
         print!("{}", format_coverage(&street_coverage(&world, 2000, threads, 0.0), ""));
