@@ -5,7 +5,7 @@ city, with a photorealistic renderer and a safety filter that stops the pilot fr
 is the equivalent of this desktop command, on a smart TV:
 
 ```sh
-cd flight && cargo run --release --features jsb -- --safety-filter exact-rollout
+make fly    # = lake build libcityjsb, then cd flight && cargo run --release --features jsb -- --safety-filter exact-rollout
 ```
 
 This guide covers what that command runs, how to build it on a Mac, and where the parts that matter for a TV port
@@ -30,10 +30,10 @@ is pinned in `lean-toolchain`; `elan` installs it automatically).
 
 ```sh
 git clone https://github.com/uyhcire/vibecheck-tsa.git && cd vibecheck-tsa   # main
-lake build libcityjsb                        # the aircraft dynamics library (first build takes a while)
-cd flight
-cargo run --release --features jsb -- --safety-filter exact-rollout
+make fly                                     # builds the aircraft dynamics library (first build takes a while), then flies
 ```
+
+Flags go through `ARGS`, e.g. `make fly ARGS="--classic"`; `make help` lists every target.
 
 Useful variants:
 - `--classic`: the original, simpler renderer (also available on OpenGL with `--gl`).
