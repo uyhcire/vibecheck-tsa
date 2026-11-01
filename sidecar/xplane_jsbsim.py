@@ -71,6 +71,18 @@ GAUGES = {
     "sim/cockpit2/gauges/indicators/heading_AHARS_deg_mag_pilot": "attitude/psi-deg",
     "sim/cockpit2/engine/indicators/MPR_in_hg[0]": "propulsion/engine/map-inhg",
     "sim/flightmodel/engine/ENGN_tacrad[0]": "propulsion/engine/engine-rpm",  # rad/s, scaled below
+    "sim/flightmodel/engine/ENGN_power[0]": "propulsion/engine/power-hp",     # W, scaled below
+    "sim/cockpit2/engine/indicators/fuel_flow_kg_sec[0]": "propulsion/engine/fuel-flow-rate-pps",
+}
+RATED_HP = {"c172p": 160, "c172r": 160, "c172x": 160, "c182": 230, "pa28": 160}
+
+# Airborne start states: lat, lon, true heading, altitude ft MSL, knots, flight-path angle deg, flaps 0..1.
+# KPAO runway 31 threshold is ~37.4583,-122.1123 (heading 322 true); 3 NM out on the 142 radial, 3 deg slope.
+SCENARIOS = {
+    "final-kpao31": dict(lat=37.4189, lon=-122.0735, hdg=322.0, alt_ft=1000.0, kts=75.0, gamma=-3.0, flaps=0.33,
+                         terrain_ft=7.0, note="3 NM final to Palo Alto runway 31, flaps 10, on a 3 deg slope"),
+    "sf-downtown": dict(lat=37.7920, lon=-122.3650, hdg=270.0, alt_ft=600.0, kts=100.0, gamma=0.0, flaps=0.0,
+                        terrain_ft=0.0, note="over the Bay 2 NM east of downtown San Francisco, heading west at 600 ft"),
 }
 
 
@@ -81,6 +93,10 @@ def gauge_packets(fdm):
             v = -v * 60
         elif dref.startswith("sim/flightmodel/engine/ENGN_tacrad"):
             v = v * 0.10472
+        elif dref.startswith("sim/flightmodel/engine/ENGN_power"):
+            v = v * 745.7
+        elif dref.endswith("fuel_flow_kg_sec[0]"):
+            v = v * 0.4536
         yield dref_set(dref, v)
 
 
@@ -103,8 +119,10 @@ def selftest():
     fake.update({"velocities/v-down-fps": -10.0, "propulsion/engine/engine-rpm": 2400.0})
     pk = list(gauge_packets(fake))
     assert len(pk) == len(GAUGES)
-    assert struct.unpack_from("<f", pk[3], 5)[0] == 600.0      # 10 ft/s up = 600 fpm
-    assert abs(struct.unpack_from("<f", pk[-1], 5)[0] - 251.3) < 0.1  # 2400 rpm in rad/s
+    by = {d: struct.unpack_from("<f", k, 5)[0] for d, k in zip(GAUGES, pk)}
+    assert by["sim/cockpit2/gauges/indicators/vvi_fpm_pilot"] == 600.0        # 10 ft/s up = 600 fpm
+    assert abs(by["sim/flightmodel/engine/ENGN_tacrad[0]"] - 251.3) < 0.1   # 2400 rpm in rad/s
+    assert abs(by["sim/flightmodel/engine/ENGN_power[0]"] - 745.7) < 0.1    # 1 hp
     print("selftest ok")
 
 
@@ -132,6 +150,10 @@ def main():
                     help="hid: read the HOTAS directly (macOS); xplane: X-Plane joystick datarefs")
     ap.add_argument("--viewer", choices=["xplane", "none"], default="xplane",
                     help="none: run JSBSim alone and just print the status line")
+    ap.add_argument("--at", metavar="LAT,LON,HDG[,ELEV_M]",
+                    help="start here on the ground instead of where X-Plane's aircraft is (e.g. KPAO rwy 13: "
+                         "37.46358,-122.11749,142,2)")
+    ap.add_argument("--scenario", choices=sorted(SCENARIOS), help="airborne start: " + "; ".join(f"{k}: {v['note']}" for k, v in SCENARIOS.items()))
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -144,7 +166,14 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("", 0))
     vals = {}
-    if args.viewer == "xplane":
+    sc = SCENARIOS.get(args.scenario)
+    if sc:
+        lat, lon, psi, ele, agl = sc["lat"], sc["lon"], sc["hdg"], sc["alt_ft"] / M2FT, (sc["alt_ft"] - sc["terrain_ft"]) / M2FT
+    elif args.at:
+        parts = [float(x) for x in args.at.split(",")]
+        lat, lon, psi = parts[:3]
+        ele, agl = (parts[3] if len(parts) > 3 else 2.0), 0.0
+    elif args.viewer == "xplane":
         lat, lon, ele, psi, agl = wait_for_pose(sock, xp, vals)
         print(f"X-Plane aircraft at {lat:.5f} {lon:.5f}  {ele:.0f} m MSL  hdg {psi:.0f}  agl {agl:.1f} m")
     else:
@@ -161,26 +190,43 @@ def main():
     fdm["ic/lat-geod-deg"] = lat
     fdm["ic/long-gc-deg"] = lon
     fdm["ic/terrain-elevation-ft"] = (ele - agl) * M2FT
-    fdm["ic/h-agl-ft"] = 4.0           # JSBSim settles the gear onto the terrain from here
     fdm["ic/psi-true-deg"] = psi
-    fdm["ic/vc-kts"] = 0.0
+    if sc:
+        fdm["ic/h-sl-ft"] = sc["alt_ft"]
+        fdm["ic/vc-kts"] = sc["kts"]
+        fdm["ic/gamma-deg"] = sc["gamma"]
+    else:
+        fdm["ic/h-agl-ft"] = 4.0       # JSBSim settles the gear onto the terrain from here
+        fdm["ic/vc-kts"] = 0.0
     dt = 1.0 / 120
     fdm.set_dt(dt)
+    if sc:
+        fdm["propulsion/set-running"] = -1   # airborne: engine already running (works for the c172p)
     fdm.run_ic()
+    if sc:
+        fdm["fcs/flap-cmd-norm"] = sc["flaps"]
+        fdm["fcs/mixture-cmd-norm"] = 0.9
+        fdm["simulation/do_simple_trim"] = 0   # longitudinal trim: pitch trim + throttle for this speed and slope
+        for _ in range(int(1 / dt)):
+            fdm.run()
+        print(f"scenario {args.scenario}: {sc['note']}")
+        print(f"trimmed: throttle {100 * fdm['fcs/throttle-cmd-norm']:.0f}% (set your lever near this), "
+              f"pitch trim {fdm['fcs/pitch-trim-cmd-norm']:+.2f}")
     fdm["fcs/mixture-cmd-norm"] = 0.9
     fdm["fcs/advance-cmd-norm"] = 1.0   # prop full fine (constant-speed models)
-    # The c182 ignores propulsion/set-running; crank it like a pilot would, brakes on,
-    # throttle open (it does not catch at idle), then hand the throttle to the pilot.
-    for b in ("left", "right", "center"):
-        fdm[f"fcs/{b}-brake-cmd-norm"] = 1.0
-    fdm["fcs/throttle-cmd-norm"] = 1.0
-    fdm["propulsion/magneto_cmd"] = 3
-    fdm["propulsion/starter_cmd"] = 1
-    for _ in range(int(3 / dt)):
-        fdm.run()
-    fdm["propulsion/starter_cmd"] = 0
-    for b in ("left", "right", "center"):
-        fdm[f"fcs/{b}-brake-cmd-norm"] = 0.0
+    if not sc:
+        # Ground start. The c182 ignores propulsion/set-running; crank it like a pilot would,
+        # brakes on, throttle open (it does not catch at idle), then hand the throttle over.
+        for b in ("left", "right", "center"):
+            fdm[f"fcs/{b}-brake-cmd-norm"] = 1.0
+        fdm["fcs/throttle-cmd-norm"] = 1.0
+        fdm["propulsion/magneto_cmd"] = 3
+        fdm["propulsion/starter_cmd"] = 1
+        for _ in range(int(3 / dt)):
+            fdm.run()
+        fdm["propulsion/starter_cmd"] = 0
+        for b in ("left", "right", "center"):
+            fdm[f"fcs/{b}-brake-cmd-norm"] = 0.0
     sub = max(1, round(1.0 / (args.hz * dt)))
 
     pilot_base = len(POSE)
@@ -207,7 +253,7 @@ def main():
                 yaw *= 0.5   # ponytail: nosewheel gain; a twist grip at taxi speed loops the plane otherwise
             fdm["fcs/elevator-cmd-norm"] = -pitch   # X-Plane +1 = stick back, JSBSim +1 = elevator down
             fdm["fcs/aileron-cmd-norm"] = roll
-            fdm["fcs/rudder-cmd-norm"] = yaw
+            fdm["fcs/rudder-cmd-norm"] = -yaw   # twist right must yaw right; JSBSim's sign is the other way
             fdm["fcs/throttle-cmd-norm"] = thr
             for _ in range(sub):
                 fdm.run()
@@ -217,12 +263,15 @@ def main():
                                  fdm["attitude/theta-deg"], fdm["attitude/phi-deg"]), xp)
                 for pk in gauge_packets(fdm):
                     sock.sendto(pk, xp)
+                sock.sendto(dref_set("sim/cockpit2/engine/actuators/throttle_ratio[0]", thr), xp)  # cockpit lever
             now = time.monotonic()
             if now - last_print >= 1.0:
                 last_print = now
                 print(f"t={fdm.get_sim_time():6.1f}s  {fdm['velocities/vc-kts']:5.1f} kt  "
                       f"{fdm['position/h-agl-ft']:6.0f} ft AGL  pitch {fdm['attitude/theta-deg']:5.1f}  "
                       f"roll {fdm['attitude/phi-deg']:5.1f}  rpm {fdm['propulsion/engine/engine-rpm']:4.0f}  "
+                      f"pwr {fdm['propulsion/engine/power-hp']:3.0f}hp "
+                      f"{100 * fdm['propulsion/engine/power-hp'] / RATED_HP.get(args.model, 160):3.0f}%  "
                       f"hdg {fdm['attitude/psi-deg']:3.0f}  thr {thr:.2f} stick {pitch:+.2f} roll {roll:+.2f} "
                       f"yaw {yaw:+.2f} wow {fdm['gear/unit/WOW']:.0f}", flush=True)
             next_t += frame

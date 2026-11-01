@@ -20,6 +20,17 @@ Start X-Plane first with a flight loaded on a runway (the Cirrus SR22 looks the 
 
 Ctrl-C (or SIGTERM) clears `sim/operation/override/override_planepath[0]` and `override_engines` so X-Plane's physics takes over again from wherever JSBSim left the plane.
 
+## Scenarios
+
+`--scenario NAME` starts airborne, trimmed for the speed and slope, engine running; the first position packet moves the X-Plane aircraft there, wherever it was. Set the throttle lever near the percentage the sidecar prints before you take the controls.
+
+| name | where | state |
+| --- | --- | --- |
+| `final-kpao31` | 3 NM final to Palo Alto runway 31 | 1000 ft MSL, 75 kt, flaps 10, 3° slope |
+| `sf-downtown` | over the Bay 2 NM east of downtown San Francisco, heading west | 600 ft, 100 kt, level |
+
+JSBSim knows nothing about buildings: X-Plane draws them, the physics flies through them. `--at LAT,LON,HDG[,ELEV_M]` starts on the ground somewhere else.
+
 ## Which JSBSim model
 
 X-Plane's SR22: 2300 lb empty, 3600 lb max, 310 hp injected piston, constant-speed prop, low wing, fixed gear, Vne 205 kt. On paper JSBSim 1.3.3's **c182** (230 hp, constant-speed prop, 2950 lb) is the closest stock single. On the ground it is not usable from a stick: with zero rudder it swings 150° left under takeoff power, and the pa28 spins. The **c172p** (160 hp, the model `Jsb/` ports to Lean) rolls straight and lifts off at ~65 kt, so it is the default. Pick another with `--model`. An "sr22ish" copy of `c182.xml` with the SR22's engine, weights and 144.9 ft² wing, plus a tamer nosewheel, is the next step.
