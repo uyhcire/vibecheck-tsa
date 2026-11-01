@@ -70,11 +70,13 @@ end Iv
 
 /-! ## Interval duals -/
 
-/-- An empty `d` is all zeros; `at2` marks an `atan2` result, whose `abs` becomes the input `w` (index `IW`). -/
+/-- An empty `d` is all zeros; `at2` marks an `atan2` result, whose `abs` becomes the input `w` (index `IW`); `lin`
+marks an `atan2` result shifted or scaled by constants (see `linRule`). -/
 structure ID where
   v : Iv
   d : Array Iv
   at2 : Bool := false
+  lin : Bool := false
   deriving Inhabited
 
 namespace ID
@@ -86,17 +88,18 @@ def scaleD (s : Iv) (a : ID) : Array Iv := mapD (Iv.mul s) a
 def lin2 (s : Iv) (a : ID) (t : Iv) (b : ID) : Array Iv :=
   if a.d.isEmpty && b.d.isEmpty then #[] else
   (List.range NV).toArray.map fun i => Iv.add (Iv.mul s (a.dget i)) (Iv.mul t (b.dget i))
-def const (x : Float) : ID := ⟨Iv.pt x, #[], false⟩
-def add (a b : ID) : ID := ⟨Iv.add a.v b.v, zipD Iv.add a b, false⟩
-def sub (a b : ID) : ID := ⟨Iv.sub a.v b.v, zipD Iv.sub a b, false⟩
-def neg (a : ID) : ID := ⟨Iv.neg a.v, mapD Iv.neg a, false⟩
-def mul (a b : ID) : ID := ⟨Iv.mul a.v b.v, lin2 b.v a a.v b, false⟩
+def const (x : Float) : ID := ⟨Iv.pt x, #[], false, false⟩
+def add (a b : ID) : ID := ⟨Iv.add a.v b.v, zipD Iv.add a b, false, false⟩
+def isPt (a : ID) : Bool := a.d.isEmpty
+def sub (a b : ID) : ID := ⟨Iv.sub a.v b.v, zipD Iv.sub a b, false, a.lin && isPt b⟩
+def neg (a : ID) : ID := ⟨Iv.neg a.v, mapD Iv.neg a, false, false⟩
+def mul (a b : ID) : ID := ⟨Iv.mul a.v b.v, lin2 b.v a a.v b, false, false⟩
 def div (a b : ID) : ID :=
   let q := Iv.div a.v b.v
   let inv := Iv.div (Iv.pt 1) b.v
-  ⟨q, lin2 inv a (Iv.neg (Iv.mul q inv)) b, false⟩
+  ⟨q, lin2 inv a (Iv.neg (Iv.mul q inv)) b, false, a.lin && isPt b⟩
 /-- Chain rule with derivative enclosure `f'`. -/
-def chain (val f' : Iv) (a : ID) : ID := ⟨val, scaleD f' a, false⟩
+def chain (val f' : Iv) (a : ID) : ID := ⟨val, scaleD f' a, false, false⟩
 def sqrt (a : ID) : ID := let s := Iv.sqrt a.v; chain s (Iv.div (Iv.pt 0.5) s) a
 def sin (a : ID) : ID := chain (Iv.lip1 Float.sin a.v) (Iv.lip1 Float.cos a.v) a
 def cos (a : ID) : ID := chain (Iv.lip1 Float.cos a.v) (Iv.neg (Iv.lip1 Float.sin a.v)) a
@@ -107,21 +110,35 @@ def exp (a : ID) : ID := let e := Iv.exp a.v; chain e e a
 def log (a : ID) : ID := chain (Iv.log a.v) (Iv.div (Iv.pt 1) a.v) a
 def atan2 (y x : ID) : ID :=
   let r2 := Iv.add (Iv.mul x.v x.v) (Iv.mul y.v y.v)
-  ⟨Iv.atan2 y.v x.v, lin2 (Iv.div x.v r2) y (Iv.neg (Iv.div y.v r2)) x, true⟩
+  ⟨Iv.atan2 y.v x.v, lin2 (Iv.div x.v r2) y (Iv.neg (Iv.div y.v r2)) x, true, true⟩
 def pow (a b : ID) : ID := exp (mul b (log a))
-def hullD (a b : ID) : ID := ⟨Iv.hull a.v b.v, zipD Iv.hull a b, false⟩
+def hullD (a b : ID) : ID := ⟨Iv.hull a.v b.v, zipD Iv.hull a b, false, false⟩
 def abs (a : ID) : ID :=
   if a.at2 then
     let m := max (-a.v.lo) a.v.hi
-    ⟨⟨0, max m 0⟩, (List.range NV).toArray.map fun i => if i == IW then Iv.pt 1 else Iv.zero, false⟩
+    ⟨⟨0, max m 0⟩, (List.range NV).toArray.map fun i => if i == IW then Iv.pt 1 else Iv.zero, false, false⟩
   else if a.v.lo ≥ 0 then { a with at2 := false } else if a.v.hi ≤ 0 then neg a
-  else ⟨Iv.abs a.v, a.d.map fun g => Iv.hull g (Iv.neg g), false⟩
+  else ⟨Iv.abs a.v, a.d.map fun g => Iv.hull g (Iv.neg g), false, false⟩
 end ID
 
 structure CI where
   t : Bool
   f : Bool
   deriving Inhabited
+
+/-- The structural fact for the β tables: `CYb`, `Clb` and `Cnb` take antisymmetric values about their row β = 0, so
+on |β| ≤ 0.349 each segment's interpolation, unclamped, is the same line. An undecided comparison between the
+literal 0 and a `lin` value is therefore settled as "β on the upper segment, not below its start"; it must be
+used only where every such comparison comes from those tables (checked by the run's α enclosure). -/
+def linRule (a b : ID) : Option Bool :=
+  if b.lin && a.v.lo == 0 && a.v.hi == 0 && a.d.isEmpty then some true
+  else if a.lin && b.v.lo == 0 && b.v.hi == 0 && b.d.isEmpty then some false
+  else none
+
+def ltI (strict : Bool) (a b : ID) : CI :=
+  let t := if strict then a.v.lo < b.v.hi else a.v.lo ≤ b.v.hi
+  let f := if strict then a.v.hi ≥ b.v.lo else a.v.hi > b.v.lo
+  if t && f then match linRule a b with | some r => ⟨r, !r⟩ | none => ⟨t, f⟩ else ⟨t, f⟩
 
 instance : Scalar ID where
   Cond := CI
@@ -132,8 +149,8 @@ instance : Scalar ID where
   div := ID.div
   neg := ID.neg
   fma a b c := ID.add (ID.mul a b) c
-  lt a b := ⟨a.v.lo < b.v.hi, a.v.hi ≥ b.v.lo⟩
-  le a b := ⟨a.v.lo ≤ b.v.hi, a.v.hi > b.v.lo⟩
+  lt := ltI true
+  le := ltI false
   eq a b := ⟨a.v.lo ≤ b.v.hi && b.v.lo ≤ a.v.hi, !(a.v.lo == a.v.hi && b.v.lo == b.v.hi && a.v.lo == b.v.lo)⟩
   ofBool b := ⟨b, !b⟩
   not c := ⟨c.f, c.t⟩
@@ -335,19 +352,19 @@ def lawG (T : Term) (psiRef : Float) (o : Array α) (ia ib iphi : α) :
    #[eSat, iaSat, ailSat, iphiSat, rudSat, ibSat, gcSat, capSat, nSat, aSat, phiTSat, vlow, cphiLow])
 
 /-- One frame from local coordinates `(h, y)` at held track `psi` and north offset `north`: the law, the plant with
-fuel frozen, then the chart; also the plant's β (the argument of its `|β|`) and the law's saturation decisions. -/
+fuel frozen, then the chart; also the plant's β (the argument of its `|β|`) and α, and the law's saturation decisions. -/
 def frameG (T : Term) (base : State Float) (psi north : Float) (h : α) (y : Array α) :
-    (α × Array α) × α × Array (Scalar.Cond α) :=
+    (α × Array α) × (α × α) × Array (Scalar.Cond α) :=
   let st := placeG base psi north h y
   let ob := obsOfG st
   let ((el, ai, ru), (ia, ib, iphi), sats) := lawG T psi ob y[29]! y[30]! y[31]!
   let i : Input α := { elev := el, ail := ai, rud := ru, thr := one, mix := lit 0.9, brkL := zero, brkR := zero }
   let (s', d) := step st i (fuelFreeze := true)
-  (chartG psi s' ia ib iphi (obsOfG s'), d.beta, sats)
+  (chartG psi s' ia ib iphi (obsOfG s'), (d.beta, d.alpha), sats)
 
 /-- `frameG` on the box `c ± b` (33 inputs: altitude, then the chart's 32), as interval duals. -/
 def frameBox (T : Term) (base : State Float) (psi north : Float) (c b : Array Float) :
-    (ID × Array ID) × ID × Array CI :=
+    (ID × Array ID) × (ID × ID) × Array CI :=
   let x : Array ID := (List.range 33).toArray.map fun i =>
     { v := Iv.out (c[i]! - b[i]!) (c[i]! + b[i]!),
       d := (List.range NV).toArray.map fun j => if j == i then Iv.pt 1 else Iv.zero }

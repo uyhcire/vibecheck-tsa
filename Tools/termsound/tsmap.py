@@ -205,6 +205,7 @@ def _box(self, c, bw, psi=0.0, north=0.0):
         r = [f(s) for s in self.p.stdout.readline().split()]
         vals.append(r[:2]); ders.append(np.array(r[2:]).reshape(34, 2))
     sats = [int(x) for x in self.p.stdout.readline().split()]
+    self.last_alpha = [f(s) for s in self.p.stdout.readline().split()]
     vals = np.array(vals); ders = np.array(ders)
     return vals[:, 0], vals[:, 1], ders[:, :, 0], ders[:, :, 1], sats
 

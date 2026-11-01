@@ -26,7 +26,7 @@
 \begin{abstract}
 The Lean exact-rollout gate is proved safe against \texttt{CitySafety.Safe} (PR \#29) under one substantive assumption, \texttt{TermSoundR}: an end-of-escape test that passes on a real rollout implies that continuing the escape never crashes. This note reduces \texttt{TermSoundR} to \emph{certified end sets}: a dynamics part \Dyn{} (a settled set around the escape law's climb, invariant under the closed loop) and a geometric part \Geo{} (map clearance of a widening funnel). The geometric part, and the reduction, are proved in Lean (PR \#37); Sections~\ref{sec:endsets}--\ref{sec:geo} state them in the form proved there.
 
-Section~\ref{sec:straight} then attacks the dynamics part for the first escape, the \emph{straight climb}, on the real model: \texttt{JsbExact}'s equations with fuel frozen, flown by the real escape law, taken over exact reals. Computed with the real plant code: the trim family over 10--1{,}400\,m, a 32-coordinate chart that drops the neutral modes, the reference climb (trim plus its steady lag), the one-frame and one-second linearisations, and the disturbance budget. \textbf{The contraction certificate is not obtained.} Three findings explain why, each with numbers: (i)~the trim sits exactly on a kink of the frame map (the drag term $0.17\,|\beta|$; the rudder integrator drives $\beta$ to $0$), which a rank-one switched linearisation handles with a large margin; (ii)~the per-frame contraction margin is about $10^{-3}$ (slowest mode $0.137$--$0.175\,\mathrm{s}^{-1}$ at $\Delta t = 1/128$\,s), and no per-frame quadratic norm tried contracts on the whole band (best $\lambda = 1.0145$); (iii)~the one-second map contracts in one quadratic norm on 600--1{,}000\,m ($\lambda_{\mathrm{lin}} \le 0.981$) but not on 10--450\,m ($1.26$). The linearisation changes because the trim's angle of attack crosses two breakpoints of the c172p's aerodynamic tables as it climbs: the drag table's at $\alpha = 0.0873$ near 375\,m and the lift table's at $0.09$ near 545\,m (Section~\ref{sec:regime}; a vertical-wind experiment reproduces either regime at either altitude). A level-off at $\zTop$ plus a margin would replace everything above $\zTop$ by one level trim, contracting at $0.93$ per second (linear part). So \texttt{TermSoundR} for the straight escape remains open; what is proved is the reduction (Theorem~\ref{thm:main}) to explicit hypotheses S1--S4, with the missing certificate and every other gap listed in Section~\ref{sec:gaps}.
+Section~\ref{sec:straight} then attacks the dynamics part for the first escape, the \emph{straight climb}, on the real model: \texttt{JsbExact}'s equations with fuel frozen, flown by the real escape law, taken over exact reals. Computed with the real plant code: the trim family over 10--1{,}400\,m, a 32-coordinate chart that drops the neutral modes, the reference climb (trim plus its steady lag), the one-frame and one-second linearisations, and the disturbance budget. \textbf{The contraction certificate is not obtained.} Three findings explain why, each with numbers: (i)~the trim sits exactly on a kink of the frame map (the drag term $0.17\,|\beta|$; the rudder integrator drives $\beta$ to $0$), which a rank-one switched linearisation handles with a large margin; (ii)~the per-frame contraction margin is about $10^{-3}$ (slowest mode $0.137$--$0.175\,\mathrm{s}^{-1}$ at $\Delta t = 1/128$\,s), and no per-frame quadratic norm tried contracts on the whole band (best $\lambda = 1.0145$); (iii)~the one-second map contracts in one quadratic norm on 600--1{,}000\,m ($\lambda_{\mathrm{lin}} \le 0.981$) but not on 10--450\,m ($1.26$). The linearisation changes because the trim's angle of attack crosses two breakpoints of the c172p's aerodynamic tables as it climbs: the drag table's at $\alpha = 0.0873$ near 375\,m and the lift table's at $0.09$ near 545\,m (Section~\ref{sec:regime}; a vertical-wind experiment reproduces either regime at either altitude). A level-off at $\zTop$ plus a margin would replace everything above $\zTop$ by one level trim, contracting at $0.93$ per second (linear part). So \texttt{TermSoundR} for the straight escape remains open; what is proved is the reduction (Theorem~\ref{thm:main}) to explicit hypotheses S1--S4, with the missing certificate and every other gap listed in Section~\ref{sec:gaps}. Section~\ref{sec:level} proves a first positive result for the redesigned law, conditional and on a set too small to matter (Theorem~\ref{thm:level}). The level trim above $\zTop$, flying east, contracts at factor 0.990 per second on a set of radius $\pm 1\,\mu$m in altitude and $\pm 4\,\mu$m/s in speed. The proof uses a lifted S-procedure for the $|\beta|$ kink and interval-dual enclosures of the real frame map for the remainder.
 \end{abstract}
 
 \tableofcontents
@@ -321,26 +321,29 @@ Since $r$ and $Q$ are not certified, the certified test's acceptance cannot be c
 
 The comparison against today's accepted states (boundary-regimes cases) needs the gate's rollouts with the certified test in place of today's, which needs S1 first (gap G5).
 
-\section{The level-trim certificate: setting, method, and where it stands}\label{sec:level}
+\section{The level-trim certificate}\label{sec:level}
 
-\textbf{Target.} The first positively proved safe region for the real aircraft: ``settled in level flight above $\zTop$ under the law of \texttt{docs/escape-law-terminal.md} $\Rightarrow$ safe forever''. Through Lemma~\ref{lem:clear}'s release disjunct ($\Conf$ holds whenever $z \ge \zTop$, and nothing solid is above $T^\star = 926.70$\,m), the safety part reduces to an altitude bound: every state of an invariant set $D$ has $z \ge \zTop = 934$\,m. \textbf{Result of this pass: not obtained.} The method and every ingredient below are implemented and reproducible. The bound does not close, for the two reasons given in Section~\ref{sec:levelwhy}.
+\textbf{Target.} The first positively proved safe region for the real aircraft: ``settled in level flight above $\zTop$ under the law of \texttt{docs/escape-law-terminal.md} $\Rightarrow$ safe forever''. Through Lemma~\ref{lem:clear}'s release disjunct ($\Conf$ holds whenever $z \ge \zTop$, and nothing solid is above $T^\star = 926.70$\,m), the safety part reduces to an altitude bound: every state of an invariant set $D$ has $z \ge \zTop = 934$\,m. \textbf{Result: a certificate, conditional and on a microscopic set} (Theorem~\ref{thm:level}, Section~\ref{sec:levelwhy}).
 
 \paragraph{Dependency on the gates.} The certificate is for the closed loop of \texttt{TsMap.lean}'s candidate law (\texttt{Cand} with the values of \texttt{docs/escape-law-terminal.md}). It transfers to the Rust and Lean gates' law exactly when they reproduce that spec's reference-trajectory hashes. Until both do, the certificate, when it closes, speaks about the harness law only.
 
 \subsection{Setting}
 
 \begin{itemize}
-\item \textbf{Coordinates.} The chart of Definition~\ref{def:chart} plus the altitude: 33 coordinates, scaled by $\Sigma = \mathrm{diag}(1, \texttt{SCALE})$. The held track is $\psi_r = \pi/2$ (east), the north offset 100\,m, longitude arbitrary.
-\item \textbf{Earth rotation and Coriolis} are inside the frame map, computed exactly by \texttt{JsbExact} (the equations are in the inertial frame with $\Omega$). They are not a disturbance. Longitude and the Earth angle are exact symmetries (Section~\ref{sec:dyn}), so at a fixed north offset and held track the frame map in these coordinates is autonomous, and the level trim is an exact equilibrium of it.
-\item \textbf{The level trim.} It is an equilibrium of the closed loop, and the trim depends on the held track through Coriolis: at $1{,}000.51$\,m and $70.94$\,m/s along track when flying east, against $1{,}000.20$\,m and $70.78$\,m/s when flying north. The Newton residual is at most $1.1\times10^{-7}$ in scaled units (enclosed).
+\item \textbf{Coordinates.} The chart of Definition~\ref{def:chart} plus the altitude: 33 coordinates, scaled by $\Sigma = \mathrm{diag}(1, \texttt{SCALE})$. The held track is $\psi_r = \pi/2$ (east), the north offset 0, longitude arbitrary.
+\item \textbf{The chart must be inverted exactly.} \texttt{place} sets the inertial radius to $a + h$. At the equator that makes the chart's altitude (the reported height above the ellipsoid) exactly $h$. At a north offset $N$ the two differ by about $N^2/2R$: $8\times10^{-4}$\,m at 100\,m. The conjugated map's fixed point then absorbs a spurious per-frame climb: an earlier pass found a ``trim'' at 1{,}000.51\,m that the real loop leaves within 10\,s for 1{,}000.22\,m. The certificate is therefore computed at north offset 0. There the Newton trim is a true equilibrium: the real loop flown from it stays within $2.2\times10^{-7}$ (scaled) for 30\,s.
+\item \textbf{Earth rotation and Coriolis} are inside the frame map, computed exactly by \texttt{JsbExact} (the equations are in the inertial frame with $\Omega$). They are not a disturbance. Longitude and the Earth angle are exact symmetries (Section~\ref{sec:dyn}), so at a fixed held track and latitude the frame map in these coordinates is autonomous, and the level trim is an exact equilibrium of it.
+\item \textbf{The level trim} (east, equator): $h^\star = 1{,}000.2166$\,m, $70.78$\,m/s along track, $\alpha = -0.022$, cross-track speed $-0.023$\,m/s relative to the held track.
 \end{itemize}
 
 \subsection{Method: interval-dual enclosures and an $N$-frame bound}
 
 \begin{itemize}
+\item \textbf{Footing.} Exact real arithmetic throughout. The interval tool encloses the remainder over $D$, the one part of the bound for which no simpler analytic route over the full 33-coordinate map was found. Everything else (the trim, the linear part, the kink's lifted S-procedure) is explicit linear algebra on derivatives computed exactly by forward-mode differentiation through the same code.
 \item \textbf{Enclosures from the real code.} \texttt{JsbExact.step} is generic over its \texttt{Scalar} interface. \texttt{Tools/termsound/TsInterval.lean} supplies an instance of interval duals: an outward-rounded interval for each value and for each of its 34 partial derivatives. It also has generic versions of the chart, its inverse, the observation and the spec'd law. One frame evaluated on a box of the 33 inputs encloses, for every real point of the box, the frame map and its Jacobian. Undecided branches are evaluated both ways and joined. Every law saturation is reported, and none may be possible on the box.
 \item \textbf{Assumption.} The C maths library is within 4 ulps for \texttt{sin}, \texttt{cos}, \texttt{atan}, \texttt{asin}, \texttt{exp} and \texttt{log}.
 \item \textbf{Check.} At a point box the enclosure contains the \texttt{Float} frame (widths below $3.2\times10^{-8}$), and its Jacobian matches central differences to $2.3\times10^{-4}$ scaled (\texttt{level\_cert.py}, L0, and \texttt{tsmap} command \texttt{B}).
+\item \textbf{The $\beta$ tables (exact-real structural fact).} \texttt{CYb}, \texttt{Clb} and \texttt{Cnb} take the values $(0.137, 0, -0.137)$, $(0.0322, 0, -0.0322)$ and $(-0.0205, 0, 0.0205)$ at $\beta = (-0.349, 0, 0.349)$ (flap column 0 for \texttt{CYb}). So both segments' interpolations are the same line: on $|\beta| \le 0.349$ each table is exactly linear in $\beta$, contributing nothing to the remainder. The enclosure uses this directly (\texttt{TsInterval.linRule}). A comparison between the literal row key 0 and $\beta$, or an affine image of $\beta$ by constants, is settled as ``upper segment, unclamped''. That evaluates the same line, so it is exact for these three tables. It would be wrong only for a table with a row at 0 that is not linear across it, and the run checks that no other table sees such a comparison: $\alpha$, the only other \texttt{atan2} result reaching a table, stays below $-0.0175$ on every box. With the rule, the Jacobian enclosure's radius scales with the box ($1.8\times10^{-4}$, $1.8\times10^{-3}$, $1.8\times10^{-2}$ scaled at boxes of $10^{-8}$, $10^{-7}$, $10^{-6}$ of the scales); before it, the radius was a constant $4.89$.
 \item \textbf{The $|\beta|$ kink as an input.} The value \texttt{abs} receives in \texttt{magBeta := abs beta} is marked (it comes straight from \texttt{atan2}). That \texttt{abs} is replaced by an independent input $w \in [0, \max|\beta|]$. So the frame map is $G(x, w)$, smooth on the box, with $F(x) = G(x, |\beta(x)|)$, and the run also encloses $\beta$ and its gradient $v$.
 \end{itemize}
 
@@ -367,36 +370,104 @@ $\Delta_{k+1} = A\Delta_k + u\,w_k + R_k + d$, with $w_k = |\beta(x_k)| \le \ome
 
 With the right side $< r$, $D$ is invariant under $F^N$. Lemma~\ref{lem:union} with $B$ covers the intermediate frames. The altitude bound is then $z \ge h^\star - \max_{k}(S_k + \bar e_k)_h$.
 
-\subsection{Result, and why it does not close}\label{sec:levelwhy}
+\subsection{Result: a certificate, on a set too small to matter}\label{sec:levelwhy}
 
-\begin{cert}[level trim, \texttt{level\_cert.py}]\label{cert:levelcert}
-With $Q$ from the one-second Lyapunov equation ($\mu = 0.95$, fast coordinates weighted $10^{-4}$):
+\textbf{The kink, by a lifted S-procedure} (\texttt{level\_cert2.py}, \texttt{lifted\_lmi}):
 \begin{itemize}
-\item the linear part is $\|A^N\|_Q = 0.946$ (spectral radius $0.915$);
-\item at $r = 10^{-5}$ ($D$ spans about $\pm 0.4$\,mm/s in speed and $\pm 0.09$\,mm in altitude) the box is consistent;
-\item the lemma's bound is $9.79 = 0.946 + 0.625$ (kink) $+ 8.20$ (remainder) $+ 0.029$ (residual), which is not below 1.
+\item \textbf{The lifted system.} Over one second, $\Delta_N = M_N z$ is linear in $z = (\Delta_0, w_0, \dots, w_{N-1})$, with $\Delta_k = M_k z$ and $|w_k| \le |v^\top M_k z|$.
+\item \textbf{The LMI.} One linear matrix inequality of size $33 + 128$ in multipliers $s_k \ge 0$:
+\[ M_N^\top Q M_N - \mu^2 P^\top Q P + \textstyle\sum_k s_k\bigl(M_k^\top v v^\top M_k - e_{w_k} e_{w_k}^\top\bigr) \preceq 0 \]
+certifies $\|\Delta_N\|_Q \le \mu\|\Delta_0\|_Q$ for every switching of the kink.
+\item \textbf{Solved} with Clarabel, in coordinates where $Q = I$. Checked at $\mu^2(1 + 10^{-6})$: the matrix's largest eigenvalue is $-8.5\times10^{-7}$.
+\item \textbf{Result:} $\mu_{\mathrm{lin}} = 0.948$, against $\|A^N\|_Q = 0.946$ without the kink. The kink costs $0.002$, consistent with its small-gain value of 0.015.
+\end{itemize}
+
+\textbf{The nonlinear part.} Lemma~\ref{lem:nframe} with two changes:
+\begin{itemize}
+\item \textbf{The kink is split off.} $\Delta = \Delta^L + e$, where $\Delta^L$ is the switched linear motion the LMI covers, driven by $w^L_k = |v^\top\Delta^L_k|$. Then $|w_k - w^L_k| \le |v^\top e_k| + |\beta^\star| + E_\beta|\Delta_k|$, because $|\cdot|$ is 1-Lipschitz, so the kink enters $e$ only at second order.
+\item \textbf{The centre is the exact equilibrium $x^\star$.} It lies within $|(I - A)^{-1}|\,|F(\hat x) - \hat x|$ of the Newton point $\hat x$, the box is widened by twice that, and the residual term is 0. The latitude drift's trim shift is the per-frame disturbance $d_0$.
+\end{itemize}
+
+\begin{cert}[level trim, \texttt{level\_cert2.py}]\label{cert:levelcert2}
+Flying east, at latitude 0, with $Q$ from the one-second Lyapunov equation ($\mu = 0.95$, fast coordinates weighted $10^{-4}$, normalised to largest eigenvalue 1):
+
+\begin{center}
+\begin{tabular}{rrrrc}
+\toprule
+$r$ & factor & $\mu_{\mathrm{lin}}$ & nonlinear & box consistent \\
+\midrule
+$10^{-8}$ & $0.988$ & $0.948$ & $0.040$ & yes \\
+$3\times10^{-8}$ & $\mathbf{0.978}$ & $0.948$ & $0.029$ & yes \\
+$10^{-7}$ & $0.990$ & $0.948$ & $0.042$ & yes \\
+$2\times10^{-7}$ & $1.014$ & $0.948$ & $0.066$ & yes \\
+$10^{-6}$ & $1.210$ & $0.948$ & $0.262$ & yes \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item On every certified box, $\alpha \in [-0.02191, -0.02190]$, inside \texttt{CDwbh}'s segment $[-0.0349, -0.0175]$ and below 0, so the $\beta$ rule applies only to the $\beta$ tables. $|\beta| \le 10^{-6} \ll 0.349$.
+\item The only law clamp active is the climb gradient's, at its upper limit 0.5. The level cap ($\le 0.35$) is then the minimum, decided on the box.
+\item The altitude on the union of the one-second images is at least $1{,}000.217$\,m, above $\zTop = 934$\,m.
 \end{itemize}
 \end{cert}
 
-\begin{enumerate}
-\item \textbf{The side-force tables' breakpoint at $\beta = 0$.}
-  \begin{itemize}
-  \item The interval Jacobian's radius jumps from $3.4\times10^{-7}$ at a point box to $4.89$ (scaled; $\partial a_{0,\mathrm{rt}}/\partial v_{\mathrm{rt}}$) for any nonzero box. The radius is independent of the box width ($10^{-8}$ or $10^{-6}$ of the scales). It drives the remainder term, which therefore does not shrink with $r$.
-  \item The cause: $\beta$ straddles the row $\beta = 0$ of \texttt{CYb} (and \texttt{Clb}, \texttt{Cnb}). JSBSim's segment interpolation clamps the in-segment fraction to $[0, 1]$, and on the joined branches the clamp contributes a derivative hull from 0 to the slope.
-  \item In exact arithmetic the three tables are linear across 0: their data are antisymmetric ($\pm0.137$, $\pm0.0322$, $\pm0.0205$ at $\pm0.349$\,rad), so both segments give the same line.
-  \item Closing this needs that structural fact used in the enclosure: a path-sensitive branch evaluation for table segment searches, or an argument that replaces these three tables by their single line on $|\beta| \le 0.349$.
-  \end{itemize}
-\item \textbf{The kink's first-order term.} Bounding $\sum_j A^{N-1-j}u\,w_j$ term by term with $|w_j| \le |v^\top\Delta_j|$ gives $0.175$ at first order (and $0.625$ with the excursions). Together with $0.946$ that exceeds 1, although the kink's small-gain value is $0.015$ (Certificate~\ref{cert:kink}). The termwise triangle inequality is the loss. The repair is an S-procedure on the lifted $N$-frame system: $x_N$ is linear in $(\Delta_0, w_0, \dots, w_{N-1})$ with constraints $w_j^2 \le (v^\top\Delta_j)^2$. That is one linear matrix inequality in $N$ multipliers, size $33 + N$.
-\end{enumerate}
-
-\paragraph{Not yet addressed in this pass.}
+\begin{theorem}[level trim, conditional]\label{thm:level}
+Assume:
 \begin{itemize}
-\item \textbf{Uniformity over held track and latitude.} The trim depends on both through Coriolis and $J_2$.
-\item \textbf{Drift.} Cross-track drift (a neutral mode) moves the aircraft's latitude without bound over infinite time.
-\item \textbf{Polar regions.} The track hold is singular at the poles.
-\item \textbf{The hidden quaternion norm} (Certificate~\ref{cert:dist}).
-\item \textbf{The climb-to-level handover above $\zTop$.} The climb's set (Section~\ref{sec:newlaw}) must be shown to end in $D$, or at least never to descend below $\zTop$.
+\item exact real arithmetic for \texttt{JsbExact} and the law;
+\item the C maths library within 4 ulps (used only for the enclosure bounds);
+\item the measured latitude sensitivity of the trim (Section~\ref{sec:levelparam});
+\item the first-order equilibrium offset;
+\item a unit quaternion at each frame (Certificate~\ref{cert:dist}).
 \end{itemize}
+Then, for the law of \texttt{docs/escape-law-terminal.md} holding track east, every state in $D = \{\|\Delta\|_Q \le 10^{-7}\}$ around the level trim at latitude 0 stays, under the closed loop, in the union of $D$'s one-second images, until its latitude leaves the 50\,km band where the sensitivity was measured. That set lies above $\zTop$, so by Lemma~\ref{lem:clear}'s release disjunct it is never \texttt{CrashH 7}.
+\end{theorem}
+\begin{proof}
+Lemma~\ref{lem:nframe}, with the LMI for the linear part and the enclosures for the remainder, gives $F^{128}(D) \subseteq D$ with factor $0.990$. Lemma~\ref{lem:union} and the box give the intermediate frames. The altitude bound and Lemma~\ref{lem:clear} give clearance.
+\end{proof}
+
+\textbf{Why $D$ is so small, and what dominates.}
+\begin{itemize}
+\item \textbf{Size.} $D$ at $r = 10^{-7}$ spans $\pm 0.94$\,$\mu$m in altitude, $\pm 3.8$\,$\mu$m/s in speed, $\pm 10^{-8}$\,rad in bank and $\pm 2.6\times10^{-3}$ in rpm. No realistic state enters it, so the theorem is positive but vacuous in practice.
+\item \textbf{The nonlinear term grows linearly in $r$}, about $2.5\times10^5\,r$, so $r$ is capped near $2\times10^{-7}$. The coefficient is large for two reasons:
+  \begin{itemize}
+  \item the remainder is propagated through $|A^k|$ entrywise and the Jacobian deviation is bounded entrywise, both crude;
+  \item $Q$ is badly conditioned (condition number about $10^{10}$), so $D$ is a very thin ellipsoid in physical units, while the Jacobian's variation depends on its physical extent.
+  \end{itemize}
+\item \textbf{At small $r$ the latitude shift dominates.} The trim shift from drift is a per-frame floor of order $10^{-12}$ (scaled), which limits $r$ from below.
+\item \textbf{Ways to enlarge $D$:}
+  \begin{itemize}
+  \item propagate the remainder in the $Q$ geometry rather than entrywise;
+  \item choose $Q$ to match the enclosure's error structure (a weighted Lyapunov solve, or an LMI over $Q$ jointly with the kink's multipliers);
+  \item use second-order (Hessian) enclosures instead of the Jacobian deviation, which cuts the remainder's growth in $r$;
+  \item shorten the composition (fewer frames per step, with the matching union-of-images bound).
+  \end{itemize}
+\end{itemize}
+
+\subsection{Latitude and held track: the slowly varying parameter, and a recommendation}\label{sec:levelparam}
+
+\textbf{How the trim moves} (\texttt{level\_param.py}; settled real-loop runs, so these are measurements, not bounds):
+\begin{itemize}
+\item \textbf{Latitude.} Flying east at north offsets 0.1, 10 and 50\,km, the trim's altitude is unchanged to $10^{-4}$\,m and its speed to $10^{-3}$\,m/s. The largest scaled sensitivity is $2.4\times10^{-7}$ per metre north, in the lateral acceleration memory.
+\item \textbf{Held track.} Flying west instead of east moves the trim by $0.025$\,m in altitude. Flying north instead of east moves it by $0.016$\,m. The cause is the vertical Coriolis term $2\Omega V\cos(\text{lat})\sin\psi$.
+\item \textbf{Per-frame shift from latitude.} A held track is a constant of the flight, so only latitude varies along it, through the cross-track drift. At most $\kappa \approx 0.03$\,m/s on $D$, that drift shifts the trim by about $2.4\times10^{-7}\cdot 0.03 / 128 \approx 6\times10^{-11}$ (scaled) per frame. This is folded into $d_0$ and is negligible against the margin.
+\end{itemize}
+
+\textbf{What this does not cover.}
+\begin{itemize}
+\item \textbf{Straight level flight goes everywhere eventually.} The certificate is per held track. Straight level flight along a rhumb line moves the aircraft's latitude without bound: at 70.8\,m/s for most tracks, by drift alone for exactly east or west. The track hold relative to local north becomes singular near the poles. So ``forever'' for straight flight needs the certificate at every latitude, plus a polar argument.
+\item \textbf{Recommendation: a gentle level orbit above $\zTop$.} Make the terminal hold an orbit, for example the straight escape banking to $15^\circ$ once level, giving a radius of about $1.8$\,km at 70.8\,m/s. This keeps the aircraft within a few kilometres of the map, so the latitude stays bounded and no polar case arises.
+  \begin{itemize}
+  \item \emph{Cost:} the orbit is a relative equilibrium, steady in heading-relative coordinates. Coriolis then enters as a periodic forcing at the orbit period (about 2.6\,min), whose size is the trim's heading dependence above: centimetres in altitude, millimetres per second in speed. It becomes a bounded per-frame disturbance $d_0$, rather than a shift that is negligible but unbounded over time.
+  \item \emph{Benefit:} one certificate, uniform over time, and the turning escapes already end in circles.
+  \item The orbit's $D$ must hold that periodic response; whether it does depends on the certified radius (Certificate~\ref{cert:levelcert2}).
+  \end{itemize}
+\end{itemize}
+
+\textbf{Climb-to-level handover} (\texttt{handover.py}): 30 runs from the new law's climb, perturbed within the settled box ($\pm0.5$\,m/s speed and climb, $\pm0.02$\,rad bank and heading) at 900--960\,m, all reach the level-off. None descends below $\zTop$ after first reaching it: the lowest altitude after the first crossing is 934.02\,m, and all end at 1{,}000.20\,m. This is numerical evidence, not a proof; the handover remains a gap.
+
+\paragraph{Known issue.} On boxes much larger than those used here, the interval evaluation stops with ``index out of bounds'' inside \texttt{JsbExact}'s gear code. The likely cause is that joined branches carry arrays of different lengths (the friction multipliers when ground contact is undecided). It does not occur on the boxes the certificate uses. Fixing it needs a \texttt{Join} instance for arrays of unequal length, or settling the contact decision before the gear code.
 
 \section{Certificates and reproduction}\label{sec:certs}
 
@@ -415,11 +486,11 @@ Certificate & Code & Margin or status\\
 \ref{cert:regime}, \ref{cert:wind} regimes & \texttt{regime.py}, \texttt{akink.py} & $\alpha$ breakpoints 0.0873, 0.09\\
 \ref{cert:level} level-off & \texttt{leveloff.py} & $0.932$ per second (linear)\\
 \ref{cert:newlaw} new law & \texttt{terminal.py}, \texttt{reftraj.py} & one norm, $0.902$ per second (linear)\\
-\ref{cert:levelcert} level trim & \texttt{level\_cert.py}, \texttt{TsInterval.lean} & \textbf{fails}: bound $9.79$ at $r = 10^{-5}$\\
+\ref{cert:levelcert2} level trim & \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{TsInterval.lean} & factor $0.990$ at $r = 10^{-7}$ (microscopic $D$)\\
 \bottomrule
 \end{tabular}
 \end{center}
-Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py}, \texttt{terminal.py}, \texttt{reftraj.py}, \texttt{level\_cert.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
+Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py}, \texttt{terminal.py}, \texttt{reftraj.py}, \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{handover.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
 
 \section{Gaps}\label{sec:gaps}
 
@@ -434,7 +505,7 @@ Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy
 \item[G8] \textbf{The finite $\Geo$ checker} on the exported map is not written; $T^\star$ is computed exactly.
 \item[G9] \textbf{Modelling assumptions}: exact reals for \texttt{JsbExact}'s \texttt{Float} program, and \texttt{JsbExact} $=$ JSBSim.
 \item[G10] \textbf{The redesigned terminal phase} (Section~\ref{sec:newlaw}) is specified but not yet in either gate; S1 is to be re-certified on it once it lands.
-\item[G11] \textbf{Level-trim certificate} (Section~\ref{sec:level}): the side-force tables' $\beta = 0$ breakpoint in the interval enclosure, the kink's lifted S-procedure, uniformity over held track and latitude, polar regions, and the climb-to-level handover.
+\item[G11] \textbf{Level-trim certificate} (Section~\ref{sec:level}). Theorem~\ref{thm:level} holds on a microscopic set ($\pm 1\,\mu$m, $\pm 4\,\mu$m/s), for track east only, within a 50\,km latitude band, with the latitude sensitivity measured rather than bounded and the equilibrium offset to first order. Open: enlarging $D$ (remainder in the $Q$ geometry, Hessian enclosures, $Q$ chosen jointly), other held tracks, the orbit alternative, and the climb-to-level handover (numerically safe: lowest altitude 934.02\,m after crossing $\zTop$). Known issue: ``index out of bounds'' in the gear code on large boxes.
 \end{enumerate}
 
 \section{Lessons}
