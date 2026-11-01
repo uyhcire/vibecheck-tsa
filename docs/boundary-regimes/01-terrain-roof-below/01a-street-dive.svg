@@ -1,0 +1,645 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600" viewBox="0 0 1000 600" font-family="Helvetica, Arial, sans-serif" font-size="12">
+<rect width="100%" height="100%" fill="white"/>
+<text x="140" y="24" font-size="16" font-weight="bold">01a-street-dive: Dive at the Tower gap street floor</text>
+<rect x="221.7" y="85" width="20.8" height="150" fill="#9fd8b0" opacity="0.35"/>
+<text x="232.1" y="97" text-anchor="middle" font-size="10" fill="#444"></text>
+<rect x="208.7" y="85" width="13.0" height="150" fill="#ffd59a" opacity="0.35"/>
+<text x="215.2" y="97" text-anchor="middle" font-size="10" fill="#444"></text>
+<rect x="162.0" y="85" width="46.7" height="150" fill="#d6d6d6" opacity="0.35"/>
+<text x="185.4" y="97" text-anchor="middle" font-size="10" fill="#444"></text>
+<line x1="140" y1="235" x2="970" y2="235" stroke="#333"/>
+<line x1="140" y1="85" x2="140" y2="235" stroke="#333"/>
+<text x="136" y="238.0" text-anchor="end" font-size="10">0</text>
+<text x="136" y="223.0" text-anchor="end" font-size="10">4</text>
+<text x="136" y="200.5" text-anchor="end" font-size="10">10</text>
+<text x="136" y="163.0" text-anchor="end" font-size="10">20</text>
+<text x="136" y="125.5" text-anchor="end" font-size="10">30</text>
+<text x="136" y="88.0" text-anchor="end" font-size="10">40</text>
+<line x1="140" y1="220.0" x2="970" y2="220.0" stroke="#c33" stroke-dasharray="4 3"/>
+<text x="970" y="217.0" font-size="10" fill="#c33" text-anchor="end">filter margin 4 m</text>
+<text x="14" y="160" font-size="11" transform="rotate(-90 14 160)" text-anchor="middle">min airframe clearance (m)</text>
+<polyline points="243.8,202.9 264.5,202.9 285.2,202.9 306.0,202.9 326.8,202.9 347.5,202.9 368.2,202.9 389.0,202.9 409.7,202.9 430.5,202.9 451.2,202.9 472.0,202.9 492.8,202.9 513.5,198.7 534.2,198.3 555.0,198.3 575.8,198.3 596.5,198.3 617.2,198.3 638.0,198.3 658.8,198.3 679.5,198.3 700.2,197.3 721.0,189.6 741.8,184.8 762.5,178.8 783.2,178.8 804.0,178.8 824.8,178.8 845.5,175.1 866.2,171.1 887.0,171.1 907.8,170.4 928.5,170.4 949.3,170.4 970.0,170.3" fill="none" stroke="#2e9e5b" stroke-width="2" stroke-dasharray=""/>
+<text x="146" y="229" font-size="10" fill="#2e9e5b">— filter: clearance of its best verified escape</text>
+<line x1="162.0" y1="81" x2="162.0" y2="510" stroke="#c0392b" stroke-width="2"/>
+<text x="165.0" y="79" font-size="10" fill="#c0392b" font-weight="bold" text-anchor="start">proven unsafe 8.6</text>
+<line x1="208.7" y1="81" x2="208.7" y2="510" stroke="#e08a00" stroke-width="2"/>
+<text x="211.7" y="68" font-size="10" fill="#e08a00" font-weight="bold" text-anchor="start">best found 0 m 22.5</text>
+<line x1="221.7" y1="81" x2="221.7" y2="510" stroke="#b36b00" stroke-width="2"/>
+<text x="224.7" y="57" font-size="10" fill="#b36b00" font-weight="bold" text-anchor="start">best found 4 m 26.4</text>
+<line x1="242.5" y1="81" x2="242.5" y2="510" stroke="#1e7d45" stroke-width="2"/>
+<text x="245.5" y="46" font-size="10" fill="#1e7d45" font-weight="bold" text-anchor="start">proven safe 32.6</text>
+<text x="125.6" y="264.3" text-anchor="end" font-size="11">straight</text>
+<rect x="129.6" y="250.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>2.0 m: hit: ground below </title></rect>
+<rect x="150.4" y="250.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>8.2 m: hit: ground below </title></rect>
+<rect x="171.1" y="250.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>14.4 m: hit: ground below [n cap]</title></rect>
+<text x="181.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="191.9" y="250.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>20.6 m: hit: ground below [n cap]</title></rect>
+<text x="202.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="212.6" y="250.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>26.8 m: hit: ground below [n cap]</title></rect>
+<text x="223.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="233.4" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>33.0 m: hit: wall beside [n cap]</title></rect>
+<text x="243.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="254.1" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>39.2 m: hit: wall beside [n cap]</title></rect>
+<text x="264.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="274.9" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>45.4 m: hit: wall beside [n cap]</title></rect>
+<text x="285.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="295.6" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>51.6 m: hit: wall beside [n cap]</title></rect>
+<text x="306.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="316.4" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>57.8 m: hit: wall beside [n cap]</title></rect>
+<text x="326.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="337.1" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>64.0 m: hit: wall beside [n cap]</title></rect>
+<text x="347.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="357.9" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>70.2 m: hit: wall beside [n cap]</title></rect>
+<text x="368.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="378.6" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>76.4 m: hit: wall beside [n cap]</title></rect>
+<text x="389.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="399.4" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>82.6 m: hit: wall beside [n cap]</title></rect>
+<text x="409.7" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="420.1" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>88.8 m: hit: wall beside [n cap]</title></rect>
+<text x="430.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="440.9" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>95.0 m: hit: wall beside [n cap]</title></rect>
+<text x="451.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="461.6" y="250.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>101.2 m: hit: wall beside [n cap]</title></rect>
+<text x="472.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="482.4" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>107.4 m: verified [n cap]</title></rect>
+<text x="492.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="503.1" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>113.6 m: verified [n cap]</title></rect>
+<text x="513.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="523.9" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>119.8 m: verified [n cap]</title></rect>
+<text x="534.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="544.6" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>126.0 m: verified [n cap]</title></rect>
+<text x="555.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="565.4" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>132.2 m: verified [n cap]</title></rect>
+<text x="575.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="586.1" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>138.4 m: verified [n cap]</title></rect>
+<text x="596.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="606.9" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>144.6 m: verified [n cap]</title></rect>
+<text x="617.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="627.6" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>150.8 m: verified [n cap]</title></rect>
+<text x="638.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="648.4" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>157.0 m: verified [n cap]</title></rect>
+<text x="658.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="669.1" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>163.2 m: verified [n cap]</title></rect>
+<text x="679.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="689.9" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>169.4 m: verified [n cap]</title></rect>
+<text x="700.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="710.6" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>175.6 m: verified [n cap]</title></rect>
+<text x="721.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="731.4" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>181.8 m: verified [n cap]</title></rect>
+<text x="741.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="752.1" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>188.0 m: verified [n cap]</title></rect>
+<text x="762.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="772.9" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>194.2 m: verified [n cap]</title></rect>
+<text x="783.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="793.6" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>200.4 m: verified [n cap]</title></rect>
+<text x="804.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="814.4" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>206.6 m: verified [n cap]</title></rect>
+<text x="824.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="835.1" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>212.8 m: verified [n cap]</title></rect>
+<text x="845.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="855.9" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>219.0 m: verified [n cap]</title></rect>
+<text x="866.2" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="876.6" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>225.2 m: verified [n cap]</title></rect>
+<text x="887.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="897.4" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>231.4 m: verified [n cap]</title></rect>
+<text x="907.8" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="918.1" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>237.6 m: verified [n cap]</title></rect>
+<text x="928.5" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="938.9" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>243.8 m: verified [n cap]</title></rect>
+<text x="949.3" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="959.6" y="250.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>250.0 m: verified [n cap]</title></rect>
+<text x="970.0" y="263.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<text x="125.6" y="286.3" text-anchor="end" font-size="11">left</text>
+<rect x="129.6" y="272.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>2.0 m: hit: ground below </title></rect>
+<rect x="150.4" y="272.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>8.2 m: hit: ground below </title></rect>
+<rect x="171.1" y="272.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>14.4 m: hit: ground below [n cap]</title></rect>
+<text x="181.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="191.9" y="272.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>20.6 m: hit: ground below [n cap]</title></rect>
+<text x="202.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="212.6" y="272.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>26.8 m: hit: ground below [n cap]</title></rect>
+<text x="223.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="233.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>33.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="243.8" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="254.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>39.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="264.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="274.9" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>45.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="285.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="295.6" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>51.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="306.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="316.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>57.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="326.8" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="337.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>64.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="347.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="357.9" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>70.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="368.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="378.6" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>76.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="389.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="399.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>82.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="409.7" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="420.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>88.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="430.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="440.9" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>95.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="451.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="461.6" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>101.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="472.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="482.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>107.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="492.8" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="503.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>113.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="513.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="523.9" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>119.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="534.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="544.6" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>126.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="555.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="565.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>132.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="575.8" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="586.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>138.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="596.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="606.9" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>144.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="617.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="627.6" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>150.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="638.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="648.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>157.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="658.8" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="669.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>163.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="679.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="689.9" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>169.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="700.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="710.6" y="272.0" width="20.8" height="19.0" fill="#7a4fb0" stroke="white" stroke-width="0.5"><title>175.6 m: hit: roof below [n cap]</title></rect>
+<text x="721.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="731.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>181.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="741.8" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="752.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>188.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="762.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="772.9" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>194.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="783.2" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="793.6" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>200.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="804.0" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="814.4" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>206.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="824.8" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="835.1" y="272.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>212.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="845.5" y="285.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="855.9" y="272.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>219.0 m: verified </title></rect>
+<rect x="876.6" y="272.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>225.2 m: verified </title></rect>
+<rect x="897.4" y="272.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>231.4 m: verified </title></rect>
+<rect x="918.1" y="272.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>237.6 m: verified </title></rect>
+<rect x="938.9" y="272.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>243.8 m: verified </title></rect>
+<rect x="959.6" y="272.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>250.0 m: verified </title></rect>
+<text x="125.6" y="308.3" text-anchor="end" font-size="11">right</text>
+<rect x="129.6" y="294.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>2.0 m: hit: ground below </title></rect>
+<rect x="150.4" y="294.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>8.2 m: hit: ground below </title></rect>
+<rect x="171.1" y="294.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>14.4 m: hit: ground below [n cap]</title></rect>
+<text x="181.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="191.9" y="294.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>20.6 m: hit: ground below [n cap]</title></rect>
+<text x="202.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="212.6" y="294.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>26.8 m: hit: ground below [n cap]</title></rect>
+<text x="223.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="233.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>33.0 m: hit: wall beside [n cap]</title></rect>
+<text x="243.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="254.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>39.2 m: hit: wall beside [n cap]</title></rect>
+<text x="264.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="274.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>45.4 m: hit: wall beside [n cap]</title></rect>
+<text x="285.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="295.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>51.6 m: hit: wall beside [n cap]</title></rect>
+<text x="306.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="316.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>57.8 m: hit: wall beside [n cap]</title></rect>
+<text x="326.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="337.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>64.0 m: hit: wall beside [n cap]</title></rect>
+<text x="347.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="357.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>70.2 m: hit: wall beside [n cap]</title></rect>
+<text x="368.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="378.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>76.4 m: hit: wall beside [n cap]</title></rect>
+<text x="389.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="399.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>82.6 m: hit: wall beside [n cap]</title></rect>
+<text x="409.7" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="420.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>88.8 m: hit: wall beside [n cap]</title></rect>
+<text x="430.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="440.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>95.0 m: hit: wall beside [n cap]</title></rect>
+<text x="451.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="461.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>101.2 m: hit: wall beside [n cap]</title></rect>
+<text x="472.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="482.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>107.4 m: hit: wall beside [n cap]</title></rect>
+<text x="492.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="503.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>113.6 m: hit: wall beside [n cap]</title></rect>
+<text x="513.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="523.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>119.8 m: hit: wall beside [n cap]</title></rect>
+<text x="534.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="544.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>126.0 m: hit: wall beside [n cap]</title></rect>
+<text x="555.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="565.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>132.2 m: hit: wall beside [n cap]</title></rect>
+<text x="575.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="586.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>138.4 m: hit: wall beside [n cap]</title></rect>
+<text x="596.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="606.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>144.6 m: hit: wall beside [n cap]</title></rect>
+<text x="617.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="627.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>150.8 m: hit: wall beside [n cap]</title></rect>
+<text x="638.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="648.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>157.0 m: hit: wall beside [n cap]</title></rect>
+<text x="658.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="669.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>163.2 m: hit: wall beside [n cap]</title></rect>
+<text x="679.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="689.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>169.4 m: hit: wall beside [n cap]</title></rect>
+<text x="700.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="710.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>175.6 m: hit: wall beside [n cap]</title></rect>
+<text x="721.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="731.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>181.8 m: hit: wall beside [n cap]</title></rect>
+<text x="741.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="752.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>188.0 m: hit: wall beside [n cap]</title></rect>
+<text x="762.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="772.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>194.2 m: hit: wall beside [n cap]</title></rect>
+<text x="783.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="793.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>200.4 m: hit: wall beside [n cap]</title></rect>
+<text x="804.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="814.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>206.6 m: hit: wall beside [n cap]</title></rect>
+<text x="824.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="835.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>212.8 m: hit: wall beside [n cap]</title></rect>
+<text x="845.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="855.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>219.0 m: hit: wall beside [n cap]</title></rect>
+<text x="866.2" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="876.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>225.2 m: hit: wall beside [n cap]</title></rect>
+<text x="887.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="897.4" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>231.4 m: hit: wall beside [n cap]</title></rect>
+<text x="907.8" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="918.1" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>237.6 m: hit: wall beside [n cap]</title></rect>
+<text x="928.5" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="938.9" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>243.8 m: hit: wall beside [n cap]</title></rect>
+<text x="949.3" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="959.6" y="294.0" width="20.8" height="19.0" fill="#2f6fd0" stroke="white" stroke-width="0.5"><title>250.0 m: hit: wall beside [n cap]</title></rect>
+<text x="970.0" y="307.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<text x="125.6" y="330.3" text-anchor="end" font-size="11">left40</text>
+<rect x="129.6" y="316.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>2.0 m: hit: ground below </title></rect>
+<rect x="150.4" y="316.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>8.2 m: hit: ground below </title></rect>
+<rect x="171.1" y="316.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>14.4 m: hit: ground below [n cap]</title></rect>
+<text x="181.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="191.9" y="316.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>20.6 m: hit: ground below [n cap]</title></rect>
+<text x="202.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="212.6" y="316.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>26.8 m: hit: ground below [n cap]</title></rect>
+<text x="223.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="233.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>33.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="243.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="254.1" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>39.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="264.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="274.9" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>45.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="285.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="295.6" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>51.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="306.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="316.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>57.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="326.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="337.1" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>64.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="347.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="357.9" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>70.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="368.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="378.6" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>76.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="389.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="399.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>82.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="409.7" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="420.1" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>88.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="430.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="440.9" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>95.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="451.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="461.6" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>101.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="472.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="482.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>107.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="492.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="503.1" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>113.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="513.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="523.9" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>119.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="534.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="544.6" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>126.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="555.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="565.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>132.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="575.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="586.1" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>138.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="596.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="606.9" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>144.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="617.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="627.6" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>150.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="638.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="648.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>157.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="658.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="669.1" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>163.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="679.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="689.9" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>169.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="700.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="710.6" y="316.0" width="20.8" height="19.0" fill="#7a4fb0" stroke="white" stroke-width="0.5"><title>175.6 m: hit: roof below [n cap]</title></rect>
+<text x="721.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="731.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>181.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="741.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="752.1" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>188.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="762.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="772.9" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>194.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="783.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="793.6" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>200.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="804.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="814.4" y="316.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>206.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="824.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="835.1" y="316.0" width="20.8" height="19.0" fill="#7a4fb0" stroke="white" stroke-width="0.5"><title>212.8 m: hit: roof below [n cap]</title></rect>
+<text x="845.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="855.9" y="316.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>219.0 m: verified [n cap]</title></rect>
+<text x="866.2" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="876.6" y="316.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>225.2 m: verified [n cap]</title></rect>
+<text x="887.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="897.4" y="316.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>231.4 m: verified [n cap]</title></rect>
+<text x="907.8" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="918.1" y="316.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>237.6 m: verified [n cap]</title></rect>
+<text x="928.5" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="938.9" y="316.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>243.8 m: verified [n cap]</title></rect>
+<text x="949.3" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="959.6" y="316.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>250.0 m: verified [n cap]</title></rect>
+<text x="970.0" y="329.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<text x="125.6" y="352.3" text-anchor="end" font-size="11">right40</text>
+<rect x="129.6" y="338.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>2.0 m: hit: ground below </title></rect>
+<rect x="150.4" y="338.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>8.2 m: hit: ground below </title></rect>
+<rect x="171.1" y="338.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>14.4 m: hit: ground below [n cap]</title></rect>
+<text x="181.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="191.9" y="338.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>20.6 m: hit: ground below [n cap]</title></rect>
+<text x="202.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="212.6" y="338.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>26.8 m: hit: ground below [n cap]</title></rect>
+<text x="223.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="233.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>33.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="243.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="254.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>39.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="264.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="274.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>45.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="285.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="295.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>51.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="306.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="316.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>57.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="326.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="337.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>64.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="347.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="357.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>70.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="368.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="378.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>76.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="389.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="399.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>82.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="409.7" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="420.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>88.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="430.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="440.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>95.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="451.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="461.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>101.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="472.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="482.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>107.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="492.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="503.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>113.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="513.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="523.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>119.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="534.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="544.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>126.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="555.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="565.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>132.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="575.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="586.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>138.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="596.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="606.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>144.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="617.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="627.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>150.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="638.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="648.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>157.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="658.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="669.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>163.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="679.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="689.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>169.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="700.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="710.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>175.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="721.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="731.4" y="338.0" width="20.8" height="19.0" fill="#7a4fb0" stroke="white" stroke-width="0.5"><title>181.8 m: hit: roof below [n cap]</title></rect>
+<text x="741.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="752.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>188.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="762.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="772.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>194.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="783.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="793.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>200.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="804.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="814.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>206.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="824.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="835.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>212.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="845.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="855.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>219.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="866.2" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="876.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>225.2 m: hit: wall ahead [n cap]</title></rect>
+<text x="887.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="897.4" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>231.4 m: hit: wall ahead [n cap]</title></rect>
+<text x="907.8" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="918.1" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>237.6 m: hit: wall ahead [n cap]</title></rect>
+<text x="928.5" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="938.9" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>243.8 m: hit: wall ahead [n cap]</title></rect>
+<text x="949.3" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="959.6" y="338.0" width="20.8" height="19.0" fill="#d03a2f" stroke="white" stroke-width="0.5"><title>250.0 m: hit: wall ahead [n cap]</title></rect>
+<text x="970.0" y="351.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<text x="125.6" y="374.3" text-anchor="end" font-size="11">street</text>
+<rect x="129.6" y="360.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>2.0 m: hit: ground below </title></rect>
+<rect x="150.4" y="360.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>8.2 m: hit: ground below </title></rect>
+<rect x="171.1" y="360.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>14.4 m: hit: ground below [n cap]</title></rect>
+<text x="181.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="191.9" y="360.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>20.6 m: hit: ground below [n cap]</title></rect>
+<text x="202.2" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="212.6" y="360.0" width="20.8" height="19.0" fill="#8c5a2b" stroke="white" stroke-width="0.5"><title>26.8 m: hit: ground below [n cap]</title></rect>
+<text x="223.0" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="233.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>33.0 m: verified [n cap]</title></rect>
+<text x="243.8" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="254.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>39.2 m: verified [n cap]</title></rect>
+<text x="264.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="274.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>45.4 m: verified [n cap]</title></rect>
+<text x="285.2" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="295.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>51.6 m: verified [n cap]</title></rect>
+<text x="306.0" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="316.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>57.8 m: verified [n cap]</title></rect>
+<text x="326.8" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="337.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>64.0 m: verified [n cap]</title></rect>
+<text x="347.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="357.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>70.2 m: verified [n cap]</title></rect>
+<text x="368.2" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="378.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>76.4 m: verified [n cap]</title></rect>
+<text x="389.0" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="399.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>82.6 m: verified [n cap]</title></rect>
+<text x="409.7" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="420.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>88.8 m: verified [n cap]</title></rect>
+<text x="430.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="440.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>95.0 m: verified [n cap]</title></rect>
+<text x="451.2" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="461.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>101.2 m: verified [n cap]</title></rect>
+<text x="472.0" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="482.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>107.4 m: verified [n cap]</title></rect>
+<text x="492.8" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="503.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>113.6 m: verified [n cap]</title></rect>
+<text x="513.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="523.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>119.8 m: verified [n cap]</title></rect>
+<text x="534.2" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="544.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>126.0 m: verified [n cap]</title></rect>
+<text x="555.0" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="565.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>132.2 m: verified [n cap]</title></rect>
+<text x="575.8" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="586.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>138.4 m: verified [n cap]</title></rect>
+<text x="596.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="606.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>144.6 m: verified [n cap]</title></rect>
+<text x="617.2" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="627.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>150.8 m: verified [n cap]</title></rect>
+<text x="638.0" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="648.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>157.0 m: verified [n cap]</title></rect>
+<text x="658.8" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="669.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>163.2 m: verified [n cap]</title></rect>
+<text x="679.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="689.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>169.4 m: verified [n cap]</title></rect>
+<text x="700.2" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="710.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>175.6 m: verified [n cap]</title></rect>
+<text x="721.0" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="731.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>181.8 m: verified [n cap]</title></rect>
+<text x="741.8" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="752.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>188.0 m: verified [n cap]</title></rect>
+<text x="762.5" y="373.2" font-size="8" fill="white" text-anchor="middle">n</text>
+<rect x="772.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>194.2 m: verified </title></rect>
+<rect x="793.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>200.4 m: verified </title></rect>
+<rect x="814.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>206.6 m: verified </title></rect>
+<rect x="835.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>212.8 m: verified </title></rect>
+<rect x="855.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>219.0 m: verified </title></rect>
+<rect x="876.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>225.2 m: verified </title></rect>
+<rect x="897.4" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>231.4 m: verified </title></rect>
+<rect x="918.1" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>237.6 m: verified </title></rect>
+<rect x="938.9" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>243.8 m: verified </title></rect>
+<rect x="959.6" y="360.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>250.0 m: verified </title></rect>
+<text x="125.6" y="396.3" text-anchor="end" font-size="11">search, 4 m</text>
+<rect x="129.6" y="382.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>2.0 m: none found</title></rect>
+<rect x="150.4" y="382.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>8.2 m: none found</title></rect>
+<rect x="171.1" y="382.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>14.4 m: none found</title></rect>
+<rect x="191.9" y="382.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>20.6 m: none found</title></rect>
+<rect x="212.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>26.8 m: escape found</title></rect>
+<rect x="233.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>33.0 m: escape found</title></rect>
+<rect x="254.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>39.2 m: escape found</title></rect>
+<rect x="274.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>45.4 m: escape found</title></rect>
+<rect x="295.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>51.6 m: escape found</title></rect>
+<rect x="316.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>57.8 m: escape found</title></rect>
+<rect x="337.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>64.0 m: escape found</title></rect>
+<rect x="357.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>70.2 m: escape found</title></rect>
+<rect x="378.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>76.4 m: escape found</title></rect>
+<rect x="399.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>82.6 m: escape found</title></rect>
+<rect x="420.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>88.8 m: escape found</title></rect>
+<rect x="440.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>95.0 m: escape found</title></rect>
+<rect x="461.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>101.2 m: escape found</title></rect>
+<rect x="482.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>107.4 m: escape found</title></rect>
+<rect x="503.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>113.6 m: escape found</title></rect>
+<rect x="523.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>119.8 m: escape found</title></rect>
+<rect x="544.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>126.0 m: escape found</title></rect>
+<rect x="565.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>132.2 m: escape found</title></rect>
+<rect x="586.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>138.4 m: escape found</title></rect>
+<rect x="606.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>144.6 m: escape found</title></rect>
+<rect x="627.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>150.8 m: escape found</title></rect>
+<rect x="648.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>157.0 m: escape found</title></rect>
+<rect x="669.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>163.2 m: escape found</title></rect>
+<rect x="689.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>169.4 m: escape found</title></rect>
+<rect x="710.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>175.6 m: escape found</title></rect>
+<rect x="731.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>181.8 m: escape found</title></rect>
+<rect x="752.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>188.0 m: escape found</title></rect>
+<rect x="772.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>194.2 m: escape found</title></rect>
+<rect x="793.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>200.4 m: escape found</title></rect>
+<rect x="814.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>206.6 m: escape found</title></rect>
+<rect x="835.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>212.8 m: escape found</title></rect>
+<rect x="855.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>219.0 m: escape found</title></rect>
+<rect x="876.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>225.2 m: escape found</title></rect>
+<rect x="897.4" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>231.4 m: escape found</title></rect>
+<rect x="918.1" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>237.6 m: escape found</title></rect>
+<rect x="938.9" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>243.8 m: escape found</title></rect>
+<rect x="959.6" y="382.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>250.0 m: escape found</title></rect>
+<text x="125.6" y="418.3" text-anchor="end" font-size="11">search, 0 m</text>
+<rect x="129.6" y="404.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>2.0 m: none found</title></rect>
+<rect x="150.4" y="404.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>8.2 m: none found</title></rect>
+<rect x="171.1" y="404.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>14.4 m: none found</title></rect>
+<rect x="191.9" y="404.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>20.6 m: none found</title></rect>
+<rect x="212.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>26.8 m: escape found</title></rect>
+<rect x="233.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>33.0 m: escape found</title></rect>
+<rect x="254.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>39.2 m: escape found</title></rect>
+<rect x="274.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>45.4 m: escape found</title></rect>
+<rect x="295.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>51.6 m: escape found</title></rect>
+<rect x="316.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>57.8 m: escape found</title></rect>
+<rect x="337.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>64.0 m: escape found</title></rect>
+<rect x="357.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>70.2 m: escape found</title></rect>
+<rect x="378.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>76.4 m: escape found</title></rect>
+<rect x="399.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>82.6 m: escape found</title></rect>
+<rect x="420.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>88.8 m: escape found</title></rect>
+<rect x="440.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>95.0 m: escape found</title></rect>
+<rect x="461.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>101.2 m: escape found</title></rect>
+<rect x="482.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>107.4 m: escape found</title></rect>
+<rect x="503.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>113.6 m: escape found</title></rect>
+<rect x="523.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>119.8 m: escape found</title></rect>
+<rect x="544.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>126.0 m: escape found</title></rect>
+<rect x="565.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>132.2 m: escape found</title></rect>
+<rect x="586.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>138.4 m: escape found</title></rect>
+<rect x="606.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>144.6 m: escape found</title></rect>
+<rect x="627.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>150.8 m: escape found</title></rect>
+<rect x="648.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>157.0 m: escape found</title></rect>
+<rect x="669.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>163.2 m: escape found</title></rect>
+<rect x="689.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>169.4 m: escape found</title></rect>
+<rect x="710.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>175.6 m: escape found</title></rect>
+<rect x="731.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>181.8 m: escape found</title></rect>
+<rect x="752.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>188.0 m: escape found</title></rect>
+<rect x="772.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>194.2 m: escape found</title></rect>
+<rect x="793.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>200.4 m: escape found</title></rect>
+<rect x="814.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>206.6 m: escape found</title></rect>
+<rect x="835.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>212.8 m: escape found</title></rect>
+<rect x="855.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>219.0 m: escape found</title></rect>
+<rect x="876.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>225.2 m: escape found</title></rect>
+<rect x="897.4" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>231.4 m: escape found</title></rect>
+<rect x="918.1" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>237.6 m: escape found</title></rect>
+<rect x="938.9" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>243.8 m: escape found</title></rect>
+<rect x="959.6" y="404.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>250.0 m: escape found</title></rect>
+<text x="125.6" y="440.3" text-anchor="end" font-size="11">outer bound</text>
+<rect x="129.6" y="426.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>2.0 m: proven unsafe</title></rect>
+<rect x="150.4" y="426.0" width="20.8" height="19.0" fill="#c0392b" stroke="white" stroke-width="0.5"><title>8.2 m: proven unsafe</title></rect>
+<rect x="171.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>14.4 m: not proven unsafe</title></rect>
+<rect x="191.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>20.6 m: not proven unsafe</title></rect>
+<rect x="212.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>26.8 m: not proven unsafe</title></rect>
+<rect x="233.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>33.0 m: not proven unsafe</title></rect>
+<rect x="254.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>39.2 m: not proven unsafe</title></rect>
+<rect x="274.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>45.4 m: not proven unsafe</title></rect>
+<rect x="295.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>51.6 m: not proven unsafe</title></rect>
+<rect x="316.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>57.8 m: not proven unsafe</title></rect>
+<rect x="337.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>64.0 m: not proven unsafe</title></rect>
+<rect x="357.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>70.2 m: not proven unsafe</title></rect>
+<rect x="378.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>76.4 m: not proven unsafe</title></rect>
+<rect x="399.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>82.6 m: not proven unsafe</title></rect>
+<rect x="420.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>88.8 m: not proven unsafe</title></rect>
+<rect x="440.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>95.0 m: not proven unsafe</title></rect>
+<rect x="461.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>101.2 m: not proven unsafe</title></rect>
+<rect x="482.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>107.4 m: not proven unsafe</title></rect>
+<rect x="503.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>113.6 m: not proven unsafe</title></rect>
+<rect x="523.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>119.8 m: not proven unsafe</title></rect>
+<rect x="544.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>126.0 m: not proven unsafe</title></rect>
+<rect x="565.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>132.2 m: not proven unsafe</title></rect>
+<rect x="586.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>138.4 m: not proven unsafe</title></rect>
+<rect x="606.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>144.6 m: not proven unsafe</title></rect>
+<rect x="627.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>150.8 m: not proven unsafe</title></rect>
+<rect x="648.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>157.0 m: not proven unsafe</title></rect>
+<rect x="669.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>163.2 m: not proven unsafe</title></rect>
+<rect x="689.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>169.4 m: not proven unsafe</title></rect>
+<rect x="710.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>175.6 m: not proven unsafe</title></rect>
+<rect x="731.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>181.8 m: not proven unsafe</title></rect>
+<rect x="752.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>188.0 m: not proven unsafe</title></rect>
+<rect x="772.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>194.2 m: not proven unsafe</title></rect>
+<rect x="793.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>200.4 m: not proven unsafe</title></rect>
+<rect x="814.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>206.6 m: not proven unsafe</title></rect>
+<rect x="835.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>212.8 m: not proven unsafe</title></rect>
+<rect x="855.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>219.0 m: not proven unsafe</title></rect>
+<rect x="876.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>225.2 m: not proven unsafe</title></rect>
+<rect x="897.4" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>231.4 m: not proven unsafe</title></rect>
+<rect x="918.1" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>237.6 m: not proven unsafe</title></rect>
+<rect x="938.9" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>243.8 m: not proven unsafe</title></rect>
+<rect x="959.6" y="426.0" width="20.8" height="19.0" fill="#2e9e5b" stroke="white" stroke-width="0.5"><title>250.0 m: not proven unsafe</title></rect>
+<line x1="140" y1="510" x2="970" y2="510" stroke="#333"/>
+<text x="140.0" y="524" text-anchor="middle" font-size="10">2</text>
+<text x="243.8" y="524" text-anchor="middle" font-size="10">33</text>
+<text x="347.5" y="524" text-anchor="middle" font-size="10">64</text>
+<text x="451.2" y="524" text-anchor="middle" font-size="10">95</text>
+<text x="555.0" y="524" text-anchor="middle" font-size="10">126</text>
+<text x="658.8" y="524" text-anchor="middle" font-size="10">157</text>
+<text x="762.5" y="524" text-anchor="middle" font-size="10">188</text>
+<text x="866.2" y="524" text-anchor="middle" font-size="10">219</text>
+<text x="970.0" y="524" text-anchor="middle" font-size="10">250</text>
+<text x="555.0" y="540" text-anchor="middle" font-size="12">height above the street (m) — danger on the left</text>
+<rect x="140.0" y="560" width="10" height="10" fill="#2e9e5b"/><text x="153.0" y="569" font-size="10">verified</text>
+<rect x="210.8" y="560" width="10" height="10" fill="#8c5a2b"/><text x="223.8" y="569" font-size="10">hit: ground below</text>
+<rect x="332.0" y="560" width="10" height="10" fill="#7a4fb0"/><text x="345.0" y="569" font-size="10">hit: roof below</text>
+<rect x="442.0" y="560" width="10" height="10" fill="#2f6fd0"/><text x="455.0" y="569" font-size="10">hit: wall beside</text>
+<rect x="557.6" y="560" width="10" height="10" fill="#d03a2f"/><text x="570.6" y="569" font-size="10">hit: wall ahead</text>
+<text x="140" y="585" font-size="9" fill="#555">rows 1-6: the filter's escapes; search rows: green = an escape was found; outer bound: red = proven unsafe.</text>
+<text x="140" y="596" font-size="9" fill="#555" dx="0">n / α in a cell: the escape law's load-factor / angle-of-attack cap bound on over 15% of its frames</text>
+</svg>

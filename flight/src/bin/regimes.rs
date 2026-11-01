@@ -10,14 +10,14 @@ fn slices() -> Vec<SliceDef> {
     use std::f64::consts::FRAC_PI_2;
     let sd = |key, title, param, unit, lo, hi, make: fn(&World, f64) -> State| SliceDef { key, title, param, unit, lo, hi, n: 41, tol: 0.5, make, lead: 3.0, flip: false, cam: "--cinematic --cam 0" };
     vec![
-        sd("01a-street-dive", "Dive at the Tower gap street floor", "height above the street", "m", 2.0, 250.0, |w, d| {
+        SliceDef { cam: "--cinematic", ..sd("01a-street-dive", "Dive at the Tower gap street floor", "height above the street", "m", 2.0, 250.0, |w, d| {
             let (x, y) = (-120.0, -150.0);
             trimmed(x, y, w.terrain(x, y) + d, 50.0, -30f64.to_radians(), FRAC_PI_2, 0.6)
-        }),
-        sd("01b-park-dive", "Dive at the park", "height above the park", "m", 2.0, 250.0, |w, d| {
+        }) },
+        SliceDef { cam: "--cinematic", ..sd("01b-park-dive", "Dive at the park", "height above the park", "m", 2.0, 250.0, |w, d| {
             let (x, y) = (-360.0, 260.0);
             trimmed(x, y, w.terrain(x, y) + d, 50.0, -35f64.to_radians(), FRAC_PI_2, 0.6)
-        }),
+        }) },
         sd("02a-wall-beside-park", "Beside the park-side tower", "distance to the face", "m", 0.0, 80.0, |w, d| {
             let (x, y) = (-218.1 - d, 265.0);
             let mut s = trimmed(x, y, w.terrain(x, y) + 50.0, 45.0, 0.0, FRAC_PI_2 - 10f64.to_radians(), 0.7);
@@ -44,7 +44,7 @@ fn slices() -> Vec<SliceDef> {
             let (x, y) = (-218.1 - d, 295.0);
             trimmed(x, y, w.terrain(x, y) + 40.0, 27.0, 6f64.to_radians(), 0.0, 0.25)
         }),
-        SliceDef { flip: true, ..sd("06-fast-dive", "Fast dive at the park", "airspeed", "m/s", -95.0, -35.0, |w, d| {
+        SliceDef { flip: true, cam: "--cinematic", ..sd("06-fast-dive", "Fast dive at the park", "airspeed", "m/s", -95.0, -35.0, |w, d| {
             let (x, y) = (-360.0, 260.0);
             trimmed(x, y, w.terrain(x, y) + 45.0, -d, -35f64.to_radians(), FRAC_PI_2, 0.6)
         }) },
@@ -153,11 +153,23 @@ fn main() {
                 match demo_slice(&world, &def, cam) {
                     Some(d) => {
                         let md = demo_md(&def, &d);
+                        std::fs::write(format!("{DOCS}/{}/{}-shots.sh", folder(&def), def.key), shots_sh(&def, &d)).unwrap();
                         std::fs::write(format!("{DOCS}/{}/{}-demos.md", folder(&def), def.key), &md).unwrap();
                         println!("{md}");
                     }
                     None => println!("{}: no proven-safe marker", def.key),
                 }
+            }
+        }
+        "index" => {
+            // regimes index: the markers and gaps of every slice as a markdown table (from the JSON files).
+            println!("| Slice | Parameter | Proven safe | Best found, 4 m | Best found, 0 m | Proven unsafe | Filter conservatism | Margin | Outer-bound slack |\n|---|---|---|---|---|---|---|---|---|");
+            for def in slices() {
+                let g = |n: &str| read_marker(&def, n).map(|v| def.show(v));
+                let (s0, b4, b0, u) = (g("proven_safe"), g("best_found_4m"), g("best_found_0m"), g("proven_unsafe"));
+                let f = |x: Option<f64>| x.map_or("–".into(), |v| format!("{v:.1}"));
+                let gap = |a: Option<f64>, b: Option<f64>| match (a, b) { (Some(a), Some(b)) => format!("{:.1}", (a - b).abs()), _ => "–".into() };
+                println!("| [{}]({}/README.md) | {} ({}) | {} | {} | {} | {} | {} | {} | {} |", def.key, folder(&def), def.param, def.unit, f(s0), f(b4), f(b0), f(u), gap(s0, b4), gap(b4, b0), gap(b0, u));
             }
         }
         "probe" => {
@@ -233,7 +245,7 @@ fn json_slice(def: &SliceDef, pts: &[Point], m: &Markers) -> String {
 }
 
 fn svg_slice(def: &SliceDef, pts: &[Point], m: &Markers) -> String {
-    let (w, h) = (1000.0, 600.0);
+    let (w, h) = (1000.0, 614.0);
     let (x0, x1) = (140.0, w - 30.0);
     let (lo, hi) = (def.show(def.lo).min(def.show(def.hi)), def.show(def.lo).max(def.show(def.hi)));
     // Danger on the left: for flipped slices (speed) the axis runs from high to low values.
@@ -299,7 +311,7 @@ fn svg_slice(def: &SliceDef, pts: &[Point], m: &Markers) -> String {
         last_x = x;
         let anchor = if x > x1 - 110.0 { "end" } else { "start" };
         let tx = if anchor == "end" { x - 3.0 } else { x + 3.0 };
-        o += &format!("<line x1=\"{x:.1}\" y1=\"{}\" x2=\"{x:.1}\" y2=\"{}\" stroke=\"{col}\" stroke-width=\"2\"/>\n", ay0 - 4.0, h - 90.0);
+        o += &format!("<line x1=\"{x:.1}\" y1=\"{}\" x2=\"{x:.1}\" y2=\"{}\" stroke=\"{col}\" stroke-width=\"2\"/>\n", ay0 - 4.0, h - 104.0);
         o += &format!("<text x=\"{tx:.1}\" y=\"{}\" font-size=\"10\" fill=\"{col}\" font-weight=\"bold\" text-anchor=\"{anchor}\">{label} {:.1}</text>\n", ay0 - 6.0 - row * 11.0, def.show(v));
     }
     // Panel B: cause strip per escape, then the three other predicates.
@@ -346,7 +358,7 @@ fn svg_slice(def: &SliceDef, pts: &[Point], m: &Markers) -> String {
         }
     }
     // Axis.
-    let ax = h - 90.0;
+    let ax = h - 104.0;
     o += &format!("<line x1=\"{x0}\" y1=\"{ax}\" x2=\"{x1}\" y2=\"{ax}\" stroke=\"#333\"/>\n");
     for k in 0..=8 {
         let v = lo + (hi - lo) * k as f64 / 8.0;
@@ -354,10 +366,15 @@ fn svg_slice(def: &SliceDef, pts: &[Point], m: &Markers) -> String {
     }
     o += &format!("<text x=\"{:.1}\" y=\"{}\" text-anchor=\"middle\" font-size=\"12\">{} ({}) — danger on the left</text>\n", 0.5 * (x0 + x1), ax + 30.0, def.param, def.unit);
     // Legend.
-    let mut lx = x0;
+    let (mut lx, mut ly) = (x0, h - 54.0);
     for c in Cause::all().iter().filter(|c| used.contains(c)) {
-        o += &format!("<rect x=\"{lx:.1}\" y=\"{}\" width=\"10\" height=\"10\" fill=\"{}\"/><text x=\"{:.1}\" y=\"{}\" font-size=\"10\">{}</text>\n", h - 40.0, c.color(), lx + 13.0, h - 31.0, c.label());
-        lx += 26.0 + 5.6 * c.label().len() as f64;
+        let wd = 26.0 + 5.6 * c.label().len() as f64;
+        if lx + wd > w {
+            lx = x0;
+            ly += 14.0;
+        }
+        o += &format!("<rect x=\"{lx:.1}\" y=\"{ly}\" width=\"10\" height=\"10\" fill=\"{}\"/><text x=\"{:.1}\" y=\"{}\" font-size=\"10\">{}</text>\n", c.color(), lx + 13.0, ly + 9.0, c.label());
+        lx += wd;
     }
     o += &format!("<text x=\"{x0}\" y=\"{}\" font-size=\"9\" fill=\"#555\">rows 1-6: the filter's escapes; search rows: green = an escape was found; outer bound: red = proven unsafe.</text>\n", h - 15.0);
     o += &format!("<text x=\"{x0}\" y=\"{}\" font-size=\"9\" fill=\"#555\" dx=\"0\">n / α in a cell: the escape law's load-factor / angle-of-attack cap bound on over 15% of its frames</text>\n", h - 4.0);
@@ -418,8 +435,8 @@ fn demo_slice(world: &World, def: &SliceDef, cam: &str) -> Option<DemoOut> {
     let s_lead = lead_state(&s_safe, lead);
     let safe_run = demo_run(world, &s_lead, true, 25.0);
     let safe_off = demo_run(world, &s_lead, false, 25.0);
-    let label = |what: &str| format!("--label \"{}: {what}\"", def.title);
-    let safe_cmd = format!("{GUI} --start {} --lead {} {cam} --paths {}", start_arg(&s_safe), lead, label(&format!("closest proven-safe call, {} = {:.1} {}", def.param, def.show(d_safe), def.unit)));
+    let label = |what: &str| format!("--label \"{}: {what}\"", def.key);
+    let safe_cmd = format!("{GUI} --start {} --lead {} {cam} --paths {}", start_arg(&s_safe), lead, label(&format!("closest proven-safe call, {:.1} {}", def.show(d_safe), def.unit)));
     // The twin: the first start just inside the filter boundary that crashes with the filter on.
     let floor = read_marker(def, "proven_unsafe").unwrap_or(def.lo);
     let mut twin = None;
@@ -434,7 +451,7 @@ fn demo_slice(world: &World, def: &SliceDef, cam: &str) -> Option<DemoOut> {
         delta *= 2.0;
     }
     let (twin_cmd, twin_run, twin_delta) = match twin {
-        Some((s, r, dl)) => (Some(format!("{GUI} --start {} {cam} --paths {}", start_arg(&s), label(&format!("just inside, {} = {:.1} {}: no verified escape", def.param, def.show(d_safe - dl), def.unit)))), Some(r), dl),
+        Some((s, r, dl)) => (Some(format!("{GUI} --start {} {cam} --paths {}", start_arg(&s), label(&format!("unverified twin, {:.1} {}", def.show(d_safe - dl), def.unit)))), Some(r), dl),
         None => (None, None, 0.0),
     };
     let (unsafe_cmd, unsafe_runs) = match read_marker(def, "proven_unsafe") {
@@ -443,7 +460,7 @@ fn demo_slice(world: &World, def: &SliceDef, cam: &str) -> Option<DemoOut> {
             let on = demo_run(world, &s, true, 25.0);
             let off = demo_run(world, &s, false, 25.0);
             let esc = escapes_crash(world, &s);
-            let c = format!("{GUI} --start {} {cam} --paths {}", start_arg(&s), label(&format!("proven unsafe, {} = {:.1} {}", def.param, def.show(du), def.unit)));
+            let c = format!("{GUI} --start {} {cam} --paths {}", start_arg(&s), label(&format!("proven unsafe, {:.1} {}", def.show(du), def.unit)));
             (Some((c.clone(), c.replace("--paths", "--paths --off"))), Some((on, off, esc)))
         }
         None => (None, None),
@@ -457,10 +474,13 @@ fn run_text(r: &DemoRun) -> String {
         (Some(a), None) => format!("filter takes over at t = {a:.1} s"),
         _ => "filter never takes over".into(),
     };
+    let runs = if r.commit_runs > 1 { format!(", {} takeovers in all", r.commit_runs) } else { String::new() };
     if r.crashed {
-        format!("**crashes** at t = {:.1} s ({commit}; start {})", r.t_end, if r.first_accept { "verified" } else { "not verified" })
+        format!("**crashes** at t = {:.1} s ({commit}{runs}; start {})", r.t_end, if r.first_accept { "verified" } else { "not verified" })
+    } else if r.first_commit.is_some() {
+        format!("no crash; closest pass during the save **{:.1} m** at t = {:.1} s; minimum over 25 s {:.1} m ({commit}{runs})", r.save_min, r.t_save_min, r.min_clear, runs = runs)
     } else {
-        format!("no crash; minimum airframe clearance **{:.1} m** at t = {:.1} s ({commit})", r.min_clear, r.t_min)
+        format!("no crash; minimum airframe clearance {:.1} m ({commit})", r.min_clear)
     }
 }
 
@@ -477,6 +497,25 @@ fn demo_md(def: &SliceDef, d: &DemoOut) -> String {
     if let (Some((c_on, c_off)), Some((on, off, esc))) = (&d.unsafe_cmd, &d.unsafe_runs) {
         let n_hit = esc.iter().filter(|e| e.1).count();
         o += &format!("**Closest proven-unsafe call**:\n\n```sh\n{c_on}\n{c_off}\n```\n\n- filter on: {}\n- filter off: {}\n- the filter's escapes flown with no margin: {n_hit} of {} touch ({})\n\n", run_text(on), run_text(off), esc.len(), esc.iter().map(|e| format!("{} {}", e.0, if e.1 { format!("hits at {:.1} s", e.2) } else { "clear".into() })).collect::<Vec<_>>().join(", "));
+    }
+    o
+}
+
+/// Screenshot commands for a slice's demos (`--shot` at the closest pass, or just before the crash).
+fn shots_sh(def: &SliceDef, d: &DemoOut) -> String {
+    let dir = format!("docs/boundary-regimes/{}/shots", folder(def));
+    let bin = "flight/target/release/cityflight --env gate --time-cap 0";
+    let strip = |c: &str| c.replacen(GUI, bin, 1);
+    let frames = |t: f64| ((t * 60.0).round() as i64 + 2).max(12);
+    let mut o = format!("mkdir -p {dir}\n");
+    if d.safe_run.first_commit.is_some() && !d.safe_run.crashed {
+        o += &format!("{} --shot {dir}/{}-safe.png --frames {}\n", strip(&d.safe_cmd), def.key, frames(d.safe_run.t_save_min));
+    }
+    if let (Some(c), Some(r)) = (&d.twin_cmd, &d.twin_run) {
+        o += &format!("{} --shot {dir}/{}-twin.png --frames {}\n", strip(c), def.key, frames(r.t_end - 0.25));
+    }
+    if let (Some((_, off)), Some((_, r_off, _))) = (&d.unsafe_cmd, &d.unsafe_runs) {
+        o += &format!("{} --shot {dir}/{}-unsafe-off.png --frames {}\n", strip(off), def.key, frames(r_off.t_end - 0.1));
     }
     o
 }

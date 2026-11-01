@@ -16,7 +16,7 @@
 use crate::envfilter::*;
 use crate::jsb::*;
 use crate::model::*;
-use crate::world::{Rng, World, MAP_HALF, TN, TSP};
+use crate::world::{Rng, World, CELL, MAP_HALF, NC, TN, TSP};
 use std::f64::consts::PI;
 
 pub const G0: f64 = 9.80665;
@@ -120,7 +120,9 @@ pub fn classify(world: &World, r: &Roll) -> Cause {
                 None | Some(TermFail::NotTurning) => Cause::TermNotTurning,
                 Some(TermFail::Unsettled) | Some(TermFail::Wobble) | Some(TermFail::Shallow) => Cause::TermUnsettled,
                 Some(TermFail::RayBlocked { x, y, h }) => {
-                    if h > world.terrain(x, y) + 1.0 {
+                    let i = (((x + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
+                    let j = (((y + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
+                    if h > world.raw_terr[j * NC + i] as f64 + 0.5 {
                         Cause::TermRayBuilding
                     } else {
                         Cause::TermRayTerrain
@@ -714,6 +716,10 @@ pub struct DemoRun {
     pub commit_ticks: u64,
     pub ticks: u64,
     pub first_accept: bool,
+    /// Lowest clearance within 8 s of the first takeover (the save itself), and when.
+    pub save_min: f64,
+    pub t_save_min: f64,
+    pub commit_runs: u32,
 }
 
 /// Fly the GUI's demo headless: the manual pilot with the sticks released (fly-by-wire holds flight path and
@@ -724,7 +730,7 @@ pub fn demo_run(world: &World, s0: &State, filter_on: bool, secs: f64) -> DemoRu
     use crate::sim::{Sim, SimCfg};
     let mut sim = Sim::new(world, *s0, SimCfg { filter_on, ..SimCfg::default() });
     let mut fbw = Fbw::from_state(&sim.s);
-    let mut r = DemoRun { min_clear: sim.true_clear, ..Default::default() };
+    let mut r = DemoRun { min_clear: sim.true_clear, save_min: f64::INFINITY, ..Default::default() };
     let mut was = Mode::Free;
     for _ in 0..(secs / DT_F).round() as usize {
         fbw.sticks(0.0, 0.0, DT_F);
@@ -736,8 +742,15 @@ pub fn demo_run(world: &World, s0: &State, filter_on: bool, secs: f64) -> DemoRu
             r.min_clear = sim.true_clear;
             r.t_min = t;
         }
-        if sim.fs.mode == Mode::Commit && was != Mode::Commit && r.first_commit.is_none() {
-            r.first_commit = Some(t);
+        if sim.fs.mode == Mode::Commit && was != Mode::Commit {
+            r.commit_runs += 1;
+            if r.first_commit.is_none() {
+                r.first_commit = Some(t);
+            }
+        }
+        if r.first_commit.is_some_and(|t0| t <= t0 + 8.0) && sim.true_clear < r.save_min {
+            r.save_min = sim.true_clear;
+            r.t_save_min = t;
         }
         if sim.fs.mode != Mode::Commit && was == Mode::Commit && r.release.is_none() {
             r.release = Some(t);
