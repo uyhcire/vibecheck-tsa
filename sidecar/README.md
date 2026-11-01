@@ -35,11 +35,11 @@ Ctrl-C (or SIGTERM) clears `sim/operation/override/override_planepath[0]` and `o
 
 JSBSim has a flat world, so the sidecar checks three things every frame and ends the flight on the first hit:
 
-- the Salesforce Tower, Transamerica Pyramid and Coit Tower, as cylinders at the positions decoded from the landmarks pack's DSF (`OBSTACLES`);
+- every building in `sf_buildings.json`: 743 downtown San Francisco footprints 20 m and taller with their heights, from OpenStreetMap (`fetch_osm_buildings.py` refreshes it or fetches another box); without the file, the three landmark towers decoded from the landmarks pack's DSF (`OBSTACLES`);
 - X-Plane's terrain under the aircraft (`sim/flightmodel/position/y_agl`), so hills JSBSim cannot see still count;
 - a touchdown faster than 600 ft/min.
 
-On a crash it prints why, writes the aircraft's velocity into X-Plane with a hard downward component, and hands X-Plane its physics back at that spot, so X-Plane's own damage model breaks the airplane and shows its crash. The autogen office blocks are not collidable, in X-Plane itself either. The downtown scenario is aimed at the Salesforce Tower: hands off, you hit it.
+On a crash it prints why, writes the aircraft's velocity into X-Plane with a hard downward component, and hands X-Plane its physics back at that spot, so X-Plane's own damage model breaks the airplane and shows its crash. The status line names the nearest building within 400 m. The same footprints are the obstacle set for a safety filter. X-Plane's downtown is procedural, so its office blocks line up with OpenStreetMap only roughly; the landmark towers match exactly. The downtown scenario is aimed at the Salesforce Tower: hands off, you hit it.
 
 ## Which JSBSim model
 

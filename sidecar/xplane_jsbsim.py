@@ -10,6 +10,7 @@ usage: .venv/bin/python -I sidecar/xplane_jsbsim.py [--model c172p] [--pilot hid
        .venv/bin/python -I sidecar/xplane_jsbsim.py --selftest
 """
 import argparse
+import json
 import os
 import select
 import signal
@@ -83,11 +84,54 @@ OBSTACLES = [
     ("Transamerica Pyramid", 37.795166, -122.402785, 38.0, 260.0),
     ("Coit Tower", 37.802469, -122.405934, 20.0, 66.0),
 ]
-# ponytail: three landmarks only; the autogen blocks around them are not collidable in X-Plane either.
+# Fallback when sf_buildings.json (OpenStreetMap footprints, see fetch_osm_buildings.py) is missing.
+BUILDINGS_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sf_buildings.json")
+
+
+class Buildings:
+    """Building footprints with heights; point-in-polygon on lat/lon with a bounding-box prefilter."""
+
+    def __init__(self, path=BUILDINGS_JSON):
+        self.items = []   # (name, height_m, polygon, (minlat, minlon, maxlat, maxlon), (clat, clon))
+        if os.path.exists(path):
+            for b in json.load(open(path))["buildings"]:
+                poly = b["polygon"]
+                lats, lons = [q[0] for q in poly], [q[1] for q in poly]
+                self.items.append((b["name"], b["height_m"], poly, (min(lats), min(lons), max(lats), max(lons)),
+                                   (sum(lats) / len(lats), sum(lons) / len(lons))))
+
+    @staticmethod
+    def inside(poly, lat, lon):
+        hit = False
+        j = len(poly) - 1
+        for i in range(len(poly)):
+            (lat_i, lon_i), (lat_j, lon_j) = poly[i], poly[j]
+            if (lon_i > lon) != (lon_j > lon) and lat < (lat_j - lat_i) * (lon - lon_i) / (lon_j - lon_i) + lat_i:
+                hit = not hit
+            j = i
+        return hit
+
+    def hit(self, lat, lon, agl_m):
+        """Name of the building whose footprint and height contain this point, else None."""
+        if not self.items:
+            return hit_obstacle(lat, lon, agl_m)
+        for name, h, poly, (a, b, c, d), _ in self.items:
+            if a <= lat <= c and b <= lon <= d and agl_m <= h and self.inside(poly, lat, lon):
+                return name
+        return None
+
+    def nearest(self, lat, lon):
+        """(name, distance m, height m) of the closest building centroid."""
+        best = None
+        for name, h, _, _, (clat, clon) in self.items:
+            d = ((lat - clat) * 111_200.0) ** 2 + ((lon - clon) * 111_200.0 * 0.791) ** 2
+            if best is None or d < best[1]:
+                best = (name, d, h)
+        return (best[0], best[1] ** 0.5, best[2]) if best else None
 
 
 def hit_obstacle(lat, lon, agl_m):
-    """Name of the tower whose footprint and height contain this point, else None."""
+    """Landmark fallback: name of the tower whose footprint and height contain this point, else None."""
     for name, olat, olon, r, h in OBSTACLES:
         dn = (lat - olat) * 111_200.0
         de = (lon - olon) * 111_200.0 * 0.791   # cos(37.8 deg)
@@ -130,6 +174,15 @@ def selftest():
     assert hit_obstacle(37.789774, -122.396925, 100) == "Salesforce Tower"
     assert hit_obstacle(37.789774, -122.396925, 400) is None          # above the roof
     assert hit_obstacle(37.7920, -122.3650, 100) is None              # over the Bay
+    bl = Buildings()
+    if bl.items:
+        assert bl.hit(37.789774, -122.396925, 100) == "Salesforce Tower"
+        assert bl.hit(37.789774, -122.396925, 400) is None
+        assert bl.hit(37.7920, -122.3650, 100) is None
+        t0 = time.perf_counter()
+        for _ in range(600):
+            bl.hit(37.7905, -122.3990, 50)
+        print(f"{len(bl.items)} buildings loaded; hit test {1000 * (time.perf_counter() - t0) / 600:.2f} ms each")
     p = vehx(47.79, 13.0, 430.5, 150.0, 2.5, -1.0)
     assert len(p) == 5 + 4 + 24 + 12
     assert struct.unpack_from("<idddfff", p, 5)[:4] == (0, 47.79, 13.0, 430.5)
@@ -149,14 +202,14 @@ def selftest():
     print("selftest ok")
 
 
-def crashed(fdm, vals, AGL, ELE, have_xplane):
+def crashed(fdm, vals, AGL, ELE, have_xplane, buildings):
     """Why the flight just ended, or None: a tower, X-Plane's terrain, or a touchdown that is too hard."""
     lat, lon = fdm["position/lat-geod-deg"], fdm["position/long-gc-deg"]
     if have_xplane and AGL in vals and ELE in vals:
         agl_m = fdm["position/h-sl-meters"] - (vals[ELE] - vals[AGL])   # our altitude over X-Plane's ground
     else:
         agl_m = fdm["position/h-agl-ft"] / M2FT
-    name = hit_obstacle(lat, lon, agl_m)
+    name = buildings.hit(lat, lon, agl_m)
     if name:
         return f"hit the {name}"
     vdown_fps = fdm["velocities/v-down-fps"]
@@ -231,6 +284,8 @@ def main():
         print(f"X-Plane aircraft at {lat:.5f} {lon:.5f}  {ele:.0f} m MSL  hdg {psi:.0f}  agl {agl:.1f} m")
     else:
         lat, lon, ele, psi, agl = 37.46358, -122.11749, 2.0, 142.0, 0.0   # KPAO runway 13
+    buildings = Buildings()
+    print(f"{len(buildings.items)} building footprints loaded" if buildings.items else "no sf_buildings.json: landmark towers only")
     hotas = None
     trim_thr = 0.0
     if args.pilot == "hid":
@@ -324,7 +379,7 @@ def main():
                 for pk in gauge_packets(fdm):
                     sock.sendto(pk, xp)
                 sock.sendto(dref_set("sim/cockpit2/engine/actuators/throttle_ratio[0]", thr), xp)  # cockpit lever
-            why = crashed(fdm, vals, AGL, ELE, args.viewer == "xplane")
+            why = crashed(fdm, vals, AGL, ELE, args.viewer == "xplane", buildings)
             if why:
                 print(f"\nCRASHED: {why} at {fdm['velocities/vc-kts']:.0f} kt")
                 if args.viewer == "xplane":
@@ -339,7 +394,9 @@ def main():
                       f"pwr {fdm['propulsion/engine/power-hp']:3.0f}hp "
                       f"{100 * fdm['propulsion/engine/power-hp'] / RATED_HP.get(args.model, 160):3.0f}%  "
                       f"hdg {fdm['attitude/psi-deg']:3.0f}  thr {thr:.2f} stick {pitch:+.2f} roll {roll:+.2f} "
-                      f"yaw {yaw:+.2f} wow {fdm['gear/unit/WOW']:.0f}", flush=True)
+                      f"yaw {yaw:+.2f} wow {fdm['gear/unit/WOW']:.0f}"
+                      + (f"  near: {nb[0]} {nb[1]:.0f} m, {nb[2]:.0f} m tall" if (nb := buildings.nearest(
+                          fdm["position/lat-geod-deg"], fdm["position/long-gc-deg"])) and nb[1] < 400 else ""), flush=True)
             next_t += frame
             time.sleep(max(0.0, next_t - now))  # ponytail: wall-clock pacing, no record logging yet
     except KeyboardInterrupt:
