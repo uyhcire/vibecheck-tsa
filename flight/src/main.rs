@@ -9,6 +9,7 @@ mod assets;
 mod atmos;
 mod c172;
 mod ground;
+mod hotas;
 mod photo;
 mod rt;
 mod sfscene;
@@ -639,6 +640,9 @@ struct App {
     cam_mode: usize,
     invert: bool,
     stick: (f64, f64),
+    hotas: hotas::Hotas,
+    /// The HOTAS report seen last frame (`None`: no stick yet), for lever moves and button presses.
+    hotas_prev: Option<hotas::Sticks>,
     acc: f64,
     /// The aircraft and its control surfaces as drawn between ticks, and the `sim.k` they were last pushed at.
     drawn: Drawn,
@@ -753,8 +757,29 @@ impl App {
         if is_key_down(KeyCode::Q) {
             self.fbw.thr = (self.fbw.thr - 0.5 * dt).max(0.0);
         }
+        // HOTAS: the stick sets pitch and roll unless a key is held; the lever sets the throttle when it
+        // moves, so Q/E and a reset's throttle hold until then.
+        let hs = self.hotas.get();
+        let prev = std::mem::replace(&mut self.hotas_prev, hs);
+        let mut hotas_pressed = 0;
+        if let Some(hs) = hs {
+            if prev.is_none() {
+                eprintln!("HOTAS: stick connected");
+            }
+            if !down(KeyCode::W, KeyCode::Up) && !down(KeyCode::S, KeyCode::Down) {
+                let p = hotas::deadzone(hs.pitch, 0.1);
+                self.stick.0 = if self.invert { -p } else { p };
+            }
+            if !down(KeyCode::A, KeyCode::Left) && !down(KeyCode::D, KeyCode::Right) {
+                self.stick.1 = hotas::deadzone(hs.roll, 0.1);
+            }
+            if prev.is_some_and(|p| p.throttle != hs.throttle) {
+                self.fbw.thr = hs.throttle;
+            }
+            hotas_pressed = hs.buttons & !prev.map_or(0, |p| p.buttons);
+        }
         let clicked = is_mouse_button_pressed(MouseButton::Left) && filter_button().contains(mouse_position().into());
-        if is_key_pressed(KeyCode::Space) || clicked {
+        if is_key_pressed(KeyCode::Space) || clicked || hotas_pressed & hotas::BTN_FILTER != 0 {
             let on = !self.sim.cfg.filter_on;
             self.sim.set_filter(on);
         }
@@ -792,7 +817,7 @@ impl App {
                 h.visible = false;
             }
         }
-        if is_key_pressed(KeyCode::K) {
+        if is_key_pressed(KeyCode::K) || hotas_pressed & hotas::BTN_KAMIKAZE != 0 {
             self.kamikaze = if self.kamikaze.is_some() { None } else { Some(Kamikaze::new(self.seed)) };
             self.showcase = None;
             if self.kamikaze.is_none() {
@@ -1421,13 +1446,14 @@ impl App {
         }
         // Bottom bar.
         let hint = format!(
-            "{} · {} · H help · Tab map · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-{} scenarios{} · K kamikaze · T harness · R reset{}",
+            "{} · {} · H help · Tab map · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-{} scenarios{} · K kamikaze · T harness · R reset{}{}",
             self.world.map.name(),
             scenario_names(self.world.map)[self.scenario],
             CAM_NAMES[self.cam_mode],
             RENDERER_NAMES[self.renderer],
             scenario_names(self.world.map).len(),
             if self.world.map == MapId::Grid { " · Y showcase" } else { "" },
+            if self.hotas_prev.is_some() { " · HOTAS" } else { "" },
             if self.world.map == MapId::SanFrancisco { " · map data: DataSF, © OpenStreetMap contributors, USGS" } else { "" }
         );
         draw_rectangle(0.0, h - 30.0, w, 30.0, Color::new(0.04, 0.06, 0.09, 0.55));
@@ -1460,7 +1486,7 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 23] = [
+        let lines: [(&str, &str); 24] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
@@ -1482,6 +1508,7 @@ impl App {
             ("L  O  Z/X  N/J", "footage look · lens preset · f-stop · focal length"),
             ("6", "cinematic: fly-by camera, clear weather, 50 mm f/4"),
             ("U", "ray traced: MetalFX denoiser on / off"),
+            ("HOTAS", "stick pitch / roll · lever throttle · stick button 2 filter · USB button 3 kamikaze"),
             ("H / Esc", "toggle / close this help"),
             ("", ""),
         ];
@@ -1707,6 +1734,8 @@ async fn main() {
         cam_mode: arg("--cam").and_then(|s| s.parse().ok()).unwrap_or(0),
         invert: false,
         stick: (0.0, 0.0),
+        hotas: hotas::Hotas::open(),
+        hotas_prev: None,
         acc: 0.0,
         drawn,
         drawn_ctl: [(c172::Controls::default(), 0.0); 2],

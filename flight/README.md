@@ -250,6 +250,15 @@ require, not budget starvation.
 | Tab | switch map: grid city ↔ San Francisco |
 | R / H | reset / help |
 
+**HOTAS** (Thrustmaster T.Flight HOTAS One, base switch on **PC** before plugging in; setup notes in
+[`hardware/hotas-one/`](../hardware/hotas-one/)): read straight over HID by `src/hotas.rs`, a port of John's
+`sidecar/hotas_hid.py`. It takes over once any control moves (the bottom bar then shows `HOTAS`).
+The stick sets pitch and roll (10% dead zone; `I` inverts pitch), a held key still wins for that frame;
+the lever sets the throttle whenever it moves, so `Q`/`E` and a reset's throttle hold until then.
+The stick button labelled 2 (USB button 4) toggles the filter, USB button 3 the kamikaze autopilot, as in
+John's sidecar. To see raw values: `cargo test --release --bin cityflight hotas::tests::live -- --ignored --nocapture`
+and move the controls.
+
 The trail is coloured by what the filter was doing: blue = pilot in control,
 orange = blending, red = committed escape, white = filter off.
 
