@@ -1223,7 +1223,7 @@ impl App {
         let mut env: Option<(String, &str, f64, bool)> = None;
         #[cfg(feature = "jsb")]
         if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
-            let e = g.law.map(|l| l.esc).or(g.witness);
+            let e = g.law.or(g.witness).map(|l| l.esc);
             env = Some((format!("{k:?} exact rollout").to_lowercase(), e.map_or("none verified", |i| cityflight::envfilter::ESCAPES[i].name), *g.cpu_ms.last().unwrap_or(&0.0) as f64, g.witness.is_some() || g.law.is_some()));
         }
         let (h_txt, esc, ms) = match &env {

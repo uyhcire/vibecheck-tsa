@@ -802,19 +802,94 @@ pub const SHORT_RUN: u64 = 5;
 /// Don't start another rollout in a tick with fewer frames than this left.
 const MIN_ATTEMPT: usize = 640;
 
-/// Gatekeeper state. Invariant: `witness` is an escape that verified from the current plant state (when not
-/// committed), or `law` is a committed escape that verified from the state where it began; either way the
-/// aircraft has a verified escape it can fly from here.
+/// Pilot ticks after a hand-back during which the escape that was flying is tried first (resumed with its
+/// clock and integrators), so a re-commit continues it instead of restarting or reversing it.
+pub const RESUME_TICKS: u64 = 100;
+/// Frames a resumed escape (one already flying, `Law::t > 0`) may use in a check: past the first terminal
+/// tests (6 s, then every 0.5 s), so a resumed escape that does not settle again leaves budget for fresh ones.
+pub const RESUME_CAP: usize = 1100;
+
+/// Result of `verify_first`: the first candidate that verified (its index and rollout), the outcome of every
+/// rollout tried (escape, outcome), the JSBSim frames spent, and the last rollout that failed (for display).
+pub struct Verdict {
+    pub found: Option<(usize, Roll)>,
+    pub tried: Vec<(usize, Outcome)>,
+    pub frames: usize,
+    pub last: Option<Roll>,
+}
+
+/// Check candidates in order and return the first whose escape verifies. A candidate is the aircraft after a
+/// candidate tick and the escape law state to fly from there. The first rollout runs to its verdict; later
+/// ones run only while at least `MIN_ATTEMPT` frames of the per-tick budget are left (`frames0` are spent).
+/// A resumed law gets at most `RESUME_CAP` frames.
+pub fn verify_first(world: &World, cands: &[(&JsbPlant, Law)], frames0: usize, deadline: Option<std::time::Instant>) -> Verdict {
+    let mut v = Verdict { found: None, tried: Vec::new(), frames: frames0, last: None };
+    for (i, (p, law)) in cands.iter().enumerate() {
+        let left = BUDGET.load(Ordering::Relaxed).saturating_sub(v.frames);
+        if i > 0 && left < MIN_ATTEMPT {
+            break;
+        }
+        let max = if i == 0 { usize::MAX } else { left };
+        let r = rollout_law(world, p, *law, if law.t > 0.0 { max.min(RESUME_CAP) } else { max }, deadline);
+        v.frames += r.frames;
+        v.tried.push((law.esc, r.outcome));
+        if r.ok() {
+            v.found = Some((i, r));
+            return v;
+        }
+        v.last = Some(r);
+    }
+    v
+}
+
+/// Turn direction of a law's terminal set, or of its escape before the street escape picks a side.
+fn law_dir(l: &Law) -> f64 {
+    if l.dir() != 0.0 { l.dir() } else { ESCAPES[l.esc].dir }
+}
+
+/// One tick of the pilot's command (as `JsbPlant::advance_pilot`), returning the surfaces of each frame.
+fn pilot_frames(p: &mut JsbPlant, u: &Pilot, dt: f64) -> Vec<[f64; 4]> {
+    let mut out = Vec::with_capacity(4);
+    p.lag -= dt;
+    while p.lag < -1e-12 {
+        match u {
+            Pilot::Fbw(c) => p.frame(c),
+            Pilot::Surfaces(s) => p.frame_raw(s[0], s[1], s[2], s[3]),
+        }
+        p.lag += DT_JSB;
+        out.push(p.surf);
+    }
+    out
+}
+
+/// Gatekeeper state.
+///
+/// Safety invariant (the statement the gate's proof is about): every tick applied to the aircraft is either
+/// - (a) a candidate tick whose frames were checked clear and after which an escape law state verified from
+///   the resulting aircraft state; that law state becomes `witness`; or
+/// - (b) frames of `law`, the committed escape law state, which verified from the state where it was
+///   committed, so flying on from here follows the rest of a verified rollout.
+///
+/// So while the pilot flies, `witness` is a law state (escape, clock, integrators, captured references) that
+/// verified from the current aircraft state, and a commit flies exactly that law state. Which candidates are
+/// tried, in which order, and when (resumption, direction preference) is proposal logic: it changes which
+/// verified command flies, never whether one does. (Clearance of a candidate tick: `rollout_law` checks the
+/// state the tick ends in and every `SAMPLE` frames of the escape, not the tick's intermediate frames.)
 #[derive(Clone, Debug)]
 pub struct Gate {
     /// Escape tried first each tick: the last one that verified.
     pub last: usize,
     /// First escape to try on the next committed tick (round robin across ticks).
     pub rr: usize,
-    /// Escape verified from the current state (fresh law), when flying the pilot.
-    pub witness: Option<usize>,
-    /// The committed escape in flight.
+    /// Escape law state verified from the current aircraft state, when flying the pilot: a fresh law, or the
+    /// escape that was flying, resumed, after a hand-back.
+    pub witness: Option<Law>,
+    /// The committed escape law in flight.
     pub law: Option<Law>,
+    /// Surfaces (elevator, aileron, rudder, throttle) applied on each frame of the latest tick.
+    pub tick_surfaces: Vec<[f64; 4]>,
+    /// Pilot ticks since the last hand-back.
+    pub since_handback: u64,
     /// Displays: the latest rollout (and whether it verified), and the committed escape's verified path.
     pub shown: Vec<[f64; 3]>,
     pub shown_ok: bool,
@@ -849,6 +924,8 @@ impl Gate {
             rr: 0,
             witness: None,
             law: None,
+            tick_surfaces: Vec::new(),
+            since_handback: u64::MAX / 2,
             shown: Vec::new(),
             shown_ok: false,
             committed_path: Vec::new(),
@@ -870,7 +947,7 @@ impl Gate {
         for esc in 0..n_esc() {
             let r = rollout(world, p, esc, usize::MAX);
             if r.ok() {
-                g.witness = Some(esc);
+                g.witness = Some(Law::new(esc));
                 g.last = esc;
                 g.witness_path = r.path.iter().chain(&r.tail).copied().collect();
                 best = Some(r);
@@ -894,6 +971,42 @@ impl Gate {
         self.tick_pilot(world, plant, &Pilot::Fbw(*u_p), dt, filter_on)
     }
 
+    /// Turn direction to keep when ordering escapes: the committed or witness law's, else the bank's, else
+    /// the latest commit's.
+    fn pref_dir(&self, o: &Obs) -> f64 {
+        let d = self.law.or(self.witness).map_or(0.0, |l| law_dir(&l));
+        if d != 0.0 {
+            d
+        } else if o.phi.abs() > 0.1 {
+            o.phi.signum()
+        } else {
+            self.prev_dir
+        }
+    }
+
+    /// Escape laws to try after the pilot's tick, in order: the committed escape continued (or, shortly after
+    /// a hand-back, the resumed witness), then fresh escapes from `start` round the list, those turning the
+    /// preferred way (or straight) before those turning against it.
+    fn candidate_laws(&self, o: &Obs) -> Vec<Law> {
+        let n = n_esc();
+        let mut laws = Vec::with_capacity(n + 1);
+        match (self.law, self.witness) {
+            (Some(l), _) => laws.push(l),
+            (None, Some(w)) if w.t == 0.0 || self.since_handback < RESUME_TICKS => laws.push(w),
+            _ => {}
+        }
+        let pref = self.pref_dir(o);
+        let start = if self.law.is_none() { self.last } else { self.rr };
+        let order = (0..n).map(|i| (start + i) % n);
+        let (with, against): (Vec<usize>, Vec<usize>) = order.partition(|&e| ESCAPES[e].dir * pref >= 0.0);
+        for e in with.into_iter().chain(against) {
+            if !laws.iter().any(|l| l.t == 0.0 && l.esc == e) {
+                laws.push(Law::new(e));
+            }
+        }
+        laws
+    }
+
     /// `tick` for either kind of pilot command: fly-by-wire demands or raw surfaces.
     pub fn tick_pilot(&mut self, world: &World, plant: &mut JsbPlant, u_p: &Pilot, dt: f64, filter_on: bool) -> bool {
         let (c0, w0) = (thread_cpu(), std::time::Instant::now());
@@ -902,67 +1015,62 @@ impl Gate {
             cand.bumpless_fbw();
         }
         let f0 = (-cand.lag / DT_JSB).ceil().max(0.0) as usize;
-        cand.advance_pilot(u_p, dt);
+        let cand_surf = pilot_frames(&mut cand, u_p, dt);
         if !filter_on {
             *plant = cand;
+            self.tick_surfaces = cand_surf;
             self.law = None;
             self.witness = None;
             return true;
         }
         let cap = TIME_CAP_MS.load(Ordering::Relaxed);
         let deadline = (cap > 0).then(|| w0 + std::time::Duration::from_millis(cap as u64));
-        let mut frames = f0;
-        let mut verified: Option<Roll> = None;
+        let laws = self.candidate_laws(&plant.obs);
+        let cands: Vec<(&JsbPlant, Law)> = laws.iter().map(|&l| (&cand, l)).collect();
+        let v = verify_first(world, &cands, f0, deadline);
         let n = n_esc();
-        // Flying the pilot: `last` first. Committed: continue the round robin from the previous tick.
-        let mut esc = if self.law.is_none() { self.last } else { self.rr };
-        let mut tried = 0;
-        loop {
-            let left = BUDGET.load(Ordering::Relaxed).saturating_sub(frames);
-            if tried > 0 && left < MIN_ATTEMPT {
-                break;
-            }
-            let r = rollout_law(world, &cand, Law::new(esc), if tried == 0 { usize::MAX } else { left }, deadline);
-            frames += r.frames;
-            tried += 1;
-            self.outcomes[esc][r.outcome as usize] += 1;
+        for &(esc, out) in &v.tried {
+            self.outcomes[esc][out as usize] += 1;
+        }
+        if self.law.is_some() {
+            // Fresh escapes tried this tick (the first candidate is the committed escape continued).
+            self.rr = (self.rr + v.tried.len().saturating_sub(1).max(1)) % n;
+        }
+        let shown = v.found.as_ref().map(|(_, r)| r).or(v.last.as_ref());
+        if let Some(r) = shown {
             self.shown_ok = r.ok();
             self.shown = r.path.iter().chain(&r.tail).copied().collect();
-            if r.ok() {
-                verified = Some(r);
-                break;
-            }
-            esc = (esc + 1) % n;
-            if tried >= n {
-                break;
-            }
         }
-        self.rr = esc;
-        let accept = if let Some(r) = verified {
-            if self.law.is_some() && self.run_len <= SHORT_RUN {
-                self.short_runs += 1;
+        let accept = if let Some((i, _)) = v.found {
+            if self.law.is_some() {
+                if self.run_len <= SHORT_RUN {
+                    self.short_runs += 1;
+                }
+                self.since_handback = 0;
+            } else {
+                self.since_handback += 1;
             }
             *plant = cand;
-            self.last = r.esc;
-            self.witness = Some(r.esc);
+            self.tick_surfaces = cand_surf;
+            self.last = laws[i].esc;
+            self.witness = Some(laws[i]);
             self.witness_path = self.shown.clone();
             self.law = None;
             self.committed_path.clear();
             true
         } else {
             if self.law.is_none() {
-                let esc = match self.witness {
-                    Some(e) => e,
+                let law = match self.witness {
+                    Some(w) => w,
                     None => {
                         self.blind_ticks += 1;
-                        self.last
+                        Law::new(self.last)
                     }
                 };
-                self.law = Some(Law::new(esc));
-                let d = ESCAPES[esc].dir;
-                if d * self.prev_dir < 0.0 {
+                if law_dir(&law) * self.prev_dir < 0.0 {
                     self.reversals += 1;
                 }
+                self.law = Some(law);
                 self.committed_path = std::mem::take(&mut self.witness_path);
                 self.runs += 1;
                 self.run_len = 0;
@@ -971,20 +1079,22 @@ impl Gate {
             }
             self.run_len += 1;
             let law = self.law.as_mut().unwrap();
+            self.tick_surfaces.clear();
             plant.lag -= dt;
             while plant.lag < -1e-12 {
                 law.step(world, plant);
                 plant.lag += DT_JSB;
+                self.tick_surfaces.push(plant.surf);
             }
-            if law.dir() != 0.0 {
-                self.prev_dir = law.dir();
+            if law_dir(law) != 0.0 {
+                self.prev_dir = law_dir(law);
             }
             false
         };
         self.first_accept.get_or_insert(accept);
         self.cpu_ms.push(((thread_cpu() - c0) * 1e3) as f32);
         self.wall_ms.push((w0.elapsed().as_secs_f64() * 1e3) as f32);
-        self.frames.push(frames as u32);
+        self.frames.push(v.frames as u32);
         accept
     }
 }
