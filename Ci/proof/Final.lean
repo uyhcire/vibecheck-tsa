@@ -4,9 +4,11 @@ import Ci.Goals
 /-! `TInvariant Ci.Proof.lawT` reduced to one open obligation, `TickInT`: the tick maps the terminal set into itself.
 The other half of `TInvariant` (every substep safe and climbing) is `Ci.Proof.SafeIv.tick_safe_climb`, proved.
 
-Evidence for `TickInT` (not a proof): exact-`inT` one-tick tests on ~19k near-boundary samples (fast coordinates at
-their tolerance corners) and ~45k adversarial hill-climb evaluations over five altitude bands, no exit; worst
-one-tick ratio 0.986 (Lyapunov form or fast constraint, relative to its bound). See `docs/ci/log-proof.md`. -/
+Evidence for `TickInT` (not a proof): exact-`inT` one-tick tests on 19447 near-boundary samples (fast coordinates at
+their tolerance corners) and adversarial hill-climb searches per 50 m cell and per altitude band, no exit; worst
+one-tick ratio found 0.993 (Lyapunov form or fast constraint, relative to its bound). In Mathlib,
+`Proofs.CiProof.Skel.tInvariant_of_dynamics` reduces `TInvariant lawT` further, to the side conditions at the image
+and an affine enclosure of the tick with a contraction certificate. See `docs/ci/log-proof.md`. -/
 
 namespace Ci.Proof
 open Vibecheck Jsb
