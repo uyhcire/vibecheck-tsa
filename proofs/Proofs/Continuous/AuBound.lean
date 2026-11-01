@@ -92,10 +92,10 @@ structure AuRegion (s : StateOf ℝ) (e : ℝ) : Prop where
   stall : s.stall = 0
   e_lo : 0 < e
   e_hi : e ≤ 0.3
-  rpm_lo : 2300 ≤ s.rpm
+  rpm_lo : 1550 ≤ s.rpm
 
 -- unfolding `evaluate` over ℝ and generalizing its subterms exceeds the default budget
-set_option maxHeartbeats 1000000 in
+set_option maxHeartbeats 400000 in
 theorem au_lower (s : StateOf ℝ) (e : ℝ) (R : AuRegion s e) : 0.6 ≤ (evalR ⟨e, 1, 0, 0⟩ s).1.au := by
   obtain ⟨hh0, hh1, hvx0, hvx1, hvz0, hvz1, hn0, hn1, hdz, hu0, ha0, ha1, hq0, hq1, had, hst, he0, he1, hr0⟩ := R
   -- facts about the region, before the model is unfolded
@@ -166,7 +166,7 @@ theorem au_lower (s : StateOf ℝ) (e : ℝ) (R : AuRegion s e) : 0.6 ≤ (evalR
       linarith only [h7, h8, hQ0]
     · linarith only [hQ0]
   have hel0 : -e * 28 * 1745 / 100000 < 0 := by linarith only [he0]
-  have hCLQ : ρ * M / 2000 * (54394 / 65536) ≤ ρ * M / 2000 * CL :=
+  have hCLQ : ρ * M / 2000 * (54390 / 65536) ≤ ρ * M / 2000 * CL :=
     mul_le_mul_of_nonneg_left (by linarith only [hCL]) hQ0
   have heQ : ρ * M / 2000 * e ≤ ρ * M / 2000 * 0.3 := mul_le_mul_of_nonneg_left he1 hQ0
   have hCDQ : ρ * M / 2000 * CD ≤ ρ * M / 2000 * (8100 / 65536) := mul_le_mul_of_nonneg_left hCD.2 hQ0

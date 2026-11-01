@@ -76,7 +76,7 @@ theorem pl_lo {xs ys : List ℝ} {a : ℝ} (h : ∀ z ∈ xs, a ≤ z) {x : ℝ}
   unfold pl; rw [plAux_lo a xs ys h x hx]
 
 /-- Simp set that evaluates a concrete table at a numeral. -/
-macro "tbl_norm" : tactic => `(tactic| norm_num [pl, plAux, rawList, ofRaw, max_def, min_def])
+macro "tbl_norm" : tactic => `(tactic| norm_num [pl, plAux, rawList, ofRaw, max_def, min_def, List.range_succ])
 
 -- ground-effect factors are exactly 1 at least 1.1 wing spans up
 theorem kCLge_hi {x : ℝ} (hx : 72090 / 65536 ≤ x) : tbl1R tbl_x_2 x = 1 := by
@@ -96,19 +96,38 @@ theorem col_x4 : col tbl_x_4 0 = #[269, 85, 7, 20, 131, 341, 649, 1062, 1573, 21
 theorem col_x5 : col tbl_x_5 0 = #[-14418, 16384, 47841, 54395, 60293, 66847, 70779, 74056, 77988, 81920, 88474,
     94372, 96338, 93716, 90440, 85197, 75366] := by decide +kernel
 
-/-- With zero flap / no stall (column 0) a two-column or four-column table is its first column. -/
-theorem tbl2R_col0 (t : Tbl2) (hc : rawList t.cols = (0 : ℝ) :: (rawList t.cols).tail)
-    (hpos : ∀ z ∈ (rawList t.cols).tail, 0 < z) (hn : 2 ≤ t.cols.size) (r : ℝ) :
-    tbl2R t r 0 = pl (rawList t.rows) (rawList (col t 0)) r := by
-  sorry
+theorem tbl2R_x5_col0 (r : ℝ) : tbl2R tbl_x_5 r 0 = pl (rawList tbl_x_5.rows) (rawList (col tbl_x_5 0)) r := by
+  have h0 : hat tbl_x_5 0 0 = 1 := by unfold hat; simp [tbl_x_5]; tbl_norm
+  have h1 : hat tbl_x_5 1 0 = 0 := by unfold hat; simp [tbl_x_5]; tbl_norm
+  have hs : tbl_x_5.cols.size = 2 := rfl
+  unfold tbl2R; rw [hs]; simp [List.range_succ, h0, h1]
 
-/-- Lift coefficient (no stall, no flap) is at least its value at 0.1 rad on [0.1, 0.2] rad. -/
-theorem CL_lower {a : ℝ} (h0 : 0.1 ≤ a) (h1 : a ≤ 0.2) : 54395 / 65536 - 1 / 65536 ≤ tbl2R tbl_x_5 a 0 := by
-  sorry
+theorem tbl2R_x4_col0 (r : ℝ) : tbl2R tbl_x_4 r 0 = pl (rawList tbl_x_4.rows) (rawList (col tbl_x_4 0)) r := by
+  have h0 : hat tbl_x_4 0 0 = 1 := by unfold hat; simp [tbl_x_4]; tbl_norm
+  have h1 : hat tbl_x_4 1 0 = 0 := by unfold hat; simp [tbl_x_4]; tbl_norm
+  have h2 : hat tbl_x_4 2 0 = 0 := by unfold hat; simp [tbl_x_4]; tbl_norm
+  have h3 : hat tbl_x_4 3 0 = 0 := by unfold hat; simp [tbl_x_4]; tbl_norm
+  have hs : tbl_x_4.cols.size = 4 := rfl
+  unfold tbl2R; rw [hs]; simp [List.range_succ, h0, h1, h2, h3]
+
+/-- Lift coefficient (no stall, no flap) on [0.1, 0.2] rad is at least its value at 0.1 rad. -/
+theorem CL_lower {a : ℝ} (h0 : 0.1 ≤ a) (h1 : a ≤ 0.2) : 54390 / 65536 ≤ tbl2R tbl_x_5 a 0 := by
+  rw [tbl2R_x5_col0, col_x5]
+  have hok : SegOK 0.1 0.2 (rawList tbl_x_5.rows) (rawList #[-14418, 16384, 47841, 54395, 60293, 66847, 70779,
+      74056, 77988, 81920, 88474, 94372, 96338, 93716, 90440, 85197, 75366]) := by
+    simp [SegOK, rawList, ofRaw, tbl_x_5]; norm_num
+  refine le_trans ?_ (pl_mono hok le_rfl h0 h1)
+  simp [tbl_x_5]; tbl_norm
 
 /-- Drag coefficient due to alpha (no flap) on [0.1, 0.2] rad. -/
 theorem CD_bounds {a : ℝ} (h0 : 0.1 ≤ a) (h1 : a ≤ 0.2) : 0 ≤ tbl2R tbl_x_4 a 0 ∧ tbl2R tbl_x_4 a 0 ≤ 8100 / 65536 := by
-  sorry
+  rw [tbl2R_x4_col0, col_x4]
+  have hok : SegOK 0.1 0.2 (rawList tbl_x_4.rows) (rawList #[269, 85, 7, 20, 131, 341, 649, 1062, 1573, 2189, 2897,
+      3709, 4627, 5636, 6305, 7006, 7733, 8507, 9332, 10256, 11318, 11679, 11246, 10604, 9667, 7189]) := by
+    simp [SegOK, rawList, ofRaw, tbl_x_4]; norm_num
+  constructor
+  · refine le_trans ?_ (pl_mono hok le_rfl h0 h1); simp [tbl_x_4]; tbl_norm
+  · refine le_trans (pl_mono hok h0 h1 le_rfl) ?_; simp [tbl_x_4]; tbl_norm
 
 theorem plAux_neg : ∀ (xs ys : List ℝ) (x : ℝ), plAux xs (ys.map (- ·)) x = - plAux xs ys x
   | x0 :: x1 :: xs, y0 :: y1 :: ys, x => by
@@ -127,13 +146,31 @@ theorem pl_anti {a b : ℝ} {xs ys : List ℝ} (h : SegOK a b xs (ys.map (- ·))
 
 /-- Propeller thrust coefficient is positive up to advance ratio 1.1. -/
 theorem CT_pos {x : ℝ} (h1 : x ≤ 72090 / 65536) : 0 ≤ tbl1R tblCT x := by
-  sorry
+  unfold tbl1R
+  rcases le_or_gt x 0 with h | h
+  · rw [pl_lo (a := 0) (by simp [rawList, ofRaw, tblCT]; norm_num) h]; simp [tblCT]; tbl_norm
+  · have hok : SegOK 0 (72090 / 65536) (rawList tblCT.xs) ((rawList tblCT.ys).map (- ·)) := by
+      simp [SegOK, rawList, ofRaw, tblCT]; norm_num
+    refine le_trans ?_ (pl_anti hok h.le h1 le_rfl); simp [tblCT]; tbl_norm
 
 theorem CTMach_pos (x : ℝ) : 0 ≤ tbl1R tblCTMach x := by
-  sorry
+  unfold tbl1R
+  have hok : SegOK (55706 / 65536) (68813 / 65536) (rawList tblCTMach.xs) ((rawList tblCTMach.ys).map (- ·)) := by
+    simp [SegOK, rawList, ofRaw, tblCTMach]; norm_num
+  rcases le_or_gt x (55706 / 65536) with h | h
+  · rw [pl_lo (a := 55706 / 65536) (by simp [rawList, ofRaw, tblCTMach]; norm_num) h]; simp [tblCTMach]; tbl_norm
+  rcases le_or_gt x (68813 / 65536) with h' | h'
+  · refine le_trans ?_ (pl_anti hok h.le h' le_rfl); simp [tblCTMach]; tbl_norm
+  · rw [pl_hi (a := 68813 / 65536) (by simp [rawList, ofRaw, tblCTMach]; norm_num) h'.le]; simp [tblCTMach]; tbl_norm
 
+-- the 160-entry atmosphere table unfolds past the default recursion depth
+set_option maxRecDepth 20000 in
 /-- Air density between 600 m and 1250 m is at least its value at 1250 m. -/
 theorem rho_lower {h : ℝ} (h0 : 600 ≤ h) (h1 : h ≤ 1250) : 71083 / 65536 ≤ atmR atmRho h := by
-  sorry
+  unfold atmR
+  have hok : SegOK 600 1250 ((List.range atmRho.size).map fun i => (50 * i : ℝ)) ((rawList atmRho).map (- ·)) := by
+    simp [SegOK, rawList, ofRaw, atmRho, List.range_succ]; norm_num
+  refine le_trans ?_ (pl_anti hok h0 h1 le_rfl)
+  simp [atmRho]; tbl_norm
 
 end Jsb.Cont
