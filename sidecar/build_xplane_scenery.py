@@ -26,6 +26,7 @@ import struct
 PACK = "OSM Obstacles - SF Downtown"
 GRID_PACK = "Grid City - Gate Map"
 TERRAIN_OBJ = "objects/terrain.obj"
+TILE_CELLS = 30                        # terrain tiles of 30 x 30 cells (600 m): 100 objects instead of one 6 km mesh
 TILE = "+37-123"
 # (name, columns, floors, glass) exactly as flight/src/assets.rs FACADES; floor height 3.6 m for the first three, 3.2 after.
 FACADES = [("facade_glass", 16.0, 10.0), ("facade_grid", 14.0, 8.0), ("facade_office", 32.0, 32.0),
@@ -61,10 +62,10 @@ def fac_text(ft, roof):
 FACADE
 SHADER_WALL
 TEXTURE {name}.png
-TWO_SIDED 0
+TWO_SIDED 1
 SHADER_ROOF
 TEXTURE {ROOFS[roof]}.png
-TWO_SIDED 0
+TWO_SIDED 1
 LOD 0 30000
 TEX_SIZE 1024 1024
 ROOF_SCALE 0 0 512 512 1024 1024 {ROOF_TILE_M} {ROOF_TILE_M}
@@ -119,7 +120,7 @@ def ccw(poly):
 
 
 def build_dsf(buildings, bbox, terrain_at=None):
-    """terrain_at: (lat, lon) to place objects/terrain.obj at (the grid city), or None."""
+    """terrain_at: list of (lat, lon, obj_path) terrain tiles to place (the grid city), or None."""
     south, west, north, east = bbox
     props = [("sim/west", "-123"), ("sim/east", "-122"), ("sim/north", "38"), ("sim/south", "37"),
              ("sim/planet", "earth"), ("sim/creation_agent", "vibecheck-tsa build_xplane_scenery"),
@@ -130,18 +131,18 @@ def build_dsf(buildings, bbox, terrain_at=None):
         props.append((key, box))
     props.append(("sim/require_facade", "1/0"))
     head = atom("HEAD", atom("PROP", strings(k for kv in props for k in kv)))
-    defn = atom("DEFN", atom("TERT", b"") + atom("OBJT", strings([TERRAIN_OBJ]) if terrain_at else b"")
+    defn = atom("DEFN", atom("TERT", b"") + atom("OBJT", strings(p for _, _, p in terrain_at) if terrain_at else b"")
                 + atom("POLY", strings(facade_path(i) for i in range(len(FACADES) * len(ROOFS))))
                 + atom("NETW", b"") + atom("DEMN", b""))
     pools, scals, cmds = b"", b"", b""
     kept = 0
     if terrain_at:
-        lat, lon = terrain_at
-        pools += atom("POOL", struct.pack("<IB", 1, 3) + b"\0" + struct.pack("<H", 0) + b"\0" + struct.pack("<H", 0)
-                      + b"\0" + struct.pack("<H", 0))
-        scals += atom("SCAL", struct.pack("<ff", 1.0, lon) + struct.pack("<ff", 1.0, lat) + struct.pack("<ff", 360.0, 0.0))
-        cmds += struct.pack("<BB", 3, 0) + struct.pack("<BH", 1, 0) + struct.pack("<BH", 7, 0)   # object 0, pool 0, OBJECT
-        kept = 1
+        for k, (lat, lon, _) in enumerate(terrain_at):     # one single-point pool per tile, placed exactly
+            pools += atom("POOL", struct.pack("<IB", 1, 3) + b"\0" + struct.pack("<H", 0) + b"\0" + struct.pack("<H", 0)
+                          + b"\0" + struct.pack("<H", 0))
+            scals += atom("SCAL", struct.pack("<ff", 1.0, lon) + struct.pack("<ff", 1.0, lat) + struct.pack("<ff", 360.0, 0.0))
+            cmds += struct.pack("<BB", 3, k) + struct.pack("<BH", 1, k) + struct.pack("<BH", 7, 0)   # object k, pool k, OBJECT
+        kept = len(terrain_at)
     current = None
     for b in sorted(buildings, key=lambda b: b.get("facade", 0)):
         if b.get("facade", 0) != current:
@@ -216,12 +217,13 @@ def read_sf_world(path):
 
 
 def write_terrain_obj(path, terr, x0, y0, sp, n, tex="rock.png", tile=60.0):
-    """OBJ8 mesh of the n x n height grid (rows south to north), x east, y up, z south, textured by world metres."""
+    """OBJ8 mesh of an n x n height grid (rows south to north) whose south-west corner is the placement point:
+    x east, y up, z south, textured by world metres."""
     out = ["A", "800", "OBJ", f"TEXTURE {tex}", f"POINT_COUNTS {n * n} 0 0 {6 * (n - 1) * (n - 1)}"]
     for j in range(n):
         for i in range(n):
-            x, y = x0 + i * sp, y0 + j * sp
-            out.append(f"VT {x:.1f} {terr[j][i]:.2f} {-y:.1f} 0 1 0 {x / tile:.3f} {y / tile:.3f}")
+            x, y = i * sp, j * sp
+            out.append(f"VT {x:.1f} {terr[j][i]:.2f} {-y:.1f} 0 1 0 {(x0 + x) / tile:.3f} {(y0 + y) / tile:.3f}")
     idx = []
     for j in range(n - 1):
         for i in range(n - 1):
@@ -265,8 +267,16 @@ def main():
     if args.grid:
         blds, terr, bbox = read_grid(args.grid)
         data = {"buildings": blds}
-        from gridmap import ORIGIN_LAT, ORIGIN_LON
-        terrain_at = (ORIGIN_LAT, ORIGIN_LON)
+        from gridmap import to_geo
+        n = len(terr)
+        terrain_at, tiles = [], []
+        for j0 in range(0, n - 1, TILE_CELLS):
+            for i0 in range(0, n - 1, TILE_CELLS):
+                sub = [row[i0:min(n, i0 + TILE_CELLS + 1)] for row in terr[j0:min(n, j0 + TILE_CELLS + 1)]]
+                x0, y0 = -3000.0 + i0 * 20.0, -3000.0 + j0 * 20.0
+                lat, lon = to_geo(x0, y0)
+                terrain_at.append((lat, lon, f"objects/terrain_{j0}_{i0}.obj"))
+                tiles.append((sub, x0, y0))
     elif args.world:
         blds, bbox = read_sf_world(args.world)
         data = {"buildings": blds}
@@ -282,7 +292,11 @@ def main():
     dsf, kept = build_dsf(data["buildings"], bbox, terrain_at)
     if args.grid:
         os.makedirs(os.path.join(root, "objects"), exist_ok=True)
-        write_terrain_obj(os.path.join(root, TERRAIN_OBJ), terr, -3000.0, -3000.0, 20.0, len(terr))
+        for old in os.listdir(os.path.join(root, "objects")):
+            if old.endswith(".obj"):
+                os.remove(os.path.join(root, "objects", old))
+        for (sub, x0, y0), (_, _, path) in zip(tiles, terrain_at):
+            write_terrain_obj(os.path.join(root, path), sub, x0, y0, 20.0, len(sub))
         from PIL import Image
         import io
         Image.open(io.BytesIO(texture_bytes("rock"))).convert("RGB").resize((1024, 1024)).save(
@@ -298,7 +312,8 @@ def main():
     for b in data["buildings"]:
         counts[b.get("facade", 0)] += 1
     print("facades:", ", ".join(f"{facade_path(i)[8:-4]} {c}" for i, c in enumerate(counts) if c))
-    print(f"{kept - bool(terrain_at)} of {len(data['buildings'])} buildings written to {root} ({len(dsf)} byte DSF)")
+    print(f"{kept - len(terrain_at or [])} of {len(data['buildings'])} buildings written to {root} ({len(dsf)} byte DSF)"
+          + (f", {len(terrain_at)} terrain tiles" if terrain_at else ""))
 
 
 if __name__ == "__main__":
