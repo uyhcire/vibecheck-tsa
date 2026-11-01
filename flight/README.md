@@ -134,6 +134,12 @@ cargo run --release --no-default-features --features jsb --bin esclab -- trace  
 With `B`, the latest rollout is drawn green (verified) or red, and the committed escape yellow; turning
 escapes end in their terminal helix.
 
+Boundary regimes (`docs/boundary-regimes`, `--bin regimes`): where the gate's safe set ends near each kind of
+obstacle, with markers drawn at actual contact and one-line demos. Demo flags: `--start x,y,z,v,γ°,heading°,bank°,thr`
+(a given start, flown with the sticks released), `--lead S` (moved back S seconds along its velocity), `--margin M`
+and `--check-every N` (the gate's clearance margin and check spacing in frames; defaults 4 m and 8), `--label TEXT`.
+The HUD shows the minimum clearance so far.
+
 `crashes` on the 200 hostile episodes plus the 4 kamikaze scenarios (JSBSim plant). A start is verified when
 the filter accepts the pilot's first tick.
 
