@@ -24,7 +24,7 @@ theorem lerpZ_y_mono {x0 x1 p y0 r y1 x : Int} (ht : 0 ≤ x - x0 ∧ x - x0 ≤
     omega
   · omega
 
-theorem lerpZ_x_range {x0 x1 y0 y1 xa xb x : Int} (h0 : x0 ≤ xa) (h1 : xa ≤ x) (h2 : x ≤ xb) :
+theorem lerpZ_x_range {x0 x1 y0 y1 xa xb x : Int} (_h0 : x0 ≤ xa) (h1 : xa ≤ x) (h2 : x ≤ xb) :
     Min.min (lerpZ x0 x1 y0 y1 xa) (lerpZ x0 x1 y0 y1 xb) ≤ lerpZ x0 x1 y0 y1 x ∧
     lerpZ x0 x1 y0 y1 x ≤ Max.max (lerpZ x0 x1 y0 y1 xa) (lerpZ x0 x1 y0 y1 xb) := by
   unfold lerpZ

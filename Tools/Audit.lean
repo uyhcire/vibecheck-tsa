@@ -1,4 +1,5 @@
 import Vibecheck
+import Jsb.EscapeRegion
 open Vibecheck
 
 #print axioms flight_never_crashes
@@ -9,3 +10,7 @@ open Vibecheck
 #print axioms step_elev_rate
 #print axioms step_fuel_le
 #print axioms Fx.fastMul_eq
+#print axioms Jsb.tickAB_sound
+#print axioms Jsb.region_sound
+#print axioms Jsb.EscapeRegion.escape_box5
+#print axioms Jsb.EscapeRegion.escape_box10

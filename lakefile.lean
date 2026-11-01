@@ -38,3 +38,9 @@ lean_exe jsbresid where
 
 lean_exe jsbbench where
   root := `Tools.Bench
+
+lean_exe escapesim where
+  root := `Tools.EscapeSim
+
+lean_exe boxprobe where
+  root := `Tools.BoxProbe
