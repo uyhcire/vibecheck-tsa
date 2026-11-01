@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex};
 pub const VID: i32 = 0x044F;
 pub const PID: i32 = 0xB68D;
 
+/// USB button 1, the trigger: the guns fire while it is held.
+pub const BTN_TRIGGER: u16 = 1 << 0;
 /// The stick button labelled 2 (USB button 4): safety filter on / off, as in John's sidecar.
 pub const BTN_FILTER: u16 = 1 << 3;
 /// USB button 3: kamikaze autopilot on / off, as in John's sidecar.

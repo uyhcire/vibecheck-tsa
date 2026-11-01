@@ -29,7 +29,7 @@ non-zero if any acceptance check fails.
 
 Demo flags (handy for screenshots): `--map grid|sf`, `--scenario 1..5` (1..4 in San Francisco),
 `--at x,y,agl,heading` (start anywhere, map metres and degrees), `--off`, `--kamikaze`, `--showcase`,
-`--paths`, `--cam 0..4`, `--shot out.png --frames N`.
+`--paths`, `--cam 0..4`, `--fire` (hold the guns' trigger), `--shot out.png --frames N`.
 
 ## Maps
 
@@ -238,6 +238,7 @@ require, not budget starvation.
 | A/D or ←/→ | roll. Release to hold flight path and bank (fly-by-wire) |
 | Q / E | throttle down / up |
 | Space | safety filter on/off |
+| Shift (hold) | guns: tracers, muzzle flashes, sparks and dust where rounds hit (cosmetic, see below) |
 | F | filter: P1 blend+commit → P2 closed-form → permissive |
 | G | Phase 3 robust margins for model error, on/off (works with any filter) |
 | B | escape paths (green valid, red invalid, yellow = committed plan) |
@@ -255,12 +256,20 @@ require, not budget starvation.
 `sidecar/hotas_hid.py`. It takes over once any control moves (the bottom bar then shows `HOTAS`).
 The stick sets pitch and roll (10% dead zone; `I` inverts pitch), a held key still wins for that frame;
 the lever sets the throttle whenever it moves, so `Q`/`E` and a reset's throttle hold until then.
+The trigger (USB button 1) fires the guns while held, like Shift.
 The stick button labelled 2 (USB button 4) toggles the filter, USB button 3 the kamikaze autopilot, as in
 John's sidecar. To see raw values: `cargo test --release --bin cityflight hotas::tests::live -- --ignored --nocapture`
 and move the controls.
 
 The trail is coloured by what the filter was doing: blue = pilot in control,
 orange = blending, red = committed escape, white = filter off.
+
+**Guns** (`src/gun.rs`; Shift, the HOTAS trigger, or `--fire`): two wing guns at 800 rounds a minute each,
+870 m/s on top of the aircraft's velocity along the nose, toed in to cross 350 m ahead. Every third round
+is a tracer; rounds fall under gravity and burn out after 2.4 s. Where one meets a building (the exact
+segment distance `world.rs` checks the aircraft with) or the true terrain, it leaves a flash, sparks and a puff of dust
+(spray on San Francisco's water). It is all drawn, nothing more: the guns step once per frame from the
+aircraft as drawn, outside `Sim::tick`, so the flight, the filter and the harness are unchanged.
 
 ## How it works
 

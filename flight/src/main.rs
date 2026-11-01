@@ -9,6 +9,7 @@ mod assets;
 mod atmos;
 mod c172;
 mod ground;
+mod gun;
 mod hotas;
 mod photo;
 mod rt;
@@ -643,6 +644,10 @@ struct App {
     hotas: hotas::Hotas,
     /// The HOTAS report seen last frame (`None`: no stick yet), for lever moves and button presses.
     hotas_prev: Option<hotas::Sticks>,
+    /// Cosmetic guns (`gun.rs`); `trigger` is Shift or the HOTAS trigger held this frame, `fire_hold` is `--fire`.
+    guns: gun::Guns,
+    trigger: bool,
+    fire_hold: bool,
     acc: f64,
     /// The aircraft and its control surfaces as drawn between ticks, and the `sim.k` they were last pushed at.
     drawn: Drawn,
@@ -709,6 +714,7 @@ impl App {
         self.sim = Sim::new(self.world, s0, self.cfg(on));
         self.fbw = Fbw::from_state(&s0);
         self.trail.clear();
+        self.guns.clear();
         self.paths.clear();
         self.plan_path.clear();
         self.acc = 0.0;
@@ -778,6 +784,8 @@ impl App {
             }
             hotas_pressed = hs.buttons & !prev.map_or(0, |p| p.buttons);
         }
+        // Guns: for as long as Shift or the trigger is held.
+        self.trigger = down(KeyCode::LeftShift, KeyCode::RightShift) || hs.is_some_and(|h| h.buttons & hotas::BTN_TRIGGER != 0);
         let clicked = is_mouse_button_pressed(MouseButton::Left) && filter_button().contains(mouse_position().into());
         if is_key_pressed(KeyCode::Space) || clicked || hotas_pressed & hotas::BTN_FILTER != 0 {
             let on = !self.sim.cfg.filter_on;
@@ -1046,6 +1054,14 @@ impl App {
         }
     }
 
+    /// The guns, once per frame after `step`: cosmetic, fired from the aircraft as drawn, never inside `Sim::tick`.
+    fn update_guns(&mut self, dt: f64) {
+        let s = self.drawn_state();
+        let mount = gun::Mount { p: sv3(&s), axes: self.aircraft_axes(), vel: body_axes(&s).0 * s[V] as f32 };
+        let held = (self.trigger || self.fire_hold) && !self.sim.crashed;
+        self.guns.update(self.world, held, dt as f32, &mount);
+    }
+
     fn update_paths(&mut self) {
         #[cfg(feature = "jsb")]
         if let Some(g) = &self.sim.lean {
@@ -1223,6 +1239,7 @@ impl App {
         if self.cam_mode != 1 {
             draw_aircraft(p, self.aircraft_axes(), &self.surfaces().0);
         }
+        self.guns.draw(&gun::View::of(cam));
     }
 
     /// Aircraft (lit) and overlays (unlit, colours preserved through the tonemap) for the photoreal renderer.
@@ -1486,11 +1503,12 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 24] = [
+        let lines: [(&str, &str); 25] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
             ("Space", "safety filter on / off"),
+            ("Shift", "guns: hold to fire (cosmetic: tracers, impacts; the flight is unchanged)"),
             ("F", "filter: P1 blend+commit · P2 closed-form · permissive"),
             ("G", "Phase 3 robust margins on / off"),
             ("B", "show escape paths (green valid, red not, yellow committed)"),
@@ -1508,7 +1526,7 @@ impl App {
             ("L  O  Z/X  N/J", "footage look · lens preset · f-stop · focal length"),
             ("6", "cinematic: fly-by camera, clear weather, 50 mm f/4"),
             ("U", "ray traced: MetalFX denoiser on / off"),
-            ("HOTAS", "stick pitch / roll · lever throttle · stick button 2 filter · USB button 3 kamikaze"),
+            ("HOTAS", "stick pitch / roll · lever throttle · trigger guns · stick button 2 filter · USB button 3 kamikaze"),
             ("H / Esc", "toggle / close this help"),
             ("", ""),
         ];
@@ -1736,6 +1754,9 @@ async fn main() {
         stick: (0.0, 0.0),
         hotas: hotas::Hotas::open(),
         hotas_prev: None,
+        guns: gun::Guns::new(),
+        trigger: false,
+        fire_hold: args.iter().any(|a| a == "--fire"),
         acc: 0.0,
         drawn,
         drawn_ctl: [(c172::Controls::default(), 0.0); 2],
@@ -1894,7 +1915,9 @@ async fn main() {
                 photo_keys(&mut app, ph);
             }
         }
-        app.step(if shot.is_some() { 1.0 / 60.0 } else { dt });
+        let step_dt = if shot.is_some() { 1.0 / 60.0 } else { dt };
+        app.step(step_dt);
+        app.update_guns(step_dt);
         let target = if !app.sim.cfg.filter_on {
             0.0
         } else if app.sim.fs.mode == Mode::Commit {
@@ -1915,6 +1938,7 @@ async fn main() {
                 let up = right.cross(fwd);
                 ph.lamp_sprites(&mut ov, &mut oi, cam.position, right, up, night);
                 let lights = app.aircraft_lights(&mut ov, &mut oi, cam.position, right, up);
+                app.guns.photo(&mut ov, &mut oi, &gun::View::of(&cam));
                 ph.draw(&photo::FrameIn {
                     cam_pos: cam.position,
                     cam_target: cam.target,
