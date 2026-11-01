@@ -171,3 +171,9 @@ extern_lib jxmath pkg := do
 lean_lib SpecBridgeNative where
   precompileModules := true
   precompileImports := true
+
+/-- Offline tooling for the informal proof of `TermSoundR` (`docs/termsound-proof.tex`): the escape closed loop as a
+frame map in local coordinates. -/
+lean_exe tsmap where
+  root := `Tools.termsound.TsMap
+  moreLinkObjs := #[jxmath.o]
