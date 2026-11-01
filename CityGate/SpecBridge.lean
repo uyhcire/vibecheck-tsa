@@ -21,11 +21,21 @@ def cityMap : CitySafety.CityMap where
   boxes := boxes.toList.map toBox
 
 theorem cityMap_terrain (x y : Rat) : cityMap.terrain x y = terrainAt x y := by
-  sorry
+  have hx : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((x + 3000) / 20) = gridCoord gridX0 x := by
+    simp only [CitySafety.clampR, gridCoord, gridX0, gridStep]
+    congr 2; grind
+  have hy : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((y + 3000) / 20) = gridCoord gridY0 y := by
+    simp only [CitySafety.clampR, gridCoord, gridY0, gridStep]
+    congr 2; grind
+  simp only [CitySafety.CityMap.terrain, cityMap, terrainAt, hx, hy, square]
+  rfl
 
 /-- A point solid in the spec's sense is solid in the gate's sense. -/
 theorem solid_of_spec (q : CitySafety.Pt) (h : CitySafety.Solid cityMap q) : Solid q.x q.y q.z := by
-  sorry
+  rcases h with ht | ⟨b, hb, hc⟩
+  · exact Or.inr (by rw [← cityMap_terrain]; exact ht)
+  · obtain ⟨b', hb', rfl⟩ := List.mem_map.mp hb
+    exact Or.inl ⟨b', Array.mem_toList_iff.mp hb', hc⟩
 
 /-! ## The filter -/
 
@@ -85,8 +95,35 @@ def CrashH (h : Rat) (p : Plane) : Prop :=
 theorem crashH_envHalf : CrashH envHalf = Crash := rfl
 
 /-- `clear_sound` for any cube up to the 8.5 m keep-out. -/
+theorem windowH (q d h : Rat) (k : Int) (hd1 : -h ≤ d) (hd2 : d ≤ h) (hk : h * S ≤ k) :
+    (((q * S).floor - k : Int) : Rat) ≤ (q + d) * S ∧ (q + d) * S ≤ (((q * S).ceil + k : Int) : Rat) := by
+  have h1 := Rat.floor_le (q * S)
+  have h2 : q * S ≤ ((q * S).ceil : Rat) := Rat.le_ceil
+  simp only [S, Rat.intCast_sub, Rat.intCast_add] at *
+  constructor <;> grind
+
 theorem clear_soundH {h : Rat} (hh : h ≤ 17 / 2) (e : Float) (p : Plane) : clearAt e p = true → ¬ CrashH h p := by
-  sorry
+  intro hc hcr
+  unfold clearAt at hc
+  unfold CrashH at hcr
+  cases hp : exactPos p with
+  | none => simp [hp] at hc
+  | some pos =>
+    obtain ⟨x, y, z⟩ := pos
+    simp only [hp, Bool.and_eq_true] at hc hcr
+    obtain ⟨ht, hb⟩ := hc
+    obtain ⟨dx, dy, dz, h1, h2, h3, h4, h5, h6, hs⟩ := hcr
+    have hk : h * S ≤ (((keepBase + extraUnits e : Nat) : Int) : Rat) := by
+      have : (136 : Int) ≤ ((keepBase + extraUnits e : Nat) : Int) := by simp [keepBase]; omega
+      have := Rat.intCast_le_intCast.mpr this
+      simp only [S] at *
+      grind
+    obtain ⟨wx1, wx2⟩ := windowH x dx h _ h1 h2 hk
+    obtain ⟨wy1, wy2⟩ := windowH y dy h _ h3 h4 hk
+    obtain ⟨wz1, wz2⟩ := windowH z dz h _ h5 h6 hk
+    rcases hs with ⟨b, hbm, b1, b2, b3, b4, b5, b6⟩ | hter
+    · exact box_case hb wx1 wx2 wy1 wy2 wz1 wz2 hbm b1 b2 b3 b4 b5 b6
+    · exact terrain_case ht wx1 wx2 wy1 wy2 wz1 hter
 
 /-! ## The assumptions -/
 
@@ -118,22 +155,89 @@ def Corr (p : JsbExact.State Float × Mem') : Prop :=
 
 theorem frame_some (p : JsbExact.State Float × Mem') (u : CitySafety.Surfaces) :
     ∃ ob mc, (specFilter.frame p u).2 = some (ob, mc) := by
-  sorry
+  obtain ⟨s, m⟩ := p
+  cases m with
+  | none => exact ⟨_, _, rfl⟩
+  | some v => obtain ⟨ob, m, c⟩ := v; exact ⟨_, _, rfl⟩
+
+theorem plane_step_st (s : JsbExact.State Float) (ob : FloatArray) (a : Surf) :
+    ((planeOf s ob).step a).st = (JsbExact.step s (ofSurf a).toInput).1 := rfl
+
+/-- A gate frame from a plane at the map origin stays at the map origin. -/
+theorem planeOf_eta (s : JsbExact.State Float) (ob : FloatArray) {a : Surf} {g : Plane}
+    (hg : g = (planeOf s ob).step a) : planeOf g.st g.ob = g := by
+  subst hg; rfl
+
+/-- The plant step of the spec frame, once the clamp is known to change nothing. -/
+theorem frame_fst (p : JsbExact.State Float × Mem') (u : CitySafety.Surfaces)
+    (hc : (specFilter.act p.2 p.1 u).1.clamp = (specFilter.act p.2 p.1 u).1) :
+    (specFilter.frame p u).1 = (JsbExact.step p.1 (specFilter.act p.2 p.1 u).1.toInput).1 := by
+  simp only [CitySafety.Filter.frame]
+  rw [hc]
 
 theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach specFilter p → Corr p := by
-  sorry
+  intro p hp
+  induction hp with
+  | init h => exact h
+  | @step p u hu hp ih =>
+    have hs := frame_fst p u (hOut p u hp hu)
+    obtain ⟨s, m⟩ := p
+    cases m with
+    | none =>
+      have e : specFilter.frame (s, none) u =
+          ((firstPlane s).st, some ((firstPlane s).ob, cityGate.m₀, cityGate.start (firstPlane s))) := by
+        exact Prod.ext hs rfl
+      rw [e]
+      exact GateSafety.Reach.init ⟨s, ih, rfl⟩
+    | some v =>
+      obtain ⟨ob, m, c⟩ := v
+      have hg := GateSafety.Reach.step (toSurf u) ih
+      generalize hw : (cityGate.choose (planeOf s ob) m c (toSurf u)).getD c = w at hs
+      have hg1 : (cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).1 =
+          (planeOf s ob).step (cityGate.ctl w (planeOf s ob)).1 := by
+        rw [← hw]; rfl
+      have hst := plane_step_st s ob (cityGate.ctl w (planeOf s ob)).1
+      have h2 : (specFilter.frame (s, some (ob, m, c)) u).2 =
+          some ((cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).1.ob,
+            (cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).2) := rfl
+      have ha : (specFilter.act (some (ob, m, c)) s u).1 = ofSurf (cityGate.ctl w (planeOf s ob)).1 := by
+        rw [← hw]; rfl
+      have h1 : (specFilter.frame (s, some (ob, m, c)) u).1 = (cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).1.st := by
+        dsimp only at hs
+        rw [ha] at hs
+        rw [hg1, hst]; exact hs
+      unfold Corr
+      rw [h2]
+      dsimp only
+      rw [h1, planeOf_eta s ob hg1]
+      exact hg
 
 /-! ## Geometry -/
 
 /-- The cube is convex: a hull of points in it stays in it. -/
 theorem near_hull {h : Rat} {c : Rat × Rat × Rat} {ps : List CitySafety.Pt} (hp : ∀ q ∈ ps, Near h c q)
     {q : CitySafety.Pt} (hq : CitySafety.InHull ps q) : Near h c q := by
-  sorry
+  have g := fun cx cy cz k (f : ∀ r ∈ ps, k ≤ cx * r.x + cy * r.y + cz * r.z) => CitySafety.hull_lin_ge cx cy cz k f hq
+  have l1 := g 1 0 0 (c.1 - h) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
+  have l2 := g (-1) 0 0 (-(c.1 + h)) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
+  have l3 := g 0 1 0 (c.2.1 - h) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
+  have l4 := g 0 (-1) 0 (-(c.2.1 + h)) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
+  have l5 := g 0 0 1 (c.2.2 - h) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
+  have l6 := g 0 0 (-1) (-(c.2.2 + h)) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
+  simp only [Near]
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> grind
 
 /-- A solid point near the aircraft's position is a crash of the cube. -/
 theorem crashH_of_near {h : Rat} {pl : Plane} {c : Rat × Rat × Rat} (hc : exactPos pl = some c)
     {q : CitySafety.Pt} (hn : Near h c q) (hs : Solid q.x q.y q.z) : CrashH h pl := by
-  sorry
+  obtain ⟨x, y, z⟩ := c
+  simp only [Near] at hn
+  simp only [CrashH, hc]
+  refine ⟨q.x - x, q.y - y, q.z - z, by grind, by grind, by grind, by grind, by grind, by grind, ?_⟩
+  have e1 : x + (q.x - x) = q.x := by grind
+  have e2 : y + (q.y - y) = q.y := by grind
+  have e3 : z + (q.z - z) = q.z := by grind
+  rw [e1, e2, e3]; exact hs
 
 /-! ## The theorem -/
 
