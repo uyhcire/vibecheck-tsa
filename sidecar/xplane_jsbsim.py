@@ -11,6 +11,8 @@ usage: .venv/bin/python -I sidecar/xplane_jsbsim.py [--model c172p] [--pilot hid
 """
 import argparse
 import json
+import math
+import math
 import os
 import select
 import signal
@@ -38,7 +40,7 @@ POSE = [
 
 def rref_request(idx, name, freq):
     """RREF: ask X-Plane to send dataref `name` `freq` times a second, tagged `idx`."""
-    return b"RREF\0" + struct.pack("<ii", freq, idx) + name.encode().ljust(400, b"\0")
+    return b"RREF\0" + struct.pack("<ii", int(round(freq)), idx) + name.encode().ljust(400, b"\0")
 
 
 def rref_parse(data, into):
@@ -149,6 +151,10 @@ SCENARIOS = {
                              terrain_ft=7.0, note="2 NM final to Palo Alto runway 31 at 80 kt, flaps 20, on the 3 deg slope (approach_cbf.start_point)"),
     "sf-downtown": dict(lat=37.792049, lon=-122.374326, hdg=262.0, alt_ft=600.0, kts=100.0, gamma=0.0, flaps=0.0,
                         terrain_ft=0.0, note="over the Bay 1.1 NM east of downtown San Francisco, pointed at the Salesforce Tower at 600 ft"),
+    # The gate's procedural city (map seed 1337) on the south Bay: 1.5 km west of the tallest tower, heading east at 300 ft.
+    "grid-city": dict(lat=37.560540, lon=-122.187017, hdg=90.0, alt_ft=295.0, kts=97.0, gamma=0.0, flaps=0.0,
+                      terrain_ft=0.0, map="grid", x=-1500.0, y=60.0,
+                      note="the gate's grid city on the Bay, 1.5 km west of its tallest tower at 300 ft (scenery: build_xplane_scenery --grid)"),
 }
 
 
@@ -273,6 +279,11 @@ def main():
     ap.add_argument("--hostile", action="store_true", help="the crate's random nose-down pilot flies (tests)")
     ap.add_argument("--predictor", choices=["crate", "c172p"], default="crate",
                     help="what the filter assumes the aircraft can do: the crate's aircraft with mismatch margins (default) or a Cessna")
+    ap.add_argument("--dynamics", choices=["coarse", "fine"], default="coarse",
+                    help="model the city CBF is built on: coarse = the point-mass backup CBF (filterd) guarding JSBSim; "
+                         "fine = the gatekeeper filter (libgate) on JsbExact, the bit-exact copy of JSBSim's c172p, which then "
+                         "also flies the aircraft (grid-city scenario only)")
+    ap.add_argument("--gate-dist", default=None, help="directory with libgate.dylib and libcityjsb.dylib (main: make gate)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -298,10 +309,13 @@ def main():
     else:
         lat, lon, ele, psi, agl = 37.46358, -122.11749, 2.0, 142.0, 0.0   # KPAO runway 13
     bcbf = None
-    if args.filter == "bcbf":
+    fine = args.dynamics == "fine"
+    if fine and (not sc or sc.get("map") != "grid"):
+        sys.exit("--dynamics fine needs --scenario grid-city (the gate's map)")
+    if args.filter == "bcbf" and not fine:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir
         from bcbf import Bcbf
-        bcbf = Bcbf(preset=args.predictor)
+        bcbf = Bcbf(preset=args.predictor, map_name=(sc or {}).get("map", "sf"))
         bcbf_on = not args.filter_off
     elif args.filter == "approach":
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -320,50 +334,66 @@ def main():
         from hotas_hid import Hotas
         hotas = Hotas()
 
-    fdm = jsbsim.FGFDMExec(None)
-    fdm.set_debug_level(0)
-    fdm.load_model(args.model)
-    fdm["ic/lat-geod-deg"] = lat
-    fdm["ic/long-gc-deg"] = lon
-    fdm["ic/terrain-elevation-ft"] = (ele - agl) * M2FT
-    fdm["ic/psi-true-deg"] = psi
-    if sc:
-        fdm["ic/h-sl-ft"] = sc["alt_ft"]
-        fdm["ic/vc-kts"] = sc["kts"]
-        fdm["ic/gamma-deg"] = sc["gamma"]
-    else:
-        fdm["ic/h-agl-ft"] = 4.0       # JSBSim settles the gear onto the terrain from here
-        fdm["ic/vc-kts"] = 0.0
-    dt = 1.0 / 120
-    fdm.set_dt(dt)
-    if sc:
-        fdm["propulsion/set-running"] = -1   # airborne: engine already running (works for the c172p)
-    fdm.run_ic()
-    if sc:
-        fdm["fcs/flap-cmd-norm"] = sc["flaps"]
-        fdm["fcs/mixture-cmd-norm"] = 0.9
-        fdm["simulation/do_simple_trim"] = 0   # longitudinal trim: pitch trim + throttle for this speed and slope
-        for _ in range(int(1 / dt)):
-            fdm.run()
+    if fine:
+        import gate as gatemod
+        libs = gatemod.load(args.gate_dist or gatemod.DIST)
+        fdm = gatemod.ExactPlant(libs, sc["x"], sc["y"], sc["alt_ft"] * 0.3048, sc["kts"] * 0.5144, math.radians(sc["hdg"]))
+        dt = fdm.DT
+        trim_thr = 0.75
+        if args.filter == "bcbf":
+            bcbf = gatemod.GateFilter(libs, fdm)
+            bcbf_on = not args.filter_off
+            kamikaze = args.kamikaze
+            print(f"gate CBF loaded (JsbExact plant, 1/128 s); button {args.toggle_button} toggles it (starts {'ON' if bcbf_on else 'off'})")
         print(f"scenario {args.scenario}: {sc['note']}")
-        trim_thr = fdm["fcs/throttle-cmd-norm"]
-        print(f"trimmed: throttle {100 * fdm['fcs/throttle-cmd-norm']:.0f}% (set your lever near this), "
-              f"pitch trim {fdm['fcs/pitch-trim-cmd-norm']:+.2f}")
-    fdm["fcs/mixture-cmd-norm"] = 0.9
-    fdm["fcs/advance-cmd-norm"] = 1.0   # prop full fine (constant-speed models)
-    if not sc:
-        # Ground start. The c182 ignores propulsion/set-running; crank it like a pilot would,
-        # brakes on, throttle open (it does not catch at idle), then hand the throttle over.
-        for b in ("left", "right", "center"):
-            fdm[f"fcs/{b}-brake-cmd-norm"] = 1.0
-        fdm["fcs/throttle-cmd-norm"] = 1.0
-        fdm["propulsion/magneto_cmd"] = 3
-        fdm["propulsion/starter_cmd"] = 1
-        for _ in range(int(3 / dt)):
-            fdm.run()
-        fdm["propulsion/starter_cmd"] = 0
-        for b in ("left", "right", "center"):
-            fdm[f"fcs/{b}-brake-cmd-norm"] = 0.0
+        args.hz = 128 / 3                      # one gate tick (3 frames) per display frame
+    else:
+        fdm = jsbsim.FGFDMExec(None)
+    if not fine:
+        fdm.set_debug_level(0)
+        fdm.load_model(args.model)
+    if not fine:
+        fdm["ic/lat-geod-deg"] = lat
+        fdm["ic/long-gc-deg"] = lon
+        fdm["ic/terrain-elevation-ft"] = (ele - agl) * M2FT
+        fdm["ic/psi-true-deg"] = psi
+        if sc:
+            fdm["ic/h-sl-ft"] = sc["alt_ft"]
+            fdm["ic/vc-kts"] = sc["kts"]
+            fdm["ic/gamma-deg"] = sc["gamma"]
+        else:
+            fdm["ic/h-agl-ft"] = 4.0       # JSBSim settles the gear onto the terrain from here
+            fdm["ic/vc-kts"] = 0.0
+        dt = 1.0 / 120
+        fdm.set_dt(dt)
+        if sc:
+            fdm["propulsion/set-running"] = -1   # airborne: engine already running (works for the c172p)
+        fdm.run_ic()
+        if sc:
+            fdm["fcs/flap-cmd-norm"] = sc["flaps"]
+            fdm["fcs/mixture-cmd-norm"] = 0.9
+            fdm["simulation/do_simple_trim"] = 0   # longitudinal trim: pitch trim + throttle for this speed and slope
+            for _ in range(int(1 / dt)):
+                fdm.run()
+            print(f"scenario {args.scenario}: {sc['note']}")
+            trim_thr = fdm["fcs/throttle-cmd-norm"]
+            print(f"trimmed: throttle {100 * fdm['fcs/throttle-cmd-norm']:.0f}% (set your lever near this), "
+                  f"pitch trim {fdm['fcs/pitch-trim-cmd-norm']:+.2f}")
+        fdm["fcs/mixture-cmd-norm"] = 0.9
+        fdm["fcs/advance-cmd-norm"] = 1.0   # prop full fine (constant-speed models)
+        if not sc:
+            # Ground start. The c182 ignores propulsion/set-running; crank it like a pilot would,
+            # brakes on, throttle open (it does not catch at idle), then hand the throttle over.
+            for b in ("left", "right", "center"):
+                fdm[f"fcs/{b}-brake-cmd-norm"] = 1.0
+            fdm["fcs/throttle-cmd-norm"] = 1.0
+            fdm["propulsion/magneto_cmd"] = 3
+            fdm["propulsion/starter_cmd"] = 1
+            for _ in range(int(3 / dt)):
+                fdm.run()
+            fdm["propulsion/starter_cmd"] = 0
+            for b in ("left", "right", "center"):
+                fdm[f"fcs/{b}-brake-cmd-norm"] = 0.0
     sub = max(1, round(1.0 / (args.hz * dt)))
 
     pilot_base = len(POSE)
@@ -374,7 +404,7 @@ def main():
     if args.viewer == "xplane":
         sock.sendto(rref_request(AGL, "sim/flightmodel/position/y_agl", 20), xp)
         sock.sendto(rref_request(ELE, "sim/flightmodel/position/elevation", 20), xp)
-    print(f"flying {args.model} under JSBSim at {args.hz} Hz; Ctrl-C hands X-Plane its physics back")
+    print(f"flying {'JsbExact' if fine else args.model + ' under JSBSim'} at {args.hz:.0f} Hz; Ctrl-C hands X-Plane its physics back")
 
     def overrides():
         # VEHX implies a plane-path override, but X-Plane drops it if a flight (re)loads after we start; assert it
@@ -433,7 +463,7 @@ def main():
                 sock.sendto(dref_set("sim/cockpit2/engine/actuators/throttle_ratio[0]", thr), xp)  # cockpit lever
             why = crashed(fdm, vals, AGL, ELE, args.viewer == "xplane", buildings)
             if bcbf and bcbf.clear < 0 and not why:
-                why = "hit the city (bcbf world)"
+                why = "hit the city"
             if why:
                 print(f"\nCRASHED: {why} at {fdm['velocities/vc-kts']:.0f} kt")
                 if args.viewer == "xplane":

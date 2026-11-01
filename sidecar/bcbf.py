@@ -61,13 +61,18 @@ def local_velocity(lon, lat, vn, ve):
     return (dxl - ex) * dlon + (dxa - ex) * dlat, (dyl - ny) * dlon + (dya - ny) * dlat
 
 
-def model_state(fdm):
+def model_state(fdm, map_name="sf"):
     """JSBSim -> the crate's State: [x, y, z, v, gamma, psi, phi, p, n, thr]."""
     lat, lon = fdm["position/lat-geod-deg"], fdm["position/long-gc-deg"]
-    x, y = geo.to_local(lon, lat)
     vn, ve, vd = (fdm[f"velocities/v-{d}-fps"] * FT for d in ("north", "east", "down"))
     vt = max(fdm["velocities/vt-fps"] * FT, 1.0)
-    vx, vy = local_velocity(lon, lat, vn, ve)
+    if map_name == "grid":                 # the gate's procedural city: flat earth from gridmap's origin
+        import gridmap
+        x, y = gridmap.to_map(lat, lon)
+        vx, vy = ve, vn
+    else:
+        x, y = geo.to_local(lon, lat)
+        vx, vy = local_velocity(lon, lat, vn, ve)
     return [x, y, fdm["position/h-sl-meters"], vt,
             math.asin(max(-1.0, min(1.0, -vd / vt))),     # flight-path angle
             math.atan2(vy, vx),                            # heading of the velocity, CCW from +x
@@ -102,6 +107,7 @@ class Bcbf:
         self.proc = subprocess.Popen([FILTERD, "--map", map_name] + ([] if robust else ["--nominal"]) + PRESETS[preset],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         self.loops = InnerLoops()
+        self.map_name = map_name
         self.on = False
         self.mode, self.lam, self.h, self.inv_ok, self.clear = 0, 0.0, 0.0, 1, 0.0
         self.applied = (1.0, 0.0, 0.0)
@@ -112,7 +118,7 @@ class Bcbf:
     def tick(self, fdm, pitch, roll, throttle, on, dt, kamikaze=False, hostile=False):
         """One filter tick. Sticks in -1..1 (pitch + = back), throttle 0..1. Returns (elevator, aileron, throttle)."""
         self.on = on
-        s = model_state(fdm)
+        s = model_state(fdm, self.map_name)
         self.kamikaze = kamikaze
         self.proc.stdin.write(" ".join(f"{v:.6f}" for v in s) + f" {pitch:.4f} {roll:.4f} {throttle:.4f} {int(on)} {int(kamikaze)} {int(hostile)}\n")
         f = self.proc.stdout.readline().split()

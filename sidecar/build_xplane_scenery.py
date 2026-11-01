@@ -12,6 +12,8 @@ when this branch lacks them, from origin/main with git show. Per-building tint i
 
 usage: python3 -I sidecar/build_xplane_scenery.py [--xplane ~/X-Plane-12] [--buildings sidecar/sf_buildings.json]
        python3 -I sidecar/build_xplane_scenery.py --world flight/data/sf/sf_world.bin   # the bcbf filter's own city
+       python3 -I sidecar/build_xplane_scenery.py --grid city-map/   # the gate's procedural city (Tools/city-export),
+                                                                     # placed on the Bay by sidecar/gridmap.py, with its terrain
 """
 import argparse
 import hashlib
@@ -22,6 +24,8 @@ import math
 import struct
 
 PACK = "OSM Obstacles - SF Downtown"
+GRID_PACK = "Grid City - Gate Map"
+TERRAIN_OBJ = "objects/terrain.obj"
 TILE = "+37-123"
 # (name, columns, floors, glass) exactly as flight/src/assets.rs FACADES; floor height 3.6 m for the first three, 3.2 after.
 FACADES = [("facade_glass", 16.0, 10.0), ("facade_grid", 14.0, 8.0), ("facade_office", 32.0, 32.0),
@@ -114,7 +118,8 @@ def ccw(poly):
     return poly if area > 0 else poly[::-1]
 
 
-def build_dsf(buildings, bbox):
+def build_dsf(buildings, bbox, terrain_at=None):
+    """terrain_at: (lat, lon) to place objects/terrain.obj at (the grid city), or None."""
     south, west, north, east = bbox
     props = [("sim/west", "-123"), ("sim/east", "-122"), ("sim/north", "38"), ("sim/south", "37"),
              ("sim/planet", "earth"), ("sim/creation_agent", "vibecheck-tsa build_xplane_scenery"),
@@ -125,11 +130,18 @@ def build_dsf(buildings, bbox):
         props.append((key, box))
     props.append(("sim/require_facade", "1/0"))
     head = atom("HEAD", atom("PROP", strings(k for kv in props for k in kv)))
-    defn = atom("DEFN", atom("TERT", b"") + atom("OBJT", b"")
+    defn = atom("DEFN", atom("TERT", b"") + atom("OBJT", strings([TERRAIN_OBJ]) if terrain_at else b"")
                 + atom("POLY", strings(facade_path(i) for i in range(len(FACADES) * len(ROOFS))))
                 + atom("NETW", b"") + atom("DEMN", b""))
     pools, scals, cmds = b"", b"", b""
     kept = 0
+    if terrain_at:
+        lat, lon = terrain_at
+        pools += atom("POOL", struct.pack("<IB", 1, 3) + b"\0" + struct.pack("<H", 0) + b"\0" + struct.pack("<H", 0)
+                      + b"\0" + struct.pack("<H", 0))
+        scals += atom("SCAL", struct.pack("<ff", 1.0, lon) + struct.pack("<ff", 1.0, lat) + struct.pack("<ff", 360.0, 0.0))
+        cmds += struct.pack("<BB", 3, 0) + struct.pack("<BH", 1, 0) + struct.pack("<BH", 7, 0)   # object 0, pool 0, OBJECT
+        kept = 1
     current = None
     for b in sorted(buildings, key=lambda b: b.get("facade", 0)):
         if b.get("facade", 0) != current:
@@ -203,13 +215,58 @@ def read_sf_world(path):
     return out, [s, w, nn, e]
 
 
+def write_terrain_obj(path, terr, x0, y0, sp, n, tex="rock.png", tile=60.0):
+    """OBJ8 mesh of the n x n height grid (rows south to north), x east, y up, z south, textured by world metres."""
+    out = ["A", "800", "OBJ", f"TEXTURE {tex}", f"POINT_COUNTS {n * n} 0 0 {6 * (n - 1) * (n - 1)}"]
+    for j in range(n):
+        for i in range(n):
+            x, y = x0 + i * sp, y0 + j * sp
+            out.append(f"VT {x:.1f} {terr[j][i]:.2f} {-y:.1f} 0 1 0 {x / tile:.3f} {y / tile:.3f}")
+    idx = []
+    for j in range(n - 1):
+        for i in range(n - 1):
+            a, b, c, d = j * n + i, j * n + i + 1, (j + 1) * n + i, (j + 1) * n + i + 1
+            idx += [a, c, b, b, c, d]       # counter-clockwise seen from above (+y)
+    for k in range(0, len(idx), 10):
+        chunk = idx[k:k + 10]
+        out.append(("IDX10 " if len(chunk) == 10 else "IDX ") + " ".join(map(str, chunk)))
+    out.append(f"ATTR_LOD 0 40000")
+    out.append(f"TRIS 0 {len(idx)}")
+    open(path, "w").write("\n".join(out) + "\n")
+
+
+def read_grid(dir_):
+    """Tools/city-export files -> buildings (as build_dsf takes them, facade by main's rule), terrain grid, bbox."""
+    import csv
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gridmap import to_geo
+    blds = []
+    for r in list(csv.reader(open(os.path.join(dir_, "buildings.csv"))))[1:]:
+        _, lot, x0, y0, x1, y1, z0, z1 = r
+        x0, y0, x1, y1, z0, z1 = map(float, (x0, y0, x1, y1, z0, z1))
+        poly = [list(to_geo(x, y)) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))]
+        blds.append({"name": f"box lot {lot}", "height_m": z1, "polygon": poly,
+                     "facade": facade_index(z1 - z0, building_seed(x0, y0, int(lot)))})
+    terr = [[float(v) for v in r] for r in csv.reader(open(os.path.join(dir_, "terrain.csv")))]
+    s, w = to_geo(-3000.0, -3000.0)
+    n_, e = to_geo(3000.0, 3000.0)
+    return blds, terr, [s, w, n_, e]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--xplane", default=os.path.expanduser("~/X-Plane-12"))
     ap.add_argument("--buildings", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "sf_buildings.json"))
     ap.add_argument("--world", help="build from the bcbf crate's sf_world.bin instead of the JSON")
+    ap.add_argument("--grid", metavar="DIR", help="build the gate's procedural city from a Tools/city-export directory")
     args = ap.parse_args()
-    if args.world:
+    terrain_at = None
+    if args.grid:
+        blds, terr, bbox = read_grid(args.grid)
+        data = {"buildings": blds}
+        from gridmap import ORIGIN_LAT, ORIGIN_LON
+        terrain_at = (ORIGIN_LAT, ORIGIN_LON)
+    elif args.world:
         blds, bbox = read_sf_world(args.world)
         data = {"buildings": blds}
     else:
@@ -218,10 +275,17 @@ def main():
         for i, b in enumerate(data["buildings"]):
             lat0, lon0 = min(p[0] for p in b["polygon"]), min(p[1] for p in b["polygon"])
             b["facade"] = facade_index(b["height_m"], building_seed(lon0 * 1e4, lat0 * 1e4, i))
-    root = os.path.join(args.xplane, "Custom Scenery", PACK)
+    root = os.path.join(args.xplane, "Custom Scenery", GRID_PACK if args.grid else PACK)
     os.makedirs(os.path.join(root, "Earth nav data", "+30-130"), exist_ok=True)
     os.makedirs(os.path.join(root, "facades"), exist_ok=True)
-    dsf, kept = build_dsf(data["buildings"], bbox)
+    dsf, kept = build_dsf(data["buildings"], bbox, terrain_at)
+    if args.grid:
+        os.makedirs(os.path.join(root, "objects"), exist_ok=True)
+        write_terrain_obj(os.path.join(root, TERRAIN_OBJ), terr, -3000.0, -3000.0, 20.0, len(terr))
+        from PIL import Image
+        import io
+        Image.open(io.BytesIO(texture_bytes("rock"))).convert("RGB").resize((1024, 1024)).save(
+            os.path.join(root, "objects", "rock.png"), optimize=True)
     open(os.path.join(root, "Earth nav data", "+30-130", TILE + ".dsf"), "wb").write(dsf)
     for old in ("osm_building.fac", "osm_building.png"):
         if os.path.exists(os.path.join(root, "facades", old)):
@@ -233,7 +297,7 @@ def main():
     for b in data["buildings"]:
         counts[b.get("facade", 0)] += 1
     print("facades:", ", ".join(f"{facade_path(i)[8:-4]} {c}" for i, c in enumerate(counts) if c))
-    print(f"{kept} of {len(data['buildings'])} buildings written to {root} ({len(dsf)} byte DSF)")
+    print(f"{kept - bool(terrain_at)} of {len(data['buildings'])} buildings written to {root} ({len(dsf)} byte DSF)")
 
 
 if __name__ == "__main__":

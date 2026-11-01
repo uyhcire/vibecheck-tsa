@@ -100,6 +100,33 @@ that limit, so a float cannot last. Hands off at idle it lands itself about 300 
 stick, right roll, full power, rudder) headless to touchdown: all three land on the runway, on speed, within
 3 m of the centreline. The same stick button toggles the filter.
 
+## City CBF: coarse or fine dynamics (`--dynamics coarse|fine`)
+
+Two models can build the city CBF; both run on the gate's procedural city (map seed 1337, Luis Pabon's generator,
+identical on this branch and on main), placed on the south Bay by `sidecar/gridmap.py`:
+
+    .venv/bin/python -I sidecar/build_xplane_scenery.py --grid city-map/      # once: the "Grid City - Gate Map" pack
+    .venv/bin/python -I sidecar/xplane_jsbsim.py --scenario grid-city --filter bcbf --daytime                  # coarse
+    .venv/bin/python -I sidecar/xplane_jsbsim.py --scenario grid-city --filter bcbf --daytime --dynamics fine  # fine
+
+`city-map/` comes from main's `cargo run --release --manifest-path Tools/city-export/Cargo.toml -- map city-map`;
+the pack draws the 2,145 boxes with the photoreal facades and the 301 x 301 terrain as one mesh object.
+
+- **coarse**: the point-mass backup CBF of `bcbf-city-flight` (`filterd --map grid`) guards the pip JSBSim c172p,
+  as in the downtown scenario. Fast; no guarantee for the JSBSim plant (see the stress table above).
+- **fine**: Eric Yu and Luis Pabon's gatekeeper filter (`libgate`, main) verifies escapes on `JsbExact`, a
+  bit-exact Lean copy of JSBSim 1.3.3's c172p. It needs that aircraft's full private state every tick, which the
+  pip module cannot export, so in this mode the aircraft you fly **is** `JsbExact` (`libcityjsb`), stepped at
+  1/128 s with the surfaces the gate returns (`sidecar/gate.py`). Every 3 frames it checks whether your command,
+  held one tick, still leaves a verified escape (straight climb, 30/40 deg climbing turns, a climb along the
+  street); if not it flies the escape it verified last tick and hands back when yours verifies again. Status:
+  `gate ON pilot|ESCAPE esc <name> verified clear <m> <ms>`. The libraries come from main: `make gate` there,
+  then point `--gate-dist` (or `GATE_DIST`) at its `dist/` (default: `../vibecheck-tsa-worktrees/main/dist`).
+  Flaps stay up and the stick maps straight to JSBSim's surfaces (`GATE_PILOT_SURFACES`); the rudder is yours.
+
+`sidecar/gate.py --selftest`: hands off at 150 m, 540 m west of the 459 m tower: gate on flies 120 s with 3.9 m
+minimum clearance, gate off hits the tower at 14 s. The same stick button toggles either filter.
+
 ## Which JSBSim model
 
 X-Plane's SR22: 2300 lb empty, 3600 lb max, 310 hp injected piston, constant-speed prop, low wing, fixed gear, Vne 205 kt. On paper JSBSim 1.3.3's **c182** (230 hp, constant-speed prop, 2950 lb) is the closest stock single. On the ground it is not usable from a stick: with zero rudder it swings 150° left under takeoff power, and the pa28 spins. The **c172p** (160 hp, the model `Jsb/` ports to Lean) rolls straight and lifts off at ~65 kt, so it is the default. Pick another with `--model`. An "sr22ish" copy of `c182.xml` with the SR22's engine, weights and 144.9 ft² wing, plus a tamer nosewheel, is the next step.
