@@ -190,6 +190,10 @@ pub struct JsbPlant {
     pub gains: Gains,
     /// Map axes for an imported aircraft (`from_dump`); `None` for `new`, which offsets from `origin`.
     pub frame: Option<MapFrame>,
+    /// Smoothness metrics over the frames flown: total variation of each surface command (`surf` order), and
+    /// the largest single-frame change since the caller last cleared `jump`.
+    pub tv: [f64; 4],
+    pub jump: [f64; 4],
 }
 
 // The handle is only ever used by the thread that owns the `Sim`.
@@ -221,9 +225,12 @@ impl JsbPlant {
             surf: [0.0, 0.0, 0.0, s[THR]],
             gains: GAINS,
             frame: None,
+            tv: [0.0; 4],
+            jump: [0.0; 4],
         };
         p.int_n = 0.0;
         p.frame(&[s[N], 0.0, s[THR]]);
+        (p.tv, p.jump) = ([0.0; 4], [0.0; 4]);
         p
     }
 
@@ -249,6 +256,8 @@ impl JsbPlant {
             surf: [0.0; 4],
             gains: GAINS,
             frame: Some(frame),
+            tv: [0.0; 4],
+            jump: [0.0; 4],
         })
     }
 
@@ -284,10 +293,20 @@ impl JsbPlant {
     /// One JSBSim frame with the surfaces set directly (JSBSim conventions: elevator positive nose down).
     pub fn frame_raw(&mut self, elev: f64, ail: f64, rud: f64, thr: f64) {
         self.thr = thr;
-        self.surf = [elev, ail, rud, thr];
+        self.set_surf([elev, ail, rud, thr]);
         let mut out = [0.0; NOBS];
         unsafe { cityjsb_step(self.raw, elev, ail, rud, thr, out.as_mut_ptr()) };
         self.obs = Obs::from(&out);
+    }
+
+    /// Set the surfaces for the next frame, accumulating the smoothness metrics.
+    fn set_surf(&mut self, s: [f64; 4]) {
+        for i in 0..4 {
+            let d = (s[i] - self.surf[i]).abs();
+            self.tv[i] += d;
+            self.jump[i] = self.jump[i].max(d);
+        }
+        self.surf = s;
     }
 
     /// Forget the fly-by-wire integrators (after the escape has flown the surfaces directly).
@@ -326,7 +345,7 @@ impl JsbPlant {
         }
         let rud = (g.kb * o.beta).clamp(-1.0, 1.0);
         self.thr = u[2].clamp(0.0, 1.0);
-        self.surf = [elev, ail, rud, self.thr];
+        self.set_surf([elev, ail, rud, self.thr]);
         let mut out = [0.0; NOBS];
         unsafe { cityjsb_step(self.raw, elev, ail, rud, self.thr, out.as_mut_ptr()) };
         self.obs = Obs::from(&out);

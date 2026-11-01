@@ -47,6 +47,15 @@ struct Stats {
     cpu_ms: Vec<f32>,
     wall_ms: Vec<f32>,
     frames: Vec<u32>,
+    /// Smoothness: switches into or out of a commit, re-commits that reverse the turn direction, flight
+    /// time (s), and per tick the total variation and largest single-frame change of the surfaces applied
+    /// to JSBSim (elevator, aileron, throttle).
+    switches: u64,
+    reversals: u64,
+    blend_ticks: u64,
+    secs: f64,
+    tv: Vec<[f32; 3]>,
+    jump: Vec<[f32; 3]>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -66,6 +75,8 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
     let mut recs = Vec::new();
     let mut plans = Vec::new();
     let mut last_mode = Mode::Free;
+    let (mut switches, mut tvs, mut jumps) = (0u64, Vec::new(), Vec::new());
+    let mut tv0 = sim.jsb.as_ref().map_or([0.0; 4], |p| p.tv);
     for _ in 0..(dur / DT_F).round() as u64 {
         match pk {
             PilotKind::Kamikaze => kami.update(world, &sim.s, &mut fbw, DT_F),
@@ -74,6 +85,17 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
         }
         let up = fbw.cmd(&sim.prm_ctrl, &sim.s);
         sim.tick(up);
+        if let Some(p) = sim.jsb.as_mut() {
+            let sel = |a: [f64; 4]| [a[0] as f32, a[1] as f32, a[3] as f32];
+            let d = [p.tv[0] - tv0[0], p.tv[1] - tv0[1], p.tv[2] - tv0[2], p.tv[3] - tv0[3]];
+            tvs.push(sel(d));
+            jumps.push(sel(p.jump));
+            tv0 = p.tv;
+            p.jump = [0.0; 4];
+        }
+        if (sim.fs.mode == Mode::Commit) != (last_mode == Mode::Commit) {
+            switches += 1;
+        }
         fbw.resync(&sim.s, sim.fs.lam, DT_F);
         let alpha = sim.jsb.as_ref().map_or(f64::NAN, |p| p.obs.alpha);
         let esc = sim.fs.plan.map_or(-1, |p| p.esc as i32);
@@ -105,8 +127,10 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
         }
     }
     let mut st = Stats { first_accept: sim.started_safe, ticks: sim.ticks, commit_ticks: sim.commit_ticks, ..Default::default() };
+    (st.switches, st.secs, st.tv, st.jump) = (switches, sim.time(), tvs, jumps);
     if let Some(g) = sim.env_gate.take() {
         st.first_accept = g.first_accept.unwrap_or(false);
+        (st.reversals, st.blend_ticks) = (g.reversals, g.blend_ticks);
         st.blind_ticks = g.blind_ticks;
         st.outcomes = g.outcomes;
         (st.runs, st.short_runs) = (g.runs, g.short_runs);
@@ -293,6 +317,24 @@ fn main() {
     for esc in 0..cityflight::envfilter::n_esc() {
         let o: Vec<u64> = (0..4).map(|k| res.iter().map(|r| r.3.outcomes[esc][k]).sum()).collect();
         println!("rollouts {:8}: ok {} hit {} horizon {} budget {}", cityflight::envfilter::ESCAPES[esc].name, o[0], o[1], o[2], o[3]);
+    }
+    let (sw, rev, blend, secs) = res.iter().fold((0, 0, 0, 0.0), |a, r| (a.0 + r.3.switches, a.1 + r.3.reversals, a.2 + r.3.blend_ticks, a.3 + r.3.secs));
+    println!(
+        "smoothness: {:.1} commit switches/min, {rev} direction reversals on re-commit, {:.2}% of ticks blended",
+        sw as f64 / (secs / 60.0).max(1e-9),
+        100.0 * blend as f64 / ticks.max(1) as f64
+    );
+    for (k, name) in ["elevator", "aileron", "throttle"].iter().enumerate() {
+        let mut tv: Vec<f32> = res.iter().flat_map(|r| r.3.tv.iter().map(move |v| v[k])).collect();
+        let mut jp: Vec<f32> = res.iter().flat_map(|r| r.3.jump.iter().map(move |v| v[k])).collect();
+        let mean = tv.iter().map(|&x| x as f64).sum::<f64>() / tv.len().max(1) as f64;
+        println!(
+            "surface {name:8}: per-tick variation mean {mean:.4} p95 {:.4} p99 {:.4} | frame jump p99 {:.4} max {:.4}",
+            pct(&mut tv, 0.95),
+            pct(&mut tv, 0.99),
+            pct(&mut jp, 0.99),
+            pct(&mut jp, 1.0)
+        );
     }
     let mut cpu: Vec<f32> = res.iter().flat_map(|r| r.3.cpu_ms.iter().copied()).collect();
     let mut wall: Vec<f32> = res.iter().flat_map(|r| r.3.wall_ms.iter().copied()).collect();

@@ -830,6 +830,11 @@ pub struct Gate {
     pub runs: u64,
     pub short_runs: u64,
     pub run_len: u64,
+    /// Smoothness: commits whose turn direction is opposite to the previous commit's, the turn direction of
+    /// the latest committed law, and ticks flown with a blended command.
+    pub reversals: u64,
+    pub prev_dir: f64,
+    pub blend_ticks: u64,
     /// Per-tick filter cost: thread CPU (ms), wall (ms), JSBSim frames.
     pub cpu_ms: Vec<f32>,
     pub wall_ms: Vec<f32>,
@@ -854,6 +859,9 @@ impl Gate {
             runs: 0,
             short_runs: 0,
             run_len: 0,
+            reversals: 0,
+            prev_dir: 0.0,
+            blend_ticks: 0,
             cpu_ms: Vec::new(),
             wall_ms: Vec::new(),
             frames: Vec::new(),
@@ -951,6 +959,10 @@ impl Gate {
                     }
                 };
                 self.law = Some(Law::new(esc));
+                let d = ESCAPES[esc].dir;
+                if d * self.prev_dir < 0.0 {
+                    self.reversals += 1;
+                }
                 self.committed_path = std::mem::take(&mut self.witness_path);
                 self.runs += 1;
                 self.run_len = 0;
@@ -963,6 +975,9 @@ impl Gate {
             while plant.lag < -1e-12 {
                 law.step(world, plant);
                 plant.lag += DT_JSB;
+            }
+            if law.dir() != 0.0 {
+                self.prev_dir = law.dir();
             }
             false
         };
