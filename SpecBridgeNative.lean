@@ -1,4 +1,4 @@
-import CityGate.SpecBridgeNear
+import CityGate.SpecBridgeObs
 
 /-! `InitChecked cityGate GInit` and `AirframeNearInit 7` by `native_decide`, and `cityGate_spec_safe_native` without
 them. Trusts the Lean compiler and the C maths library (`jx_*`, the `jxmath` extern library) for the 4 starts: its
@@ -49,8 +49,14 @@ theorem cityGate_spec_safe_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb :
     (hR : ReportMatchesObs) : CitySafety.Safe cityMap specFilter :=
   cityGate_spec_safe_pose hT (poseBounded_of hTb) hR
 
+/-- `cityGate_spec_safe_tb` with `ReportMatchesObs` reduced by `reportMatchesObs_of` (`B = 10^14` ft). -/
+theorem cityGate_spec_safe_obs (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded) (hW : NoWowReach)
+    (hB : ReportBounded (10 ^ 14)) (hF : FtConvClose (10 ^ 14)) : CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_tb hT hTb (reportMatchesObs_of hW hB hF)
+
 end CityGate.SpecBridge
 
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_native
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_tb
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_pose
+#print axioms CityGate.SpecBridge.cityGate_spec_safe_obs
