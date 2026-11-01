@@ -502,6 +502,10 @@ pub struct RollCfg<'a> {
     pub prefix: &'a [(f64, f64, f64)],
     /// Clearance is checked every this many frames (terminal-test history is kept every `SAMPLE` regardless).
     pub check_every: usize,
+    /// Leaving the map counts as reaching a terminal set (the gate's rule). Off, the aircraft leaving the map is
+    /// not verified, and a climbing ray must clear the edge profile continued beyond the map (`World::surface`
+    /// clamps to the edge), as `docs/safety-objective.md` decides.
+    pub offmap_clear: bool,
 }
 
 /// The filters' clearance margin (m, stored as f64 bits) and check spacing (frames): `MARGIN` and `SAMPLE` unless
@@ -518,7 +522,7 @@ impl RollCfg<'static> {
     /// What the filters check: the default margin, horizon and spacing unless overridden.
     pub fn filter() -> RollCfg<'static> {
         let m = f64::from_bits(FILTER_MARGIN.load(Ordering::Relaxed));
-        RollCfg { margin: m, term_margin: m, horizon: HORIZON, prefix: &[], check_every: FILTER_CHECK.load(Ordering::Relaxed) }
+        RollCfg { margin: m, term_margin: m, horizon: HORIZON, prefix: &[], check_every: FILTER_CHECK.load(Ordering::Relaxed), offmap_clear: true }
     }
 }
 
@@ -602,7 +606,7 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
         let s = q.state();
         r.path.push([s[X], s[Y], s[Z]]);
         if !on_map(s[X], s[Y]) {
-            return Some(Outcome::Ok);
+            return Some(if cfg.offmap_clear { Outcome::Ok } else { Outcome::Horizon });
         }
         let c = world.airframe_clearance(&s, 50.0);
         r.min_clear = r.min_clear.min(c);
@@ -673,7 +677,7 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
                 if !law.turning() {
                     r.why = Some(TermFail::NotTurning);
                 } else {
-                    match terminal(world, law.dir(), &hist, cfg.term_margin) {
+                    match terminal(world, law.dir(), &hist, cfg.term_margin, cfg.offmap_clear) {
                         Ok(tail) => {
                             r.tail = tail;
                             return finish(r, &q, &law, Outcome::Ok);
@@ -710,7 +714,7 @@ fn seg(h: &[Hist]) -> Seg {
 
 /// Terminal test on the rollout so far: `Some(continuation points)` if the escape has settled into its
 /// terminal set and that set is clear.
-fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
+fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: bool) -> Result<Vec<[f64; 3]>, TermFail> {
     if hist.len() < 2 * HALF + 1 {
         return Err(TermFail::Unsettled);
     }
@@ -728,7 +732,7 @@ fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64) -> Result<Vec<[
             return Err(TermFail::Wobble);
         }
         let grad = 0.8 * (a.vz_mean / a.vh.max(1.0)).min(b.vz_mean / b.vh.max(1.0));
-        ray_clear_m(world, [e.x, e.y, e.z], e.psi, grad, top, margin)
+        ray_clear_m(world, [e.x, e.y, e.z], e.psi, grad, top, margin, offmap_clear)
     } else {
         // Turn: radius and centre from each half; both must agree closely.
         let want = -dir; // a right turn (JSBSim +) turns clockwise, i.e. negative omega here
@@ -798,11 +802,11 @@ pub fn helix_check(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64,
 /// of half-width `R_BODY + 5 m + 2% of the distance`: every raw cell under the corridor stays `R_BODY +
 /// MARGIN` below the ray until the ray is that far above the map's top or leaves the map.
 pub fn ray_clear(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64) -> Option<Vec<[f64; 3]>> {
-    ray_clear_m(world, p, psi, grad, top, MARGIN).ok()
+    ray_clear_m(world, p, psi, grad, top, MARGIN, true).ok()
 }
 
 /// `ray_clear` with the vertical margin `margin` in place of `MARGIN`, saying what blocks the ray.
-pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
+pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, margin: f64, offmap_clear: bool) -> Result<Vec<[f64; 3]>, TermFail> {
     if grad < 0.02 {
         return Err(TermFail::Shallow);
     }
@@ -811,7 +815,7 @@ pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, ma
     loop {
         let (x, y, z) = (p[0] + d * c, p[1] + d * s, p[2] + d * grad);
         let floor = z - R_BODY - margin;
-        if floor > top || !on_map(x, y) {
+        if floor > top || (offmap_clear && !on_map(x, y)) {
             return Ok(vec![p, [x, y, z]]);
         }
         let w = R_BODY + 5.0 + 0.02 * d;

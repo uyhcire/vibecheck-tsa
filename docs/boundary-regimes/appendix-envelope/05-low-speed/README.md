@@ -41,7 +41,7 @@ The airspeed slice stops at 20 m/s because the plant's initial state (`JsbPlant:
 **Closest proven-safe call** (pilot lead-in 0.00 s, sticks released: the fly-by-wire holds flight path and bank):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start 0.00,-1600.00,21.85,24.80,8.000,0.000,0.000,0.00 --lead 0 --cinematic --cam 0 --paths --label "Slow and low over the valley: closest proven-safe call, airspeed = 24.8 m/s"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start 0.00,-1600.00,21.85,24.80,8.000,0.000,0.000,0.00 --lead 0 --cinematic --cam 0 --paths --label "Slow and low over the valley: closest proven-safe call, airspeed = 24.8 m/s"
 ```
 
 - filter on: no crash; closest pass during the save **7.7 m** at t = 0.1 s; minimum over 25 s 4.0 m (filter takes over at t = 0.1 s, hands back at 0.1 s, 175 takeovers in all)
@@ -55,7 +55,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --start 0.00,-1600
 **Closest proven-safe call** (pilot lead-in 2.50 s, sticks released: the fly-by-wire holds flight path and bank):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -412.21,295.00,47.51,27.00,6.000,0.000,0.000,0.25 --lead 2.5 --cinematic --cam 0 --paths --label "Slow wallow toward the park-side tower: closest proven-safe call, distance to the face = 194.1 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -412.21,295.00,47.51,27.00,6.000,0.000,0.000,0.25 --lead 2.5 --cinematic --cam 0 --paths --label "Slow wallow toward the park-side tower: closest proven-safe call, distance to the face = 194.1 m"
 ```
 
 - filter on: no crash; closest pass during the save **15.6 m** at t = 0.0 s; minimum over 25 s 4.0 m (filter takes over at t = 0.0 s, hands back at 9.2 s, 41 takeovers in all)
@@ -64,7 +64,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --start -412.21,29
 **Just-barely-unsafe twin**: 128.0 m closer than the proven-safe marker, no lead-in. The filter has no verified escape at the start, so it commits blind to the escape that got farthest:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -284.21,295.00,47.07,27.00,6.000,0.000,0.000,0.25 --cinematic --cam 0 --paths --label "Slow wallow toward the park-side tower: just inside, distance to the face = 66.1 m: no verified escape"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -284.21,295.00,47.07,27.00,6.000,0.000,0.000,0.25 --cinematic --cam 0 --paths --label "Slow wallow toward the park-side tower: just inside, distance to the face = 66.1 m: no verified escape"
 ```
 
 - filter on: **crashes** at t = 2.3 s (filter takes over at t = 0.0 s; start not verified)
@@ -72,8 +72,8 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --start -284.21,29
 **Closest proven-unsafe call**:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -231.90,295.00,46.75,27.00,6.000,0.000,0.000,0.25 --cinematic --cam 0 --paths --label "Slow wallow toward the park-side tower: proven unsafe, distance to the face = 13.8 m"
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -231.90,295.00,46.75,27.00,6.000,0.000,0.000,0.25 --cinematic --cam 0 --paths --off --label "Slow wallow toward the park-side tower: proven unsafe, distance to the face = 13.8 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -231.90,295.00,46.75,27.00,6.000,0.000,0.000,0.25 --cinematic --cam 0 --paths --label "Slow wallow toward the park-side tower: proven unsafe, distance to the face = 13.8 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -231.90,295.00,46.75,27.00,6.000,0.000,0.000,0.25 --cinematic --cam 0 --paths --off --label "Slow wallow toward the park-side tower: proven unsafe, distance to the face = 13.8 m"
 ```
 
 - filter on: **crashes** at t = 0.3 s (filter takes over at t = 0.0 s; start not verified)

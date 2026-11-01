@@ -34,7 +34,7 @@ The west face of the park-side tower: box `x ∈ [−218.1, −186.2]`, `y ∈ [
 **Closest safe call** (the proven-safe state; the gate with its margin set to zero and clearance checked every frame, `--margin 0 --check-every 1`; pilot lead-in 0.00 s with the sticks released, so the fly-by-wire holds flight path and bank into the obstacle):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths --label "02a-wall-beside-park: closest safe call, zero-margin gate, 12.0 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths --label "02a-wall-beside-park: closest safe call, zero-margin gate, 12.0 m"
 ```
 
 - filter on: no crash; closest pass during the save **0.00 m** at t = 1.6 s; minimum over 25 s 0.00 m (filter takes over at t = 0.1 s, hands back at 0.1 s, 12 takeovers in all)
@@ -43,7 +43,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **Just-barely-unsafe twin**: 0.5 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --label "02a-wall-beside-park: unverified twin, 11.5 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --label "02a-wall-beside-park: unverified twin, 11.5 m"
 ```
 
 - filter on: **crashes** at t = 1.4 s (filter takes over at t = 0.0 s; start not verified)
@@ -51,7 +51,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **The deployed gate (4 m margin)** from its own acceptance marker (lead-in 1.50 s):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -234.10,265.00,57.00,45.00,0.000,80.000,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02a-wall-beside-park: closest call, deployed gate, 16.0 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -234.10,265.00,57.00,45.00,0.000,80.000,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02a-wall-beside-park: closest call, deployed gate, 16.0 m"
 ```
 
 - filter on: no crash; closest pass during the save **3.99 m** at t = 3.2 s; minimum over 25 s 3.99 m (filter takes over at t = 1.0 s, hands back at 1.5 s, 7 takeovers in all)
@@ -60,8 +60,8 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --start -234.10,26
 **Closest proven-unsafe call**:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -218.10,265.00,56.92,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --label "02a-wall-beside-park: proven unsafe, 0.0 m"
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -218.10,265.00,56.92,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --off --label "02a-wall-beside-park: proven unsafe, 0.0 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -218.10,265.00,56.92,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --label "02a-wall-beside-park: proven unsafe, 0.0 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -218.10,265.00,56.92,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --off --label "02a-wall-beside-park: proven unsafe, 0.0 m"
 ```
 
 - filter on: **crashes** at t = 0.0 s (filter takes over at t = 0.0 s; start not verified)
@@ -76,7 +76,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --start -218.10,26
 **Closest safe call** (the proven-safe state; the gate with its margin set to zero and clearance checked every frame, `--margin 0 --check-every 1`; pilot lead-in 1.50 s with the sticks released, so the fly-by-wire holds flight path and bank into the obstacle):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -243.10,265.00,57.05,45.00,0.000,69.190,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: closest safe call, zero-margin gate, 20.8 deg"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -243.10,265.00,57.05,45.00,0.000,69.190,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: closest safe call, zero-margin gate, 20.8 deg"
 ```
 
 - filter on: no crash; closest pass during the save **0.00 m** at t = 3.2 s; minimum over 25 s 0.00 m (filter takes over at t = 0.8 s, hands back at 0.9 s, 10 takeovers in all)
@@ -85,7 +85,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **Just-barely-unsafe twin**: 0.5 deg closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -243.10,265.00,57.05,45.00,0.000,68.690,0.000,0.70 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: unverified twin, 21.3 deg"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -243.10,265.00,57.05,45.00,0.000,68.690,0.000,0.70 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: unverified twin, 21.3 deg"
 ```
 
 - filter on: **crashes** at t = 1.7 s (filter takes over at t = 0.0 s; start not verified)
@@ -93,7 +93,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **The deployed gate (4 m margin)** from its own acceptance marker (lead-in 1.50 s):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -243.10,265.00,57.05,45.00,0.000,72.280,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: closest call, deployed gate, 17.7 deg"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -243.10,265.00,57.05,45.00,0.000,72.280,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: closest call, deployed gate, 17.7 deg"
 ```
 
 - filter on: no crash; closest pass during the save **3.92 m** at t = 3.3 s; minimum over 25 s 3.92 m (filter takes over at t = 1.1 s, hands back at 1.8 s, 7 takeovers in all)
@@ -112,14 +112,14 @@ The three closest saves (lowest airframe clearance during the takeover):
 
 | Episode | Takeover at | Cause | Airspeed | Closest pass | Replay (from `flight/`) |
 |---|---|---|---|---|---|
-| 50 | t = 11.2 s | wall beside | 77 m/s | 3.5 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 50 --paths --cinematic --cam 0` |
-| 103 | t = 9.3 s | wall beside | 75 m/s | 3.6 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 103 --paths --cinematic --cam 0` |
-| 19 | t = 33.5 s | wall beside | 64 m/s | 3.6 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 19 --paths --cinematic --cam 0` |
+| 50 | t = 11.2 s | wall beside | 77 m/s | 3.5 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 50 --paths --cinematic --cam 0` |
+| 103 | t = 9.3 s | wall beside | 75 m/s | 3.6 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 103 --paths --cinematic --cam 0` |
+| 19 | t = 33.5 s | wall beside | 64 m/s | 3.6 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 19 --paths --cinematic --cam 0` |
 <!-- /WILD -->
 
 ## State of progress
 
 - **Exact:** escapes flown on the bit-exact JSBSim port, contact checked at every frame against the gate's airframe (body sphere plus a capsule along the drawn wing line, banked with the aircraft, `World::airframe_clearance`).
 - **Numerical:** terminal sets on the settled rollout (a proof device, not part of the objective).
-- **Formally proved:** nothing for this regime (the formal work in `Envelope/` is longitudinal and terrain-only).
+- **Formally proved:** The Lean port of this gate (`CityGate`, flown with `--safety-filter exact-rollout-lean`) is proved safe in the objective's sense (`CityGate.city_safe`), assuming its end-of-escape test means safe forever (`TermSound`), with its own contact test (a 6 m cube in exact arithmetic, every frame); see `notes/lean-city-gate.md`. This study maps the Rust gate (`--safety-filter exact-rollout`), whose floating-point sphere-and-capsule clearance is not certified, so the Lean gate's own boundaries (its larger keep-out may make it intervene earlier) are not mapped here.
 - **Main lever:** the gate's margin (4 m) and a steeper, harder roll-away escape (a 50° to 60° bank for the first second). The outer bound would need lift to support the aircraft's weight in a turn to say anything here.

@@ -28,7 +28,7 @@ The inner ridge south of the city (crest line `y = −2050`, about 285 m above t
 **Closest safe call** (the proven-safe state; the gate with its margin set to zero and clearance checked every frame, `--margin 0 --check-every 1`; pilot lead-in 3.00 s with the sticks released, so the fly-by-wire holds flight path and bank into the obstacle):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start 150.00,-1692.19,66.71,45.00,0.000,-90.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "05-ridge: closest safe call, zero-margin gate, 357.8 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start 150.00,-1692.19,66.71,45.00,0.000,-90.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "05-ridge: closest safe call, zero-margin gate, 357.8 m"
 ```
 
 - filter on: no crash; closest pass during the save **28.56 m** at t = 8.5 s; minimum over 25 s 26.45 m (filter takes over at t = 0.5 s, hands back at 0.5 s, 12 takeovers in all)
@@ -37,7 +37,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **Just-barely-unsafe twin**: 8.0 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start 150.00,-1700.19,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --label "05-ridge: unverified twin, 349.8 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start 150.00,-1700.19,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --label "05-ridge: unverified twin, 349.8 m"
 ```
 
 - filter on: **crashes** at t = 6.0 s (filter takes over at t = 0.0 s; start not verified)
@@ -45,7 +45,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **The deployed gate (4 m margin)** from its own acceptance marker (lead-in 3.00 s):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start 150.00,-1689.59,66.71,45.00,0.000,-90.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "05-ridge: closest call, deployed gate, 360.4 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start 150.00,-1689.59,66.71,45.00,0.000,-90.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "05-ridge: closest call, deployed gate, 360.4 m"
 ```
 
 - filter on: no crash; closest pass during the save **32.33 m** at t = 8.5 s; minimum over 25 s 30.46 m (filter takes over at t = 0.5 s, hands back at 0.5 s, 10 takeovers in all)
@@ -54,8 +54,8 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --start 150.00,-16
 **Closest proven-unsafe call**:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start 150.00,-1855.84,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --label "05-ridge: proven unsafe, 194.2 m"
-cargo run --release --features jsb -- --env gate --time-cap 0 --start 150.00,-1855.84,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --off --label "05-ridge: proven unsafe, 194.2 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start 150.00,-1855.84,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --label "05-ridge: proven unsafe, 194.2 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start 150.00,-1855.84,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --off --label "05-ridge: proven unsafe, 194.2 m"
 ```
 
 - filter on: **crashes** at t = 0.0 s (filter takes over at t = 0.0 s; start not verified)
@@ -75,14 +75,14 @@ The three closest saves (lowest airframe clearance during the takeover):
 
 | Episode | Takeover at | Cause | Airspeed | Closest pass | Replay (from `flight/`) |
 |---|---|---|---|---|---|
-| 80 | t = 32.0 s | terrain ahead | 50 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 80 --paths --cinematic --cam 0` |
-| 183 | t = 15.6 s | terrain ahead | 45 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 183 --paths --cinematic --cam 0` |
-| 66 | t = 22.4 s | terrain ahead | 46 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 66 --paths --cinematic --cam 0` |
+| 80 | t = 32.0 s | terrain ahead | 50 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 80 --paths --cinematic --cam 0` |
+| 183 | t = 15.6 s | terrain ahead | 45 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 183 --paths --cinematic --cam 0` |
+| 66 | t = 22.4 s | terrain ahead | 46 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 66 --paths --cinematic --cam 0` |
 <!-- /WILD -->
 
 ## State of progress
 
 - **Exact:** escapes flown on the bit-exact JSBSim port; terrain is the renderer's triangulated 20 m grid, checked along the wing and body at every frame.
 - **Numerical:** terminal sets (the helix annulus clear of the ridge) on the settled rollout.
-- **Formally proved:** `Envelope/` (regime 1) is longitudinal and terrain-only, the closest in kind to this regime, but its escape is a straight climb; it says nothing about turning back.
+- **Formally proved:** The Lean port of this gate (`CityGate`, flown with `--safety-filter exact-rollout-lean`) is proved safe in the objective's sense (`CityGate.city_safe`), assuming its end-of-escape test means safe forever (`TermSound`), with its own contact test (a 6 m cube in exact arithmetic, every frame); see `notes/lean-city-gate.md`. This study maps the Rust gate (`--safety-filter exact-rollout`), whose floating-point sphere-and-capsule clearance is not certified, so the Lean gate's own boundaries (its larger keep-out may make it intervene earlier) are not mapped here.
 - **Main lever:** a break-turn escape (84 m). The outer bound brackets the boundary within 80 m here, its tightest bracket in the study.

@@ -1,4 +1,4 @@
-//! Boundary regimes of the gate filter (`--env gate`) under the contact objective (`docs/safety-objective.md`):
+//! Boundary regimes of the gate filter (`--safety-filter exact-rollout`) under the contact objective (`docs/safety-objective.md`):
 //! slices through the state space near one obstacle, and markers along each slice, all drawn at actual contact.
 //!
 //! - **Proven safe** (`contact_verdict`): one of the gate's six escapes, flown by exact rollout on a fork of the
@@ -191,7 +191,7 @@ pub fn contact_verdict(world: &World, s: &State) -> Verdict {
     verdict_cfg(world, &JsbPlant::new(s), &CONTACT)
 }
 
-pub const CONTACT: RollCfg<'static> = RollCfg { margin: 0.0, term_margin: 0.0, horizon: HORIZON, prefix: &[], check_every: 1 };
+pub const CONTACT: RollCfg<'static> = RollCfg { margin: 0.0, term_margin: 0.0, horizon: HORIZON, prefix: &[], check_every: 1, offmap_clear: false };
 
 pub fn filter_verdict_plant(world: &World, p: &JsbPlant) -> Verdict {
     verdict_cfg(world, p, &RollCfg::filter())

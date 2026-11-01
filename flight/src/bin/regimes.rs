@@ -60,7 +60,7 @@ fn main() {
     let what = args.first().map_or("all", |s| s.as_str());
     let world = World::new(1337);
     cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
-    cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse("gate"), std::sync::atomic::Ordering::Relaxed);
+    cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse("exact-rollout"), std::sync::atomic::Ordering::Relaxed);
     match what {
         "calib" => calib(),
         "find" => {
@@ -172,6 +172,25 @@ fn main() {
                 let f = |x: Option<f64>| x.map_or("–".into(), |v| format!("{v:.1}"));
                 let gap = |a: Option<f64>, b: Option<f64>| match (a, b) { (Some(a), Some(b)) => format!("{:.1}", (a - b).abs()), _ => "–".into() };
                 println!("| [{}]({}/README.md) | {} ({}) | {} | {} | {} | {} | {} | {} | {} |", def.key, folder(&def), def.param, def.unit, f(ga), f(s0), f(b), f(u), gap(ga, s0), gap(s0, b), gap(b, u));
+            }
+        }
+        "offmap" => {
+            // regimes offmap: at each slice's proven-safe marker, which of the gate's escapes verify at contact, and
+            // whether their certificate runs past the map edge (judged over the edge profile continued, as the objective has it).
+            use cityflight::envfilter::*;
+            for def in slices() {
+                let Some(d) = read_marker(&def, "proven_safe") else { continue };
+                let p = cityflight::jsb::JsbPlant::new(&(def.make)(&world, d));
+                let mut out = Vec::new();
+                for e in 0..n_esc() {
+                    let r = rollout_cfg(&world, &p, Law::new(e), usize::MAX, None, &CONTACT);
+                    if r.ok() {
+                        let off = |q: &[f64; 3]| q[0].abs() >= cityflight::world::MAP_HALF || q[1].abs() >= cityflight::world::MAP_HALF;
+                        let leaves = r.path.last().is_some_and(off) || r.tail.iter().any(off);
+                        out.push(format!("{}{}", ESCAPES[e].name, if leaves { " (its certificate runs past the map edge, over the continued edge profile)" } else { "" }));
+                    }
+                }
+                println!("{} at {:.1} {}: {}", def.key, def.show(d), def.unit, out.join(", "));
             }
         }
         "probe" => {
@@ -405,7 +424,7 @@ fn escapes_crash(world: &World, s: &cityflight::model::State) -> Vec<(String, bo
         .collect()
 }
 
-const GUI: &str = "cargo run --release --features jsb -- --env gate --time-cap 0";
+const GUI: &str = "cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0";
 
 struct Call {
     cmd: String,
@@ -542,7 +561,7 @@ fn demo_md(def: &SliceDef, d: &DemoOut) -> String {
 /// Screenshot commands for a slice's demos (`--shot` at the closest pass, or just before the crash).
 fn shots_sh(def: &SliceDef, d: &DemoOut) -> String {
     let dir = format!("docs/boundary-regimes/{}/shots", folder(def));
-    let bin = "flight/target/release/cityflight --env gate --time-cap 0";
+    let bin = "flight/target/release/cityflight --safety-filter exact-rollout --time-cap 0";
     let strip = |c: &str| c.replacen(GUI, bin, 1);
     let frames = |t: f64| ((t * 60.0).round() as i64 + 2).max(12);
     let mut o = format!("mkdir -p {dir}\n");

@@ -28,7 +28,7 @@ The richer search finds escapes from 26.6 m up, but not at every height in betwe
 **Closest safe call** (the proven-safe state; the gate with its margin set to zero and clearance checked every frame, `--margin 0 --check-every 1`; pilot lead-in 3.00 s with the sticks released, so the fly-by-wire holds flight path and bank into the obstacle):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -470.00,120.00,117.20,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest safe call, zero-margin gate, 109.9 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -470.00,120.00,117.20,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest safe call, zero-margin gate, 109.9 m"
 ```
 
 - filter on: no crash; closest pass during the save **13.31 m** at t = 3.5 s; minimum over 25 s 0.10 m (filter takes over at t = 1.2 s, hands back at 1.2 s, 31 takeovers in all)
@@ -37,7 +37,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **Just-barely-unsafe twin**: 64.0 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -470.00,120.00,53.20,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths --label "03-canyon: unverified twin, 45.9 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -470.00,120.00,53.20,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths --label "03-canyon: unverified twin, 45.9 m"
 ```
 
 - filter on: **crashes** at t = 16.9 s (filter takes over at t = 0.0 s; start not verified)
@@ -45,7 +45,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 **The deployed gate (4 m margin)** from its own acceptance marker (lead-in 3.00 s):
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --start -470.00,120.00,128.34,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest call, deployed gate, 121.1 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -470.00,120.00,128.34,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest call, deployed gate, 121.1 m"
 ```
 
 - filter on: no crash; closest pass during the save **15.90 m** at t = 8.4 s; minimum over 25 s 3.93 m (filter takes over at t = 1.6 s, hands back at 1.6 s, 48 takeovers in all)
@@ -64,14 +64,14 @@ The three closest saves (lowest airframe clearance during the takeover):
 
 | Episode | Takeover at | Cause | Airspeed | Closest pass | Replay (from `flight/`) |
 |---|---|---|---|---|---|
-| 71 | t = 36.5 s | helix blocked | 40 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 71 --paths --cinematic --cam 0` |
-| 5 | t = 59.1 s | climb not settled | 32 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 5 --paths --cinematic --cam 0` |
-| 9 | t = 52.4 s | climb not settled | 30 m/s | 4.0 m | `cargo run --release --features jsb -- --env gate --time-cap 0 --episode 9 --paths --cinematic --cam 0` |
+| 71 | t = 36.5 s | helix blocked | 40 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 71 --paths --cinematic --cam 0` |
+| 5 | t = 59.1 s | climb not settled | 32 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 5 --paths --cinematic --cam 0` |
+| 9 | t = 52.4 s | climb not settled | 30 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 9 --paths --cinematic --cam 0` |
 <!-- /WILD -->
 
 ## State of progress
 
 - **Exact:** escapes flown on the bit-exact JSBSim port, contact checked at every frame.
 - **Numerical:** the terminal sets (ray corridor, helix annulus) on the settled rollout. These are what bind here.
-- **Formally proved:** nothing for this regime.
+- **Formally proved:** The Lean port of this gate (`CityGate`, flown with `--safety-filter exact-rollout-lean`) is proved safe in the objective's sense (`CityGate.city_safe`), assuming its end-of-escape test means safe forever (`TermSound`), with its own contact test (a 6 m cube in exact arithmetic, every frame); see `notes/lean-city-gate.md`. This study maps the Rust gate (`--safety-filter exact-rollout`), whose floating-point sphere-and-capsule clearance is not certified, so the Lean gate's own boundaries (its larger keep-out may make it intervene earlier) are not mapped here.
 - **Main lever:** a corridor terminal set for open streets (or a longer horizon with a street-following climb): up to 83 m. Then the margin (11 m).
