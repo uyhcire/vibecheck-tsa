@@ -97,4 +97,119 @@ theorem terrain_le_sqMax {M : CityMap} (hn : 2 ≤ M.n) (x y : Rat) :
   exact interp_le fu.1 fu.2 fv.1 fv.2 (by simp only [sqMax]; grind) (by simp only [sqMax]; grind)
     (by simp only [sqMax]; grind) (by simp only [sqMax]; grind)
 
+theorem div_mul_cancel' {a s : Rat} (hs : 0 < s) : a / s * s = a := Rat.div_mul_cancel (by grind)
+
+theorem div_le_div_right' {a b s : Rat} (hs : 0 < s) (h : a ≤ b) : a / s ≤ b / s := by
+  apply Rat.le_of_mul_le_mul_right _ hs
+  rw [div_mul_cancel' hs, div_mul_cancel' hs]; exact h
+
+theorem edge_le {M : CityMap} (hs : 0 < M.spacing) (x : Rat) : edge M (cellOf M x) ≤ x := by
+  have h := Rat.mul_le_mul_of_nonneg_right (Rat.floor_le ((x + M.half) / M.spacing)) (Rat.le_of_lt hs)
+  rw [div_mul_cancel' hs] at h
+  simp only [edge, cellOf]; grind
+
+theorem le_edge_succ {M : CityMap} (hs : 0 < M.spacing) (x : Rat) : x ≤ edge M (cellOf M x + 1) := by
+  have h := Rat.mul_le_mul_of_nonneg_right (Rat.le_of_lt (Rat.lt_floor_add_one ((x + M.half) / M.spacing)))
+    (Rat.le_of_lt hs)
+  rw [div_mul_cancel' hs] at h
+  simp only [edge, cellOf]; grind
+
+theorem cellOf_mono {M : CityMap} (hs : 0 < M.spacing) {x y : Rat} (h : x ≤ y) : cellOf M x ≤ cellOf M y :=
+  Rat.floor_monotone (div_le_div_right' hs (by grind))
+
+/-- The integers `lo, lo + 1, …, hi`. -/
+def intRange (lo hi : Int) : List Int := (List.range (hi - lo + 1).toNat).map fun (m : Nat) => lo + (m : Int)
+
+theorem mem_intRange {lo hi k : Int} (h1 : lo ≤ k) (h2 : k ≤ hi) : k ∈ intRange lo hi := by
+  simp only [intRange, List.mem_map, List.mem_range]
+  exact ⟨(k - lo).toNat, by omega, by omega⟩
+
+/-- Every unclamped grid square meeting `[x0, x1] × [y0, y1]` satisfies `P`. -/
+def allSquares (M : CityMap) (x0 x1 y0 y1 : Rat) (P : Int → Int → Bool) : Bool :=
+  (intRange (cellOf M x0) (cellOf M x1)).all fun kx => (intRange (cellOf M y0) (cellOf M y1)).all fun ky => P kx ky
+
+theorem allSquares_at {M : CityMap} (hs : 0 < M.spacing) {x0 x1 y0 y1 : Rat} {P : Int → Int → Bool}
+    (h : allSquares M x0 x1 y0 y1 P = true) {x y : Rat} (hx0 : x0 ≤ x) (hx1 : x ≤ x1) (hy0 : y0 ≤ y) (hy1 : y ≤ y1) :
+    P (cellOf M x) (cellOf M y) = true := by
+  simp only [allSquares, List.all_eq_true] at h
+  exact h _ (mem_intRange (cellOf_mono hs hx0) (cellOf_mono hs hx1)) _
+    (mem_intRange (cellOf_mono hs hy0) (cellOf_mono hs hy1))
+
+/-! ## Rectangles against an annulus -/
+
+/-- Squared distance from `c` to the nearest point of `[x0, x1]`. -/
+def gap2 (c x0 x1 : Rat) : Rat := if c < x0 then (x0 - c) * (x0 - c) else if x1 < c then (c - x1) * (c - x1) else 0
+
+/-- Squared distance from `c` to the farthest point of `[x0, x1]`. -/
+def far2 (c x0 x1 : Rat) : Rat := max ((x0 - c) * (x0 - c)) ((x1 - c) * (x1 - c))
+
+theorem gap2_le {c x0 x1 x : Rat} (h0 : x0 ≤ x) (h1 : x ≤ x1) : gap2 c x0 x1 ≤ (x - c) * (x - c) := by
+  unfold gap2
+  split
+  · exact sq_le_sq (by grind) (by grind)
+  · split
+    · have := sq_le_sq (show 0 ≤ c - x1 by grind) (show c - x1 ≤ c - x by grind)
+      have e : (c - x) * (c - x) = (x - c) * (x - c) := by grind
+      grind
+    · exact sq_nonneg _
+
+theorem le_far2 {c x0 x1 x : Rat} (h0 : x0 ≤ x) (h1 : x ≤ x1) : (x - c) * (x - c) ≤ far2 c x0 x1 := by
+  unfold far2
+  rcases (Rat.le_total : c ≤ x ∨ x ≤ c) with h | h
+  · have := sq_le_sq (show 0 ≤ x - c by grind) (show x - c ≤ x1 - c by grind); grind
+  · have := sq_le_sq (show 0 ≤ c - x by grind) (show c - x ≤ c - x0 by grind)
+    have e1 : (c - x) * (c - x) = (x - c) * (x - c) := by grind
+    have e2 : (c - x0) * (c - x0) = (x0 - c) * (x0 - c) := by grind
+    grind
+
+/-- The rectangle `[x0, x1] × [y0, y1]` misses the annulus `InAnnulus cx cy lo hi`. -/
+def offAnnulus (cx cy lo hi x0 x1 y0 y1 : Rat) : Bool :=
+  decide (hi * hi < gap2 cx x0 x1 + gap2 cy y0 y1) || decide (0 < lo ∧ far2 cx x0 x1 + far2 cy y0 y1 < lo * lo)
+
+theorem not_inAnnulus {cx cy lo hi x0 x1 y0 y1 : Rat} (h : offAnnulus cx cy lo hi x0 x1 y0 y1 = true) {q : Pt}
+    (hx0 : x0 ≤ q.x) (hx1 : q.x ≤ x1) (hy0 : y0 ≤ q.y) (hy1 : q.y ≤ y1) : ¬ InAnnulus cx cy lo hi q := by
+  rintro ⟨ha1, ha2⟩
+  have g1 := gap2_le (c := cx) hx0 hx1
+  have g2 := gap2_le (c := cy) hy0 hy1
+  have f1 := le_far2 (c := cx) hx0 hx1
+  have f2 := le_far2 (c := cy) hy0 hy1
+  simp only [offAnnulus, Bool.or_eq_true, decide_eq_true_eq] at h
+  simp only [dist2] at ha1 ha2
+  grind
+
+/-! ## The helix check -/
+
+/-- **Helix `Geo`, decided**: every building either tops out below `z0 - e` or misses the widened annulus, and so
+does every grid square (clamped beyond the edge) within its bounding square. -/
+def Helix.geoB (M : CityMap) (H : Helix) (e e' : Rat) : Bool :=
+  let lo := H.r - H.δ - e'
+  let hi := H.r + H.δ + e'
+  let zf := H.z0 - e
+  decide (2 ≤ M.n) && decide (0 < M.spacing) && decide (0 ≤ hi) &&
+  M.boxes.all (fun b => decide (b.z1 < zf) || offAnnulus H.cx H.cy lo hi b.x0 b.x1 b.y0 b.y1) &&
+  allSquares M (H.cx - hi) (H.cx + hi) (H.cy - hi) (H.cy + hi) fun kx ky =>
+    decide (sqMax M (clampIdx M kx) (clampIdx M ky) < zf) ||
+    offAnnulus H.cx H.cy lo hi (edge M kx) (edge M (kx + 1)) (edge M ky) (edge M (ky + 1))
+
+theorem Helix.geo_of_geoB {M : CityMap} {H : Helix} {e e' : Rat} (h : H.geoB M e e' = true) : H.Geo M e e' := by
+  simp only [Helix.geoB, Bool.and_eq_true, decide_eq_true_eq, List.all_eq_true, Bool.or_eq_true] at h
+  obtain ⟨⟨⟨⟨hn, hs⟩, hhi⟩, hb⟩, hsq⟩ := h
+  intro q hsol ha
+  rcases hsol with ht | ⟨b, hbm, hc⟩
+  · have hxy := ha.2
+    simp only [dist2] at hxy
+    have s1 := sq_nonneg (q.x - H.cx)
+    have s2 := sq_nonneg (q.y - H.cy)
+    have bx := abs_le_of_sq_le hhi (show (q.x - H.cx) * (q.x - H.cx) ≤ _ by grind)
+    have by' := abs_le_of_sq_le hhi (show (q.y - H.cy) * (q.y - H.cy) ≤ _ by grind)
+    have hc := allSquares_at hs hsq (x := q.x) (y := q.y) (by grind) (by grind) (by grind) (by grind)
+    simp only [Bool.or_eq_true, decide_eq_true_eq] at hc
+    rcases hc with hc | hc
+    · have := terrain_le_sqMax hn q.x q.y; grind
+    · exact absurd ha (not_inAnnulus hc (edge_le hs _) (le_edge_succ hs _) (edge_le hs _) (le_edge_succ hs _))
+  · simp only [Box.Contains] at hc
+    rcases hb b hbm with hb | hb
+    · grind
+    · exact absurd ha (not_inAnnulus hb (by grind) (by grind) (by grind) (by grind))
+
 end CitySafety.EndSets
