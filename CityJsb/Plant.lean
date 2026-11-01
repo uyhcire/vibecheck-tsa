@@ -106,4 +106,8 @@ def stepBrakeE (s : State Float) (elev ail rud thr brk : Float) : State Float ×
 @[export cityjsb_set_fuel_lean]
 def setFuelE (s : State Float) (lb : Float) : State Float := { s with tank0 := lb, tank1 := lb }
 
+/-- Fuel on board (lb, both tanks) if the engine is running, else -1: the landing funnel's fuel condition. -/
+@[export cityjsb_fuel_lean]
+def fuelE (s : State Float) : Float := if s.running then s.tank0 + s.tank1 else -1
+
 end CityJsb

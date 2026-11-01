@@ -13,6 +13,7 @@
 //! `--safety-filter exact-rollout` schedules the checks gatekeeper-style (see `Gate`): either sequentially under a per-tick
 //! frame budget, or (`CHECK_THREADS` ≥ 1) every escape to its full horizon, in parallel (`verify_first`).
 
+use crate::autoland::{self, Auto};
 use crate::jsb::*;
 use crate::model::*;
 use crate::world::{World, CELL, MAP_HALF, NC, R_BODY};
@@ -242,6 +243,8 @@ pub struct Law {
     next_try: f64,
     captured: bool,
     pub p: LawP,
+    /// Funnel mode: the autoland escape this law flies instead (`autoland.rs`).
+    pub auto: Option<Auto>,
 }
 
 impl Law {
@@ -251,7 +254,8 @@ impl Law {
 
     pub fn with(esc: usize, p: LawP) -> Law {
         let ia = if p.kind == LawKind::Lawfirst { lf::E_I0 } else { 0.0 };
-        Law { esc, t: 0.0, ia, ib: 0.0, iphi: 0.0, psi_ref: f64::NAN, axis: f64::NAN, side: 0.0, next_try: 0.0, captured: false, p }
+        let auto = autoland::funnel().then(|| Auto::new(esc));
+        Law { esc, t: 0.0, ia, ib: 0.0, iphi: 0.0, psi_ref: f64::NAN, axis: f64::NAN, side: 0.0, next_try: 0.0, captured: false, p, auto }
     }
 
     /// Turn direction of the terminal set this escape is heading for (JSBSim sign; 0 = a straight climb).
@@ -300,6 +304,11 @@ impl Law {
 
     /// One frame of the escape. The street escape reads the map to choose where its helix starts.
     pub fn step(&mut self, world: &World, q: &mut JsbPlant) {
+        if let Some(a) = self.auto.as_mut() {
+            a.frame(q);
+            self.t += DT_JSB;
+            return;
+        }
         self.capture(&q.obs);
         self.street_turn(world, q);
         self.frame(q);
@@ -403,6 +412,11 @@ impl Law {
 
     /// One frame without the map: for escapes other than `STREET` (which never turns here).
     pub fn frame(&mut self, q: &mut JsbPlant) {
+        if let Some(a) = self.auto.as_mut() {
+            a.frame(q);
+            self.t += DT_JSB;
+            return;
+        }
         let u = self.controls(&q.obs);
         q.frame_raw(u[0], u[1], u[2], u[3]);
         self.t += DT_JSB;
@@ -489,6 +503,9 @@ pub fn rollout_law(world: &World, p: &JsbPlant, law: Law, max_frames: usize, dea
 fn rollout_ctl(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>, cancel: Option<(&AtomicUsize, usize)>) -> Roll {
     let esc = law.esc;
     let mut q = p.fork();
+    if law.auto.is_some() {
+        return rollout_funnel(world, q, law, max_frames, deadline, cancel);
+    }
     law.capture(&q.obs);
     let n_max = ((HORIZON / DT_JSB).round() as usize).min(max_frames);
     let mut hist: Vec<Hist> = Vec::with_capacity(n_max / SAMPLE + 2);
@@ -546,6 +563,55 @@ fn rollout_ctl(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, dea
         }
     }
     r.outcome = if n_max < (HORIZON / DT_JSB).round() as usize { Outcome::Budget } else { Outcome::Horizon };
+    r
+}
+
+/// Funnel mode's check of an autoland escape from `q`: clearance at every `SAMPLE` frames (off the map fails),
+/// until the aircraft is in the landing funnel (tested at every frame, the start included).
+fn rollout_funnel(world: &World, mut q: JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>, cancel: Option<(&AtomicUsize, usize)>) -> Roll {
+    let full = (autoland::HORIZON_FUNNEL / DT_JSB).round() as usize;
+    let n_max = full.min(max_frames);
+    let mut r = Roll { esc: law.esc, outcome: Outcome::Horizon, frames: 0, path: Vec::new(), tail: Vec::new(), min_clear: f64::INFINITY, t: 0.0 };
+    let push = |q: &JsbPlant, r: &mut Roll| -> Option<Outcome> {
+        let s = q.state();
+        r.path.push([s[X], s[Y], s[Z]]);
+        if !on_map(s[X], s[Y]) {
+            return Some(Outcome::Hit);
+        }
+        let c = world.airframe_clearance(&s, 50.0);
+        r.min_clear = r.min_clear.min(c);
+        (c <= MARGIN).then_some(Outcome::Hit)
+    };
+    if let Some(out) = push(&q, &mut r) {
+        r.outcome = out;
+        return r;
+    }
+    if autoland::in_funnel(&q) {
+        r.outcome = Outcome::Ok;
+        return r;
+    }
+    for k in 1..=n_max {
+        law.step(world, &mut q);
+        r.frames = k;
+        r.t = k as f64 * DT_JSB;
+        if k % SAMPLE == 0 {
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) || cancel.is_some_and(|(b, i)| b.load(Ordering::Relaxed) < i) {
+                r.outcome = Outcome::Budget;
+                return r;
+            }
+            if let Some(out) = push(&q, &mut r) {
+                r.outcome = out;
+                return r;
+            }
+        }
+        if autoland::in_funnel(&q) {
+            let s = q.state();
+            r.path.push([s[X], s[Y], s[Z]]);
+            r.outcome = Outcome::Ok;
+            return r;
+        }
+    }
+    r.outcome = if n_max < full { Outcome::Budget } else { Outcome::Horizon };
     r
 }
 
@@ -1099,6 +1165,10 @@ pub struct Gate {
     /// the pool workers' CPU (ms).
     pub frames_all: Vec<u32>,
     pub cpu_workers_ms: Vec<f32>,
+    /// Funnel mode: the pilot command a verified candidate holds, and its ticks still to fly; ticks since the
+    /// last check while committed.
+    pub latch: Option<(Pilot, u32)>,
+    pub since_check: u32,
 }
 
 impl Gate {
@@ -1129,6 +1199,8 @@ impl Gate {
             frames: Vec::new(),
             frames_all: Vec::new(),
             cpu_workers_ms: Vec::new(),
+            latch: None,
+            since_check: 0,
         };
         let mut best: Option<Roll> = None;
         for esc in 0..n_esc() {
@@ -1197,15 +1269,48 @@ impl Gate {
     /// `tick` for either kind of pilot command: fly-by-wire demands or raw surfaces.
     pub fn tick_pilot(&mut self, world: &World, plant: &mut JsbPlant, u_p: &Pilot, dt: f64, filter_on: bool) -> bool {
         let (c0, w0) = (thread_cpu(), std::time::Instant::now());
+        // Funnel mode checks every `m` ticks: a candidate is the pilot's command held `m` ticks, then an escape.
+        // Between checks the gate flies the rest of the candidate that verified, or the committed escape.
+        let m = if autoland::funnel() && filter_on { autoland::FUNNEL_CHECK_TICKS } else { 1 };
+        if m > 1 {
+            if self.law.is_none() {
+                if let Some((u, left)) = self.latch.filter(|&(_, left)| left > 0) {
+                    self.latch = Some((u, left - 1));
+                    let (surf, _) = plant.advance_pilot_dump(&u, dt, false);
+                    self.tick_surfaces = surf;
+                    self.since_handback += 1;
+                    self.push_cost(c0, w0, 0, 0, 0.0);
+                    return true;
+                }
+            } else if self.since_check + 1 < m {
+                self.since_check += 1;
+                self.fly_law(world, plant, dt);
+                self.push_cost(c0, w0, 0, 0, 0.0);
+                return false;
+            }
+        }
+        self.since_check = 0;
+        self.latch = None;
         let mut cand = plant.fork();
-        if self.law.is_some() && matches!(u_p, Pilot::Fbw(_)) {
+        let bumpless = self.law.is_some() && matches!(u_p, Pilot::Fbw(_));
+        if bumpless {
             cand.bumpless_fbw();
         }
         let f0 = (-cand.lag / DT_JSB).ceil().max(0.0) as usize;
         // Hysteresis (proposal logic: staying committed is always safe): no hand-back check during the hold.
         let holding = self.law.is_some() && self.run_len < HOLD_TICKS;
         let full = CHECK_THREADS.load(Ordering::Relaxed) > 0;
-        let (cand_surf, dump) = cand.advance_pilot_dump(u_p, dt, full && filter_on && !holding);
+        let mut cand_surf = Vec::new();
+        for _ in 1..m {
+            let (surf, _) = cand.advance_pilot_dump(u_p, dt, false);
+            if cand_surf.is_empty() {
+                cand_surf = surf;
+            }
+        }
+        let (surf, dump) = cand.advance_pilot_dump(u_p, dt, full && filter_on && !holding);
+        if cand_surf.is_empty() {
+            cand_surf = surf;
+        }
         if !filter_on {
             *plant = cand;
             self.tick_surfaces = cand_surf;
@@ -1246,7 +1351,16 @@ impl Gate {
             } else {
                 self.since_handback += 1;
             }
-            *plant = cand;
+            if m > 1 {
+                // Fly the candidate's first tick now (the same frames the check flew), the rest latched.
+                if bumpless {
+                    plant.bumpless_fbw();
+                }
+                plant.advance_pilot_dump(u_p, dt, false);
+                self.latch = Some((*u_p, m - 1));
+            } else {
+                *plant = cand;
+            }
             self.tick_surfaces = cand_surf;
             self.last = laws[i].esc;
             self.witness = Some(laws[i]);
@@ -1273,27 +1387,36 @@ impl Gate {
             } else if self.witness.is_none() {
                 self.blind_ticks += 1;
             }
-            self.run_len += 1;
-            let law = self.law.as_mut().unwrap();
-            self.tick_surfaces.clear();
-            plant.lag -= dt;
-            while plant.lag < -1e-12 {
-                law.step(world, plant);
-                plant.lag += DT_JSB;
-                self.tick_surfaces.push(plant.surf);
-            }
-            if law_dir(law) != 0.0 {
-                self.prev_dir = law_dir(law);
-            }
+            self.fly_law(world, plant, dt);
             false
         };
         self.first_accept.get_or_insert(accept);
+        self.push_cost(c0, w0, v.frames, v.frames_all, v.cpu_workers);
+        accept
+    }
+
+    /// One tick of the committed escape law.
+    fn fly_law(&mut self, world: &World, plant: &mut JsbPlant, dt: f64) {
+        self.run_len += 1;
+        let law = self.law.as_mut().unwrap();
+        self.tick_surfaces.clear();
+        plant.lag -= dt;
+        while plant.lag < -1e-12 {
+            law.step(world, plant);
+            plant.lag += DT_JSB;
+            self.tick_surfaces.push(plant.surf);
+        }
+        if law_dir(law) != 0.0 {
+            self.prev_dir = law_dir(law);
+        }
+    }
+
+    fn push_cost(&mut self, c0: f64, w0: std::time::Instant, frames: usize, frames_all: usize, cpu_workers: f64) {
         self.cpu_ms.push(((thread_cpu() - c0) * 1e3) as f32);
         self.wall_ms.push((w0.elapsed().as_secs_f64() * 1e3) as f32);
-        self.frames.push(v.frames as u32);
-        self.frames_all.push(v.frames_all as u32);
-        self.cpu_workers_ms.push((v.cpu_workers * 1e3) as f32);
-        accept
+        self.frames.push(frames as u32);
+        self.frames_all.push(frames_all as u32);
+        self.cpu_workers_ms.push((cpu_workers * 1e3) as f32);
     }
 }
 
