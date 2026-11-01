@@ -1,5 +1,6 @@
 import JsbExact.Model
 import CityJsb.Template
+import CityJsb.Import
 
 /-! `JsbExact` as a plant for the city demo: build an in-flight state at the origin (latitude and longitude 0)
 and step it one JSBSim frame (1/128 s) at a time, reporting what the demo needs in SI units. -/
@@ -47,12 +48,12 @@ def init (hM v gam psi phi alpha : Float) : State Float :=
     wind := V3.zero }
 
 /-- North, east (from the origin), altitude above sea level, NED velocity, airspeed, Euler angles, body rates,
-alpha, beta, normal load factor, height above terrain, dynamic pressure (Pa), engine rpm. -/
+alpha, beta, normal load factor, height above terrain, dynamic pressure (Pa), engine rpm, ECEF position. -/
 def obs (s : State Float) (d : Diag Float) : FloatArray :=
   let nz := -(d.faero.z + d.fprop.z) / (d.mass * g0)
   ⟨#[d.loc.z * ft, d.loc.y * ft, d.hsl * ft, d.vned.x * ft, d.vned.y * ft, d.vned.z * ft, d.vt * ft,
      d.euler.x, d.euler.y, d.euler.z, d.pqr.x, d.pqr.y, d.pqr.z, d.alpha, d.beta, nz, d.agl * ft,
-     d.qbar * 47.880258, s.rpm]⟩
+     d.qbar * 47.880258, s.rpm, d.loc.x * ft, d.loc.y * ft, d.loc.z * ft]⟩
 
 @[export cityjsb_init]
 def initE (hM v gam psi phi alpha : Float) : State Float := init hM v gam psi phi alpha
@@ -61,5 +62,27 @@ def initE (hM v gam psi phi alpha : Float) : State Float := init hM v gam psi ph
 def stepE (s : State Float) (elev ail rud thr : Float) : State Float × FloatArray :=
   let (s', d) := step s { elev, ail, rud, thr, mix := 0.9, brkL := 0, brkR := 0 }
   (s', obs s' d)
+
+/-- `obs` of the state a dump was taken at, from its derived fields; equals `obs` after the step that reached it. -/
+def obsFromDump (a : FloatArray) : Option FloatArray :=
+  if a.size != dumpNames.size then none else
+  let g := fun (n : String) => a[dumpIndex[n]?.getD 0]!
+  let nz := -(g "d_faero3" + g "d_fprop3") / (g "d_mass" * g0)
+  some ⟨#[g "ecef3" * ft, g "ecef2" * ft, g "hsl" * ft, g "vned1" * ft, g "vned2" * ft, g "vned3" * ft,
+    g "d_vt" * ft, g "phi", g "theta", g "psi", g "pqr1", g "pqr2", g "pqr3", g "d_alpha", g "d_beta", nz,
+    g "d_agl" * ft, g "d_qbar" * 47.880258, g "rpm", g "ecef1" * ft, g "ecef2" * ft, g "ecef3" * ft]⟩
+
+@[export cityjsb_obs_from_dump_lean]
+def obsFromDumpE (a : FloatArray) : Option FloatArray := obsFromDump a
+
+/-- `none` unless the dump has `dumpNames.size` fields. -/
+@[export cityjsb_from_dump_lean]
+def fromDumpE (a : FloatArray) : Option (State Float) := fromDump a
+
+@[export cityjsb_dump_len_lean]
+def dumpLenE (_ : Unit) : USize := dumpNames.size.toUSize
+
+@[export cityjsb_dump_field_lean]
+def dumpFieldE (i : USize) : String := dumpNames.getD i.toNat ""
 
 end CityJsb

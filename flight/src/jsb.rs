@@ -20,7 +20,7 @@ struct Raw {
     _p: [u8; 0],
 }
 
-const NOBS: usize = 19;
+const NOBS: usize = 22;
 
 extern "C" {
     fn cityjsb_new(h: f64, v: f64, gam: f64, psi: f64, phi: f64, alpha: f64) -> *mut Raw;
@@ -50,6 +50,8 @@ pub struct Obs {
     pub agl: f64,
     pub qbar: f64,
     pub rpm: f64,
+    /// ECEF position (m).
+    pub ecef: [f64; 3],
 }
 
 impl Obs {
@@ -70,6 +72,7 @@ impl Obs {
             agl: o[16],
             qbar: o[17],
             rpm: o[18],
+            ecef: [o[19], o[20], o[21]],
         }
     }
 }

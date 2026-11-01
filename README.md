@@ -131,3 +131,30 @@ ext/harness-on $R ext/data/bank bank 20 8000 3       # modes: level, rud0, bank,
 .venv/bin/python -I jsbx/gen_lean.py ext/data/bank.cfg.json $R/aircraft/c172p/c172p.xml JsbExact/C172Gen.lean
 lake build jsbx && .lake/build/bin/jsbx ext/data/bank step   # also: tick (8 steps), free (open-loop episode), bench
 ```
+
+### State import and drift check
+
+A host running JSBSim can hand its live state to `JsbExact`. `jsbx/export_state.hpp` (header-only, C++) writes a
+state dump of an `FGFDMExec`: 289 doubles, including the private members `JsbExact.step` needs (integrator
+histories, gear friction multipliers, stall hysteresis). `jsbx/harness.cpp` writes its records with the same
+code. `CityJsb.fromDump` (C: `cityjsb_from_dump` in `libcityjsb`) builds the `JsbExact` state from it, and
+`CityJsb.obsFromDump` (`cityjsb_obs_from_dump`) the plant's observation at that state; the field order is
+`CityJsb.dumpNames`, listed at run time by `cityjsb_dump_field`.
+
+The drift check compares a host's JSBSim with `JsbExact`. The host logs every frame with `jsbx::DriftLog`
+(the commands about to be applied, then the dump), and `jsbdrift` imports the first record, steps `JsbExact`
+with the logged commands and reports, per field, how many frames are bit-identical, the largest absolute and
+relative difference, and where they first differ (`--horizon N` re-imports every `N` frames). `jsbx/drift_host.cpp`
+is an example host.
+
+```
+jsbx/build.sh on                                         # also builds ext/drift_host-on
+ext/drift_host-on $R /tmp/drift 120 7 && lake build jsbdrift && .lake/build/bin/jsbdrift /tmp/drift
+lake build cityimporttest && .lake/build/bin/cityimporttest ext/data/bank ext/data/to   # import round trip
+```
+
+Measured: `cityimporttest` on the `bank`, `level`, `rud0`, `ld` and `to` dumps imports 274,401 records and
+steps each once, bit-identical to the next record in every compared field, and `obsFromDump` of each next
+record equals the plant's observation after the step. `drift_host-on` (the reference build)
+logs 120 s that `jsbdrift` reproduces bit for bit; `drift_host-off` (JSBSim built with `-ffp-contract=off`)
+differs from the first frame, by at most 4e-9 ft in position and 2e-12 ft/s in body velocity over the 120 s.
