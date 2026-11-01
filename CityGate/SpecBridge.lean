@@ -179,12 +179,24 @@ theorem outputsInRange : OutputsInRange := by
 def Near (h : Rat) (c : Rat × Rat × Rat) (q : CitySafety.Pt) : Prop :=
   c.1 - h ≤ q.x ∧ q.x ≤ c.1 + h ∧ c.2.1 - h ≤ q.y ∧ q.y ≤ c.2.1 + h ∧ c.2.2 - h ≤ q.z ∧ q.z ≤ c.2.2 + h
 
-/-- **Assumption:** in every reachable state, the spec's airframe points are defined and lie within `h` m per axis
-of the gate's reported position `c` (`refPlane`; `exactPos` of the plant's observation). The c172p's points lie at
-most about 5.9 m from its CG; before the first frame `c` is one frame (0.39 m) ahead. Checked by `specbridgeinit`. -/
+/-- The airframe points of plant state `s` are defined and lie within `h` m per axis of `pl`'s reported position. -/
+def AirframeNearAt (h : Rat) (s : JsbExact.State Float) (pl : Plane) : Prop :=
+  ∀ c, exactPos pl = some c → ∃ ps, CitySafety.airframe s = some ps ∧ ∀ q ∈ ps, Near h c q
+
+/-- In every reachable state, the airframe points lie within `h` m of the gate's reported position (`refPlane`). -/
 def AirframeNear (h : Rat) : Prop :=
-  ∀ p, CitySafety.Reach specFilter p → ∀ c, exactPos (refPlane p) = some c →
-    ∃ ps, CitySafety.airframe p.1 = some ps ∧ ∀ q ∈ ps, Near h c q
+  ∀ p, CitySafety.Reach specFilter p → AirframeNearAt h p.1 (refPlane p)
+
+/-- **Assumption:** after the first frame, every reachable state's airframe points lie within `h` m per axis of
+the position the plant reported for that same state. The c172p's points lie about 5.9 m from its CG at most;
+this could be proved from bounds on the reported rotation matrix's entries and agreement of `Diag.loc` with
+`report`. Checked along flights by `specbridgeinit`. -/
+def AirframeNearGate (h : Rat) : Prop :=
+  ∀ s ob mc, CitySafety.Reach specFilter (s, some (ob, mc)) → AirframeNearAt h s (planeOf s ob)
+
+/-- The 4 starts' airframe points lie within `h` m of the gate's start, one frame on (decidable; see
+`SpecBridgeNative`). -/
+def AirframeNearInit (h : Rat) : Prop := ∀ s, CitySafety.Init s → AirframeNearAt h s (firstPlane s)
 
 /-! ## Correspondence: every spec state is a gate state -/
 
@@ -254,6 +266,35 @@ theorem reach_gate (p : JsbExact.State Float × Mem') (hp : CitySafety.Reach spe
   cases m with
   | none => exact GateSafety.Reach.init ⟨s, hc, rfl⟩
   | some v => obtain ⟨ob, mc⟩ := v; exact hc
+
+theorem airframeNear_of {h : Rat} (hi : AirframeNearInit h) (hg : AirframeNearGate h) : AirframeNear h := by
+  intro p hp
+  obtain ⟨s, m⟩ := p
+  cases m with
+  | none => exact hi s (reach_corr outputsInRange _ hp)
+  | some v => obtain ⟨ob, mc⟩ := v; exact hg s ob mc hp
+
+/-- `Near`, decided. -/
+def nearB (h : Rat) (c : Rat × Rat × Rat) (q : CitySafety.Pt) : Bool :=
+  decide (c.1 - h ≤ q.x ∧ q.x ≤ c.1 + h ∧ c.2.1 - h ≤ q.y ∧ q.y ≤ c.2.1 + h ∧ c.2.2 - h ≤ q.z ∧ q.z ≤ c.2.2 + h)
+
+/-- `AirframeNearAt`, decided. -/
+def nearAtB (h : Rat) (s : JsbExact.State Float) (pl : Plane) : Bool :=
+  match exactPos pl with
+  | none => true
+  | some c => match CitySafety.airframe s with
+    | none => false
+    | some ps => ps.all (nearB h c)
+
+theorem nearAt_of_B {h : Rat} {s : JsbExact.State Float} {pl : Plane} (hb : nearAtB h s pl = true) :
+    AirframeNearAt h s pl := by
+  intro c hc
+  simp only [nearAtB, hc] at hb
+  cases ha : CitySafety.airframe s with
+  | none => simp [ha] at hb
+  | some ps =>
+    simp only [ha, List.all_eq_true, nearB, decide_eq_true_eq] at hb
+    exact ⟨ps, rfl, fun q hq => hb q hq⟩
 
 /-! ## Geometry -/
 

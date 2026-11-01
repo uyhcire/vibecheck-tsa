@@ -1,8 +1,8 @@
 import CityGate.SpecBridge
 
-/-! `InitChecked cityGate GInit` by `native_decide`, and `cityGate_spec_safe_R` without it. This file trusts the
-Lean compiler and the C maths library (`jx_*`, via the `jxmath` extern library) for these four rollouts: its
-axioms add the auxiliary axiom `native_decide` creates for `startsChecked_true` to the standard three. -/
+/-! `InitChecked cityGate GInit` and `AirframeNearInit 7` by `native_decide`, and `cityGate_spec_safe_native` without
+them. Trusts the Lean compiler and the C maths library (`jx_*`, the `jxmath` extern library) for the 4 starts: its
+axioms add the two auxiliary axioms `native_decide` creates to the standard three. -/
 
 namespace CityGate.SpecBridge
 open GateSafety
@@ -22,11 +22,22 @@ theorem initChecked : InitChecked cityGate GInit := by
   simp only [startsChecked, List.all_eq_true] at this
   exact this c hc
 
-/-- **The city gate is safe against the spec**, assuming only `TermSoundR` and `AirframeNear`; trusts the compiler
-and libm for `initChecked`. -/
-theorem cityGate_spec_safe_native {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR cityGate (CrashH h) GInit)
-    (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter :=
-  cityGate_spec_safe_R hh hT initChecked hNear
+theorem startsNear_true :
+    (CitySafety.startConds.all fun c => nearAtB 7 c.state (firstPlane c.state)) = true := by native_decide
+
+/-- **`AirframeNearInit 7` holds**: at the 4 starts the airframe points lie within 7 m of the gate's start. -/
+theorem airframeNearInit : AirframeNearInit 7 := by
+  intro s ⟨c, hc, hs⟩
+  subst hs
+  have := startsNear_true
+  simp only [List.all_eq_true] at this
+  exact nearAt_of_B (this c hc)
+
+/-- **The city gate is safe against the spec**, assuming only `TermSoundR` for the 7 m cube and
+`AirframeNearGate 7`; trusts the compiler and libm for `initChecked` and `airframeNearInit`. -/
+theorem cityGate_spec_safe_native (hT : TermSoundR cityGate (CrashH 7) GInit) (hNear : AirframeNearGate 7) :
+    CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_R (by decide +kernel) hT initChecked (airframeNear_of airframeNearInit hNear)
 
 end CityGate.SpecBridge
 
