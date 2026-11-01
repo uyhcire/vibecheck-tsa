@@ -1,4 +1,5 @@
 import Ci.proof.T
+import Jsb.Enc
 import Ci.Bench
 open Vibecheck Jsb Ci Ci.Lawfirst
 
@@ -34,6 +35,27 @@ partial def loop (h : IO.FS.Stream) (o : IO.FS.Stream) (k : Nat) : IO Unit := do
   o.flush
   loop h o k
 
+/-- interval product of raw Ints (no rescale) -/
+def pI (a b c d : Int) : Int × Int := (min (min (a*c) (a*d)) (min (b*c) (b*d)), max (max (a*c) (a*d)) (max (b*c) (b*d)))
+def lo' : Iv → Int | .box a _ => a | .top => -1000000000000
+def hi' : Iv → Int | .box _ b => b | .top => 1000000000000
+def safeI (S : StateOf Iv) : List Bool :=
+  let (vx0, vx1) := (lo' S.vx, hi' S.vx); let (vz0, vz1) := (lo' S.vz, hi' S.vz)
+  let (dx0, dx1) := (lo' S.dx, hi' S.dx); let (dz0, dz1) := (lo' S.dz, hi' S.dz)
+  let a := pI vx0 vx1 dx0 dx1; let b := pI vz0 vz1 dz0 dz1
+  let c := pI vx0 vx1 dz0 dz1; let d := pI vz0 vz1 dx0 dx1
+  let u0 := a.1 + b.1; let u1 := a.2 + b.2
+  let w1 := c.2 - d.1
+  let alpha := decide (0 < u0) && decide (w1 * 65536 ≤ Ci.alphaTanMax * u0)
+  let au := (lo' S.au + Ci.gRaw, hi' S.au + Ci.gRaw)
+  let l1 := pI au.1 au.2 dx0 dx1; let l2 := pI (lo' S.ah) (hi' S.ah) dz0 dz1
+  let load := decide (10 * (l1.2 - l2.1) ≤ Ci.loadMaxX10 * Ci.gRaw * 65536)
+  let v2 := (pI vx0 vx1 vx0 vx1).1 + (if vz0 ≤ 0 && 0 ≤ vz1 then 0 else min (vz0*vz0) (vz1*vz1))
+  let speed := decide (Ci.vFloor * Ci.vFloor ≤ v2)
+  let stall := decide (lo' S.stall = 0 && hi' S.stall = 0)
+  let hok := decide (Ci.clearance ≤ lo' S.h && hi' S.h ≤ Ci.hMax)
+  [alpha, load, speed, stall, hok]
+
 def main (args : List String) : IO UInt32 := do
   match args with
   | ["traj", n] =>
@@ -61,6 +83,29 @@ def main (args : List String) : IO UInt32 := do
         let r := tickT L { s with h := ⟨a[1]!⟩, x := ⟨0⟩ } m
         s := r.s; m := r.m
       IO.println s!"{showA (ofState { s with h := ⟨a[1]!⟩, x := ⟨0⟩ })} {m.eI} {m.ac}"
+    return 0
+  | ["ivcheck"] =>
+    let h := (← IO.getStdin)
+    repeat
+      let line ← h.getLine
+      if line.isEmpty then break
+      let a := ((line.trimAscii.toString.splitOn " ").filter (· ≠ "") |>.map String.toInt!).toArray
+      if a.size < 42 then break
+      let S : StateOf Iv := ⟨.box a[0]! a[19]!, .box a[1]! a[20]!, .box a[2]! a[21]!, .box a[3]! a[22]!, .box a[4]! a[23]!,
+        .box a[5]! a[24]!, .box a[6]! a[25]!, .box a[7]! a[26]!, .box a[8]! a[27]!, .box a[9]! a[28]!, .box a[10]! a[29]!,
+        .box a[11]! a[30]!, .box a[12]! a[31]!, .box a[13]! a[32]!, .box a[14]! a[33]!, .box a[15]! a[34]!, .box a[16]! a[35]!,
+        .box a[17]! a[36]!, .box a[18]! a[37]!⟩
+      let U : InputOf Iv := ⟨.box a[38]! a[39]!, .box a[40]! a[41]!, .box 0 0, .box 0 0⟩
+      let mut cur := S
+      let mut outs : Array String := #[]
+      for _ in [0:8] do
+        let dh := Iv.shr (Iv.ab3 cur.vz cur.pvz cur.pvz2) 7
+        let nx := step 7 true U cur
+        let fl := safeI nx
+        let climb := decide (Ci.climbVz ≤ lo' nx.vz) && decide (1 ≤ lo' dh) || decide (Ci.climbTop ≤ lo' nx.h)
+        outs := outs.push s!"{fl.map (fun b => if b then 1 else 0)}{if climb then 1 else 0} vz[{lo' nx.vz},{hi' nx.vz}] q[{lo' nx.q},{hi' nx.q}] au[{lo' nx.au},{hi' nx.au}]"
+        cur := nx
+      IO.println (" | ".intercalate outs.toList)
     return 0
   | ["tick", k] => loop (← IO.getStdin) (← IO.getStdout) k.toNat!; return 0
   | ["bench", i, n] =>
