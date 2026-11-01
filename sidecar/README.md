@@ -74,13 +74,17 @@ X-Plane's own downtown is procedural autogen and does not match the footprints, 
 `final-kpao31-2nm` puts you 2 NM out on the 3 deg slope to KPAO runway 31 at 80 kt, flaps 20. The filter
 (`sidecar/approach_cbf.py`) keeps you inside a cone fixed to the runway 31 threshold (apex 50 ft above it,
 standard threshold crossing height): elevation angle 2 to 4 deg, lateral angle within 3 deg (never tighter
-than half the runway width), and a speed band of 80 +/-10 KIAS on final that slides to 75 +/-5 at the
-threshold and 65 +/-5 over the runway. Inside the cone and the band your inputs pass through unchanged; at
-an edge the filter clamps the load factor, bank/roll rate or throttle (status line shows `[n+ p- thr+]`).
-The stick commands load factor (centre = hold the flight path) and bank angle (centre = wings level). The
-vertical cone switches off 0.3 NM out: the flare and touchdown are yours, only the speed band stays on
-until the wheels touch. The same stick button toggles it. `--selftest` flies a hands-off and a hostile
-(nose-down, left, idle) pilot headless and checks both stay in the cone and the band.
+than 5 m), and a speed band of 80 +/-10 KIAS on final that slides to 75 +/-5 at the threshold and 65 +/-5
+over the runway. Inside the cone and the band your inputs pass through unchanged; at an edge the filter
+clamps the load factor, bank/roll rate or throttle (status line shows `[n+ p- thr+]`). The stick commands
+load factor (centre = hold the flight path) and bank angle (centre = wings level).
+
+From 0.3 NM the upper wall of the cone switches off and the **flare barrier** takes over: the sink rate may
+not exceed 180 ft/min plus 0.12 per second of wheel height, so the round-out is exponential and the wheels
+touch at about 180 ft/min. The lower wall stays on to the threshold, so you cannot land short; the speed band
+stays on until the wheels touch. Hands off with the lever at idle, it lands itself 300 m past the threshold
+at 60-69 kt. The same stick button toggles it. `--selftest` flies a hands-off and a hostile (nose-down,
+left, idle) pilot headless to touchdown and checks the cone, the band, the sink rate and the centreline.
 
 ## Which JSBSim model
 
