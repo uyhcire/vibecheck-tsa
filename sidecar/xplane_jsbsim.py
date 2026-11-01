@@ -145,6 +145,8 @@ def hit_obstacle(lat, lon, agl_m):
 SCENARIOS = {
     "final-kpao31": dict(lat=37.4189, lon=-122.0735, hdg=322.0, alt_ft=1000.0, kts=75.0, gamma=-3.0, flaps=0.33,
                          terrain_ft=7.0, note="3 NM final to Palo Alto runway 31, flaps 10, on a 3 deg slope"),
+    "final-kpao31-2nm": dict(lat=37.432227, lon=-122.086646, hdg=321.9, alt_ft=694.0, kts=80.0, gamma=-3.0, flaps=0.67,
+                             terrain_ft=7.0, note="2 NM final to Palo Alto runway 31 at 80 kt, flaps 20, on the 3 deg slope (approach_cbf.start_point)"),
     "sf-downtown": dict(lat=37.792049, lon=-122.374326, hdg=262.0, alt_ft=600.0, kts=100.0, gamma=0.0, flaps=0.0,
                         terrain_ft=0.0, note="over the Bay 1.1 NM east of downtown San Francisco, pointed at the Salesforce Tower at 600 ft"),
 }
@@ -260,8 +262,10 @@ def main():
                     help="start here on the ground instead of where X-Plane's aircraft is (e.g. KPAO rwy 13: "
                          "37.46358,-122.11749,142,2)")
     ap.add_argument("--scenario", choices=sorted(SCENARIOS), help="airborne start: " + "; ".join(f"{k}: {v['note']}" for k, v in SCENARIOS.items()))
-    ap.add_argument("--filter", choices=["none", "bcbf"], default="none",
-                    help="bcbf: guard the pilot with the bcbf-city-flight backup CBF (flight/target/release/filterd)")
+    ap.add_argument("--filter", choices=["none", "bcbf", "approach"], default="none",
+                    help="bcbf: guard the pilot with the bcbf-city-flight backup CBF (flight/target/release/filterd); "
+                         "approach: glideslope cone and speed band to KPAO runway 31 (sidecar/approach_cbf.py)")
+    ap.add_argument("--daytime", action="store_true", help="set X-Plane's clock to noon local")
     ap.add_argument("--filter-off", action="store_true", help="start with the filter inactive (default: active)")
     ap.add_argument("--toggle-button", type=int, default=4, help="HOTAS button that toggles the filter (the stick button labelled 2 reports as 4; 1 = trigger)")
     ap.add_argument("--kamikaze-button", type=int, default=3, help="HOTAS button that toggles the kamikaze autopilot")
@@ -299,8 +303,14 @@ def main():
         from bcbf import Bcbf
         bcbf = Bcbf(preset=args.predictor)
         bcbf_on = not args.filter_off
+    elif args.filter == "approach":
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from approach_cbf import ApproachCbf
+        bcbf = ApproachCbf()
+        bcbf_on = not args.filter_off
+    if bcbf:
         kamikaze = args.kamikaze
-        print(f"backup CBF loaded; button {args.toggle_button} toggles it (starts {'ON' if bcbf_on else 'off'})")
+        print(f"{args.filter} CBF loaded; button {args.toggle_button} toggles it (starts {'ON' if bcbf_on else 'off'})")
     buildings = Buildings()
     print(f"{len(buildings.items)} building footprints loaded" if buildings.items else "no sf_buildings.json: landmark towers only")
     hotas = None
@@ -368,6 +378,9 @@ def main():
 
     if args.viewer == "xplane":
         sock.sendto(dref_set("sim/operation/override/override_engines", 1.0), xp)  # lets ENGN_tacrad stick
+        if args.daytime:
+            sock.sendto(dref_set("sim/time/use_system_time", 0.0), xp)
+            sock.sendto(dref_set("sim/time/zulu_time_sec", 72000.0), xp)   # 20:00Z = noon PDT
     frame = 1.0 / args.hz
     last_buttons = 0
     next_t = time.monotonic()
@@ -390,7 +403,7 @@ def main():
                     print(f"\nbutton(s) pressed: {[i + 1 for i in range(15) if pressed & ~last_buttons & (1 << i)]}", flush=True)
                 if pressed & ~last_buttons & (1 << (args.toggle_button - 1)):
                     bcbf_on = not bcbf_on
-                    print(f"\n*** BACKUP CBF {'ON' if bcbf_on else 'OFF'} ***", flush=True)
+                    print(f"\n*** {args.filter.upper()} CBF {'ON' if bcbf_on else 'OFF'} ***", flush=True)
                 if pressed & ~last_buttons & (1 << (args.kamikaze_button - 1)):
                     kamikaze = not kamikaze
                     print(f"\n*** KAMIKAZE AUTOPILOT {'ON' if kamikaze else 'OFF'} ***", flush=True)

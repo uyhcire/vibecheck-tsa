@@ -67,6 +67,21 @@ X-Plane's own downtown is procedural autogen and does not match the footprints, 
   A human diving at 127 kt to 60 ft down a street crashed with the filter on: from there no escape the predictor believes in is flyable by the Cessna. The filter stops you reaching such states only if it is on before you get there, and only as far as the plant follows its model; switching it on late shows `NO ESCAPE`.
 - The downtown scenario starts inside the crate's 6 km map (`x = 2700 m`), 1.1 NM east of downtown.
 
+## Approach CBF (`--filter approach`)
+
+    .venv/bin/python -I sidecar/xplane_jsbsim.py --scenario final-kpao31-2nm --filter approach --daytime
+
+`final-kpao31-2nm` puts you 2 NM out on the 3 deg slope to KPAO runway 31 at 80 kt, flaps 20. The filter
+(`sidecar/approach_cbf.py`) keeps you inside a cone fixed to the runway 31 threshold (apex 50 ft above it,
+standard threshold crossing height): elevation angle 2 to 4 deg, lateral angle within 3 deg (never tighter
+than half the runway width), and a speed band of 80 +/-10 KIAS on final that slides to 75 +/-5 at the
+threshold and 65 +/-5 over the runway. Inside the cone and the band your inputs pass through unchanged; at
+an edge the filter clamps the load factor, bank/roll rate or throttle (status line shows `[n+ p- thr+]`).
+The stick commands load factor (centre = hold the flight path) and bank angle (centre = wings level). The
+vertical cone switches off 0.3 NM out: the flare and touchdown are yours, only the speed band stays on
+until the wheels touch. The same stick button toggles it. `--selftest` flies a hands-off and a hostile
+(nose-down, left, idle) pilot headless and checks both stay in the cone and the band.
+
 ## Which JSBSim model
 
 X-Plane's SR22: 2300 lb empty, 3600 lb max, 310 hp injected piston, constant-speed prop, low wing, fixed gear, Vne 205 kt. On paper JSBSim 1.3.3's **c182** (230 hp, constant-speed prop, 2950 lb) is the closest stock single. On the ground it is not usable from a stick: with zero rudder it swings 150° left under takeoff power, and the pa28 spins. The **c172p** (160 hp, the model `Jsb/` ports to Lean) rolls straight and lifts off at ~65 kt, so it is the default. Pick another with `--model`. An "sr22ish" copy of `c182.xml` with the SR22's engine, weights and 144.9 ft² wing, plus a tamer nosewheel, is the next step.
