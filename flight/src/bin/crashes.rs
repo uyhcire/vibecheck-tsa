@@ -1,7 +1,7 @@
 //! Records the crashes of the hostile-pilot harness episodes (P1 filter on) as JSON for plotting.
 //! `cargo run --release --no-default-features --features jsb --bin crashes -- OUT_DIR [episodes] [--pm]
 //!   [--safety-filter exact|fitted|fitted25|exact-rollout|exact-rollout-lean] [--escapes 3|5|6] [--law cegis1|cegis2|lawfirst] [--budget FRAMES] [--time-cap MS] [--threads N] [--only EPISODE]
-//!   [--check-threads N [--verify-seeds]] [--scenario K [--pilot hostile|kamikaze|mixed]]`
+//!   [--check-threads N [--verify-seeds]] [--margin M [--check-every K]] [--swept] [--handback-extra M] [--scenario K [--pilot hostile|kamikaze|mixed]]`
 //! (`--pm` flies the point-mass model instead of JSBSim.) `--scenario K` starts every episode at scenario K
 //! (1-5) instead of a random start; with K = 5 (Tower gap) the scripted showcase pilot flies one more.
 //! `--check-threads N` (N ≥ 1) has the gate check every escape to its full horizon on N threads
@@ -64,6 +64,8 @@ struct Stats {
     cpu_workers_ms: Vec<f32>,
     /// `digest` of the episode's records.
     digest: u64,
+    /// Lowest flown airframe clearance (m).
+    min_clear: f64,
 }
 
 /// FNV-1a over every tick's state, mode and applied command: equal digests mean the same closed-loop run.
@@ -156,6 +158,7 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
     }
     let mut st = Stats { first_accept: sim.started_safe, ticks: sim.ticks, commit_ticks: sim.commit_ticks, ..Default::default() };
     (st.switches, st.secs, st.tv, st.jump) = (switches, sim.time(), tvs, jumps);
+    st.min_clear = sim.min_true_clear;
     if let Some(g) = sim.lean.take() {
         st.first_accept = g.start_ok;
         st.wall_ms = g.wall_ms.clone();
@@ -250,6 +253,7 @@ fn main() {
     if let Some(l) = args.iter().position(|a| a == "--law").and_then(|i| args.get(i + 1)) {
         cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(l), std::sync::atomic::Ordering::Relaxed);
     }
+    cityflight::envfilter::check_flags(&args);
     if let Some(ms) = args.iter().position(|a| a == "--time-cap").and_then(|i| args.get(i + 1)?.parse().ok()) {
         cityflight::envfilter::TIME_CAP_MS.store(ms, std::sync::atomic::Ordering::Relaxed);
     }
@@ -323,20 +327,26 @@ fn main() {
                 std::fs::write(format!("{out}/{name}.json"), json(&world, name, *e, *pk == PilotKind::Kamikaze, &recs, &plans)).unwrap();
             }
             let st = Stats { digest: digest(&recs), ..st };
-            (name.clone(), crashed, recs.last().map_or(0.0, |r| r.t), st)
+            let off = recs.iter().any(|r| r.s[X].abs() > MAP_HALF || r.s[Y].abs() > MAP_HALF);
+            (name.clone(), crashed, recs.last().map_or(0.0, |r| r.t), st, off)
         },
         |_, _| {},
     );
     let mut rows = String::from("name,crashed,t_end,first_accept,ticks,commit_ticks,blind_ticks,digest\n");
-    for (name, crashed, t, st) in &res {
+    for (name, crashed, t, st, _) in &res {
         if *crashed {
             println!("{name} crashed at t={t:.1} ({} start)", if st.first_accept { "verified" } else { "unverified" });
         }
         writeln!(rows, "{name},{crashed},{t:.2},{},{},{},{},{:016x}", st.first_accept, st.ticks, st.commit_ticks, st.blind_ticks, st.digest).unwrap();
     }
     std::fs::write(format!("{out}/summary.csv"), rows).unwrap();
-    let count = |f: &dyn Fn(&(String, bool, f64, Stats)) -> bool| res.iter().filter(|r| f(r)).count();
-    let (eps, kam) = (|r: &(String, bool, f64, Stats)| r.0.starts_with("ep"), |r: &(String, bool, f64, Stats)| r.0.starts_with("kamikaze"));
+    let count = |f: &dyn Fn(&(String, bool, f64, Stats, bool)) -> bool| res.iter().filter(|r| f(r)).count();
+    if let Some(r) = res.iter().filter(|r| r.3.first_accept).min_by(|a, b| a.3.min_clear.total_cmp(&b.3.min_clear)) {
+        println!("lowest flown clearance (verified starts): {:.2} m ({})", r.3.min_clear, r.0);
+    }
+    let off: Vec<&str> = res.iter().filter(|r| r.4).map(|r| r.0.as_str()).collect();
+    println!("left the map: {} {:?}", off.len(), off);
+    let (eps, kam) = (|r: &(String, bool, f64, Stats, bool)| r.0.starts_with("ep"), |r: &(String, bool, f64, Stats, bool)| r.0.starts_with("kamikaze"));
     println!(
         "episodes: {} crashes / {} ({} from verified starts / {}, {} from unverified / {})",
         count(&|r| eps(r) && r.1),

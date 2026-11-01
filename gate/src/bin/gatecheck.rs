@@ -5,7 +5,6 @@ use cityflight::model::{State, GAM, PHI, PSI, V, X, Y, Z};
 use cityflight::sim::{random_start, scenario_start, SCENARIOS};
 use cityflight::world::Rng;
 use cityflight::jsb::Pilot;
-use cityflight::world::MAP_HALF;
 use gate::{Config, Filter, PilotKind};
 use std::f64::consts::PI;
 
@@ -91,9 +90,6 @@ fn run(filter: &mut Filter, s0: State, seed: u64, secs: f64, fbw: bool) -> Ep {
         ep.escape_ticks += (!t.accept) as u64;
         ep.replay_mismatch += (!t.replay_exact) as u64;
         ep.cpu_ms.push(t.cpu_ms);
-        if t.map_pos[0].abs() >= MAP_HALF || t.map_pos[1].abs() >= MAP_HALF {
-            break;
-        }
         if t.clearance < 0.0 {
             ep.crashed = true;
             break;

@@ -454,11 +454,9 @@ impl World {
     }
 
     /// Clearance of the `R_BODY` sphere and the wing capsule (`wing_tips`, `WING_R`); values above `cap` may read as `cap`.
+    /// Off the map the terrain continues the edge profile (`terrain` clamps), with no buildings.
     pub fn airframe_clearance(&self, s: &State, cap: f64) -> f64 {
         let p = [s[X], s[Y], s[Z]];
-        if p[0].abs() > MAP_HALF || p[1].abs() > MAP_HALF {
-            return -1.0;
-        }
         let mut c = p[2] - R_BODY - self.terrain(p[0], p[1]);
         for k in 0..8 {
             let a = k as f64 * std::f64::consts::FRAC_PI_4;
