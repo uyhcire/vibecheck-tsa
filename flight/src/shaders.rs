@@ -588,7 +588,8 @@ fragment MOut fragmentShader(VOut i [[stage_in]], constant FrameU& U [[buffer(0)
                                array<depth2d<float>, 4> sm [[texture(1)]]) {
     MOut o;
     if (i.mat.x > 6.5) {
-        float g = exp(-dot(i.loc.xy, i.loc.xy) * 4.0);
+        // Gaussian, lowered by its value at the quad's edge so it reaches 0 there: no square shows round a big bright glow.
+        float g = max(exp(-dot(i.loc.xy, i.loc.xy) * 4.0) - 0.0183, 0.0) / 0.9817;
         float al = 0.3 * g * i.col.a;
         o = flat_out(float4(i.col.rgb / 0.3, al), 0.0); o.e = 0.0; return o;
     }

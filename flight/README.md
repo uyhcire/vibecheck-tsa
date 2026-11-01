@@ -280,6 +280,10 @@ segment distance `world.rs` checks the aircraft with) or the true terrain, it le
 (spray on San Francisco's water). It is all drawn, nothing more: the guns step once per frame from the
 aircraft as drawn, outside `Sim::tick`, so the flight, the filter and the harness are unchanged.
 
+**Crash explosion** (`Guns::explode`): where the aircraft crashes, a flash, a fireball, burning debris and
+a smoke column that rises for several seconds; the aircraft is gone once the fireball takes it. Drawn
+only, like the guns.
+
 ## How it works
 
 **Clearance checks** (`world.rs`). **Buildings are checked exactly:** each

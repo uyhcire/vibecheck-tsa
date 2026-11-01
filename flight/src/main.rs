@@ -887,6 +887,11 @@ impl App {
 
     /// The aircraft state to draw this frame: between the last two ticks at the accumulated fraction of a tick,
     /// or the sim's own state if no tick has run since the sim was (re)built.
+    /// The aircraft has crashed and gone in the explosion's fireball: draw no aircraft and no lights.
+    fn wrecked(&self) -> bool {
+        self.sim.crashed && self.guns.boom_age().map_or(true, |a| a > gun::SWALLOWED)
+    }
+
     fn drawn_state(&self) -> State {
         if self.drawn_k == Some(self.sim.k) {
             self.drawn.at(self.acc / DT_F)
@@ -942,23 +947,25 @@ impl App {
         let strobe = if self.strobes && (t * 1.1).fract() < 0.05 { 1.0 } else { 0.0 };
         let navs = [(vec3(0.1, 5.47, 1.07), [3.0, 0.15, 0.08]), (vec3(0.1, -5.47, 1.07), [0.15, 3.0, 0.6]), (vec3(-5.78, 0.0, 0.36), [2.5, 2.5, 2.5])];
         let mut nav = [[0.0f32; 4]; 3];
+        let shown = self.cam_mode != 1 && !self.wrecked();
+        let on = if self.wrecked() { 0.0 } else { 1.0 };
         for (k, (q, c)) in navs.iter().enumerate() {
             let w = to_w(*q);
             let r = (0.12 + (w - cam).length() * 0.0015).min(1.5);
-            if self.cam_mode != 1 {
+            if shown {
                 photo::glow(ov, oi, w, r, [c[0], c[1], c[2], 1.0], right, up);
                 if k < 2 && strobe > 0.0 {
                     photo::glow(ov, oi, w, r * 1.5, [12.0, 12.0, 12.0, 1.0], right, up);
                 }
             }
-            nav[k] = [w.x, w.y, w.z, 3.0];
+            nav[k] = [w.x, w.y, w.z, 3.0 * on];
         }
         let lp = to_w(vec3(0.55, 1.9, 0.86));
         let ld = (f * 0.99 - u * 0.09).normalize();
-        if self.cam_mode != 1 && (cam - lp).normalize().dot(ld) > 0.85 {
+        if shown && (cam - lp).normalize().dot(ld) > 0.85 {
             photo::glow(ov, oi, lp, 0.4 + (lp - cam).length() * 0.002, [30.0, 28.0, 25.0, 1.0], right, up);
         }
-        (lp.extend(1500.0).to_array(), ld.extend(13f32.to_radians().cos()).to_array(), nav)
+        (lp.extend(1500.0 * on).to_array(), ld.extend(13f32.to_radians().cos()).to_array(), nav)
     }
 
     fn sun_dir(&self) -> Vec3 {
@@ -1046,6 +1053,8 @@ impl App {
                 if !self.crash_logged {
                     self.crash_logged = true;
                     eprintln!("crashed at t={:.1} s", self.sim.time());
+                    let s = self.sim.s;
+                    self.guns.explode(sv3(&s), body_axes(&s).0 * s[V] as f32);
                 }
                 break;
             }
@@ -1242,7 +1251,7 @@ impl App {
             draw_sphere(t, 6.0 + 4.0 * pulse, None, Color::new(1.0, 0.1, 0.1, 0.6));
             draw_line_3d(t, t + vec3(0.0, 0.0, 120.0), Color::new(1.0, 0.2, 0.2, 0.8));
         }
-        if self.cam_mode != 1 {
+        if self.cam_mode != 1 && !self.wrecked() {
             draw_aircraft(p, self.aircraft_axes(), &self.surfaces().0);
         }
         self.guns.draw(&gun::View::of(cam));
@@ -1258,12 +1267,15 @@ impl App {
         let cockpit = self.cam_mode == 1;
         let m = c172::build(&self.surfaces().0, cockpit);
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
-        for a in &m.v {
+        let wrecked = self.wrecked();
+        for a in m.v.iter().filter(|_| !wrecked) {
             let wp = to_w(a.pos);
             let nw = f * a.nrm.x + l * a.nrm.y + u * a.nrm.z;
             lv.push(DV { pos: wp.to_array(), nrm: nw.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, 0.0, 0.0, 0.0], loc: [a.pos.x, a.pos.y, a.pos.z, a.part] });
         }
-        li.extend_from_slice(&m.i);
+        if !wrecked {
+            li.extend_from_slice(&m.i);
+        }
         let (mut ov, mut oi) = (Vec::new(), Vec::new());
         let to_scene = |c: Color| -> [f32; 4] {
             [photo::display_to_scene(c.r, exposure), photo::display_to_scene(c.g, exposure), photo::display_to_scene(c.b, exposure), c.a]
@@ -1317,11 +1329,13 @@ impl App {
             }
             ribbon_dv(&[t, t + vec3(0.0, 0.0, 120.0)], &[Color::new(1.0, 0.2, 0.2, 0.8)], 0.6);
         }
-        let base = ov.len() as u32;
-        for q in c172::prop_disc() {
-            ov.push(DV { pos: to_w(q).to_array(), nrm: f.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, 0.0, 0.0, 0.0], loc: [q.x, q.y, q.z, c172::P_PROP] });
+        if !wrecked {
+            let base = ov.len() as u32;
+            for q in c172::prop_disc() {
+                ov.push(DV { pos: to_w(q).to_array(), nrm: f.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, 0.0, 0.0, 0.0], loc: [q.x, q.y, q.z, c172::P_PROP] });
+            }
+            oi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
-        oi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         (lv, li, ov, oi)
     }
 

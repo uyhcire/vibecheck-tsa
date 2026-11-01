@@ -34,6 +34,9 @@ pub const K_ROOF: f32 = 2.0;
 pub const K_CLUTTER: f32 = 3.0;
 pub const K_AIRCRAFT: f32 = 4.0;
 pub const K_OVERLAY: f32 = 5.0;
+/// `mat[1]` of a `K_OVERLAY` vertex: a soft see-through sprite (dust, smoke) that must not write depth, or
+/// the fog and clouds would stop at its transparent edges.
+pub const OVERLAY_SOFT: f32 = 1.0;
 
 /// Must match `FrameU` in the MSL prelude.
 #[repr(C)]
@@ -734,9 +737,11 @@ impl Photo {
             ni as i32
         };
         let n_lit = upload(ctx, &self.dyn_lit, f.dyn_lit.0, f.dyn_lit.1);
-        // Ribbons first (they write depth), then the glow sprites and prop disc, which are mostly see-through and don't.
+        // Ribbons first (they write depth), then the glow sprites, soft sprites and prop disc, which are mostly
+        // see-through and don't.
         let (ov, oi) = f.dyn_overlay;
-        let (rib, rest): (Vec<&[u32]>, Vec<&[u32]>) = oi.chunks(3).partition(|t| ov[t[0] as usize].mat[0] == K_OVERLAY);
+        let (rib, rest): (Vec<&[u32]>, Vec<&[u32]>) =
+            oi.chunks(3).partition(|t| ov[t[0] as usize].mat[0] == K_OVERLAY && ov[t[0] as usize].mat[1] != OVERLAY_SOFT);
         let n_ov = upload(ctx, &self.dyn_ov, ov, &[rib.concat(), rest.concat()].concat());
         let n_rib = (rib.len() as i32 * 3).min(n_ov);
 

@@ -1,5 +1,6 @@
 //! Cosmetic machine guns: two wing guns that fire while the trigger is held (Shift, the HOTAS trigger,
-//! `--fire`), with tracers, muzzle flashes, and sparks, dust or spray where the rounds hit.
+//! `--fire`), with tracers, muzzle flashes, and sparks, dust or spray where the rounds hit. Also the
+//! explosion where the aircraft crashes (`Guns::explode`): a flash, a fireball, debris and a smoke column.
 //!
 //! Drawn only. `App::update_guns` steps them once per frame from the aircraft as drawn, outside
 //! `Sim::tick`. They read the world's collision geometry (the exact building distances and the true
@@ -41,6 +42,16 @@ const FLASH_CORE: [f32; 3] = [60.0, 38.0, 12.0];
 const FLASH_HALO: [f32; 3] = [6.0, 3.0, 0.7];
 const HIT_FLASH: [f32; 3] = [40.0, 26.0, 9.0];
 const SPARK: [f32; 3] = [28.0, 10.0, 2.0];
+const BOOM_FLASH: [f32; 3] = [40.0, 26.0, 9.0];
+const FIRE_HOT: [f32; 3] = [14.0, 7.0, 1.8];
+const FIRE_COOL: [f32; 3] = [1.8, 0.5, 0.1];
+
+/// The crash explosion: how long the flash lasts, and the fire and smoke blobs' lifetimes (s).
+const BOOM_FLASH_T: f32 = 0.35;
+const FIRE_LIFE: (f64, f64) = (0.7, 1.7);
+const SMOKE_LIFE: (f64, f64) = (5.0, 8.0);
+/// Seconds into the explosion when the fireball has swallowed the aircraft and it is no longer drawn.
+pub const SWALLOWED: f32 = 0.12;
 
 /// The guns' firing cycle: while the trigger is held a round every `1 / rate` s, the first as soon as the
 /// mechanism is ready (at once after a pause, never sooner than the rate allows after a short burst).
@@ -209,6 +220,73 @@ struct Impact {
     age: f32,
 }
 
+/// A blob of the crash explosion's fire or smoke: it starts `delay` s after the crash, grows from `r0` to
+/// `r1` and slows under drag while it rises.
+#[derive(Clone, Copy, Debug)]
+struct Blob {
+    p: Vec3,
+    v: Vec3,
+    r0: f32,
+    r1: f32,
+    delay: f32,
+    life: f32,
+}
+
+impl Blob {
+    /// Seconds since it started, and the fraction of its life gone (`None` before it starts or after it ends).
+    fn t(&self, age: f32) -> Option<(f32, f32)> {
+        let a = age - self.delay;
+        (a >= 0.0 && a < self.life).then_some((a, a / self.life))
+    }
+    fn radius(&self, a: f32, rate: f32) -> f32 {
+        self.r0 + (self.r1 - self.r0) * (1.0 - (-a * rate).exp())
+    }
+}
+
+/// Where the aircraft crashed, and the fire and smoke.
+struct Explosion {
+    c: Vec3,
+    age: f32,
+    fire: Vec<Blob>,
+    smoke: Vec<Blob>,
+}
+
+impl Explosion {
+    fn update(&mut self, dt: f32) {
+        self.age += dt;
+        let age = self.age;
+        for (blobs, drag, rise) in [(&mut self.fire, 2.5, 5.0), (&mut self.smoke, 0.3, 6.0)] {
+            for b in blobs.iter_mut().filter(|b| b.t(age).is_some()) {
+                b.p += b.v * dt;
+                b.v = b.v * (-drag * dt).exp() + Vec3::Z * (rise - b.v.z).max(0.0) * (1.0 - (-dt).exp());
+            }
+        }
+    }
+
+    fn done(&self) -> bool {
+        self.smoke.iter().chain(&self.fire).all(|b| self.age >= b.delay + b.life)
+    }
+
+    fn sprites(&self, out: &mut Vec<Sprite>) {
+        if self.age < BOOM_FLASH_T {
+            let a = 1.0 - self.age / BOOM_FLASH_T;
+            out.push(Sprite::Glow { a: self.c, b: self.c, r: 6.0 + 30.0 * self.age, hdr: BOOM_FLASH, alpha: a * a });
+        }
+        for b in &self.fire {
+            let Some((a, t)) = b.t(self.age) else { continue };
+            let hdr = [0, 1, 2].map(|k| FIRE_HOT[k] + (FIRE_COOL[k] - FIRE_HOT[k]) * t.sqrt());
+            out.push(Sprite::Glow { a: b.p, b: b.p, r: b.radius(a, 4.0), hdr, alpha: (1.0 - t).powf(1.5) });
+        }
+        // Black and oily at first, greying as it rises and thins.
+        for b in &self.smoke {
+            let Some((a, t)) = b.t(self.age) else { continue };
+            let g = 0.06 + 0.25 * t;
+            let alpha = 0.95 * (a * 3.0).min(1.0) * (1.0 - t);
+            out.push(Sprite::Puff { c: b.p, r: b.radius(a, 0.6), rgba: [g, g * 0.97, g * 0.93, alpha] });
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Spark {
     p: Vec3,
@@ -239,6 +317,8 @@ pub struct Guns {
     flash: [(f32, f32, f32); 2],
     /// The aircraft at the last update, for the muzzle flashes.
     mount: Option<Mount>,
+    /// The crash explosion, while any of it is still showing.
+    boom: Option<Explosion>,
     rng: Rng,
 }
 
@@ -252,6 +332,7 @@ impl Guns {
             sparks: Vec::new(),
             flash: [(f32::INFINITY, 1.0, 0.0); 2],
             mount: None,
+            boom: None,
             rng: Rng::new(0x6A11),
         }
     }
@@ -259,6 +340,39 @@ impl Guns {
     /// Drop everything in flight (reset, new scenario, other map).
     pub fn clear(&mut self) {
         *self = Guns::new();
+    }
+
+    /// The aircraft crashed at `p` moving at `vel`: a flash, a fireball thrown up and along with some of its
+    /// momentum, burning debris and a smoke column that keeps billowing for a second or so.
+    pub fn explode(&mut self, p: Vec3, vel: Vec3) {
+        let carry = vel * 0.25;
+        let rng = &mut self.rng;
+        let up = |rng: &mut Rng, bias: f32| (unit(rng) + Vec3::Z * bias).normalize_or(Vec3::Z);
+        let fire = (0..24)
+            .map(|_| {
+                let v = carry + up(rng, 0.6) * rng.range(5.0, 18.0) as f32;
+                let (r0, r1) = (rng.range(1.5, 3.0) as f32, rng.range(5.0, 9.0) as f32);
+                Blob { p: p + unit(rng) * 1.5, v, r0, r1, delay: rng.range(0.0, 0.25) as f32, life: rng.range(FIRE_LIFE.0, FIRE_LIFE.1) as f32 }
+            })
+            .collect();
+        // A column: puffs keep coming for two seconds, each rising at its own speed.
+        let smoke = (0..40)
+            .map(|_| {
+                let v = carry * 0.2 + unit(rng) * 1.5 + Vec3::Z * rng.range(4.0, 9.0) as f32;
+                let (r0, r1) = (rng.range(2.0, 4.0) as f32, rng.range(7.0, 13.0) as f32);
+                Blob { p: p + unit(rng) * 2.0, v, r0, r1, delay: rng.range(0.05, 2.0) as f32, life: rng.range(SMOKE_LIFE.0, SMOKE_LIFE.1) as f32 }
+            })
+            .collect();
+        for _ in 0..70 {
+            let v = carry * 1.6 + up(rng, 0.5) * rng.range(15.0, 50.0) as f32;
+            self.sparks.push(Spark { p, v, age: 0.0, life: rng.range(0.8, 2.2) as f32 });
+        }
+        self.boom = Some(Explosion { c: p, age: 0.0, fire, smoke });
+    }
+
+    /// Seconds since the crash explosion began, while it is showing.
+    pub fn boom_age(&self) -> Option<f32> {
+        self.boom.as_ref().map(|b| b.age)
     }
 
     /// One frame of `dt` s: fire while `held`, fly the rounds, turn hits into impacts, age the effects.
@@ -294,6 +408,12 @@ impl Guns {
             s.age += dt;
         }
         self.sparks.retain(|s| s.age < s.life);
+        if let Some(b) = &mut self.boom {
+            b.update(dt);
+        }
+        if self.boom.as_ref().is_some_and(Explosion::done) {
+            self.boom = None;
+        }
         self.mount = Some(*m);
     }
 
@@ -369,6 +489,9 @@ impl Guns {
                 out.push(Sprite::Puff { c: i.p + Vec3::Z * (0.5 + up), r: 0.4 + 1.2 * grow, rgba: [rgb[0], rgb[1], rgb[2], 0.8 * fade] });
             }
         }
+        if let Some(b) = &self.boom {
+            b.sprites(&mut out);
+        }
         out
     }
 
@@ -392,7 +515,7 @@ impl Guns {
                 Sprite::Puff { c, r, rgba } => {
                     let Some((c, x, y)) = v.billboard(c, c, r) else { continue };
                     let col = [0, 1, 2].map(|k| photo::display_to_scene(rgba[k], 1.0));
-                    let dv = |p: Vec3, a: f32| photo::DV { pos: p.to_array(), nrm: [0.0; 3], col: [col[0], col[1], col[2], a], mat: [photo::K_OVERLAY, 0.0, 0.0, 0.0], loc: [0.0; 4] };
+                    let dv = |p: Vec3, a: f32| photo::DV { pos: p.to_array(), nrm: [0.0; 3], col: [col[0], col[1], col[2], a], mat: [photo::K_OVERLAY, photo::OVERLAY_SOFT, 0.0, 0.0], loc: [0.0; 4] };
                     let base = ov.len() as u32;
                     ov.push(dv(c, rgba[3]));
                     for k in 0..PUFF_SEGS {
@@ -563,6 +686,26 @@ impl Batch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explosion_rises_then_clears() {
+        let w = World::new(1337);
+        let m = Mount { p: vec3(0.0, 0.0, 500.0), axes: (Vec3::X, Vec3::Y, Vec3::Z), vel: Vec3::ZERO };
+        let v = View { pos: vec3(-200.0, 0.0, 300.0), fwd: Vec3::X, right: -Vec3::Y, up: Vec3::Z };
+        let c = vec3(0.0, 0.0, 300.0);
+        let mut g = Guns::new();
+        g.explode(c, vec3(50.0, 0.0, 0.0));
+        assert!(g.sprites(&v).len() > 20, "flash, fire and debris at once");
+        for _ in 0..240 {
+            g.update(&w, false, 1.0 / 60.0, &m);
+        }
+        assert!(g.boom.as_ref().unwrap().smoke.iter().all(|b| b.p.z > c.z), "the smoke rises");
+        for _ in 0..600 {
+            g.update(&w, false, 1.0 / 60.0, &m);
+        }
+        assert!(g.boom.is_none() && g.sparks.is_empty(), "all gone after 14 s");
+        assert!(g.boom_age().is_none());
+    }
 
     #[test]
     fn cycle_fires_at_the_rate_at_any_frame_rate() {
