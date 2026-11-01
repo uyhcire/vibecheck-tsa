@@ -6,7 +6,7 @@ package proofharness
 require vibecheck from "../../.."
 
 lean_lib PfAffLib where
-  roots := #[`PfAff]
+  roots := #[`PfAff, `PfReal]
 
 lean_exe pfprobe where
   root := `PfProbe
