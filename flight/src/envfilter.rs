@@ -124,6 +124,16 @@ pub struct LawP {
     pub keep_bank: bool,
     pub t_pull_max: f64,
     pub gam_turn: f64,
+    /// Terminal phase (`docs/escape-law-terminal.md`), once the pull-up ends: an equivalent-airspeed reference per
+    /// end-set kind (straight, 30° and 40° helix; m/s, 0 = no terminal phase), its speed gain, α-integrator gain
+    /// and gradient limits; and for every escape a level-off at `h_level` (m) with gain `k_hold` (rad/m).
+    pub v_eas_t: [f64; 3],
+    pub kv_t: f64,
+    pub ki_a_t: f64,
+    pub gc_lo_t: f64,
+    pub gc_hi_t: f64,
+    pub h_level: f64,
+    pub k_hold: f64,
 }
 
 /// Which longitudinal law: `Ci/cegis/Law.lean` (flight-path loop over n and α caps) at `0093c1a` or `3e7fd42`,
@@ -165,13 +175,27 @@ pub const LAW: LawP = LawP {
     keep_bank: false,
     t_pull_max: 6.0,
     gam_turn: 0.03,
+    v_eas_t: [0.0; 3],
+    kv_t: 0.06,
+    ki_a_t: 6.0,
+    gc_lo_t: 0.0,
+    gc_hi_t: 0.5,
+    h_level: f64::INFINITY,
+    k_hold: 0.005,
 };
 
 pub const LAW_CEGIS2: LawP = LawP {
     v_ref: [35.0, 35.0, 35.0, 36.0, 36.0, 35.0],
     keep_bank: true,
     t_pull_min: [1.5, 1.5, 1.5, 0.0, 0.0, 1.5],
-    nmax: 3.5, amax: 0.24, kv: 0.02, gc_lo: 0.05, kq: 1.2, vs: 50.0, kqf: 0.6, ..LAW };
+    nmax: 3.5, amax: 0.24, kv: 0.02, gc_lo: 0.05, kq: 1.2, vs: 50.0, kqf: 0.6,
+    v_eas_t: [V_EAS_T, V_EAS_T30, V_EAS_T40], h_level: 1000.0, ..LAW };
+
+/// Terminal equivalent-airspeed references (m/s): the straight climb's, and the helices' at the same α (the
+/// straight value times `1/√cos φ` at 0.52 and 0.7 rad), which keeps the turns clear of the post-stall branch.
+pub const V_EAS_T: f64 = 35.2;
+pub const V_EAS_T30: f64 = 37.8;
+pub const V_EAS_T40: f64 = 40.3;
 pub const LAW_LAWFIRST: LawP = LawP { kind: LawKind::Lawfirst, ..LAW };
 
 /// `lawfirst` `p1`, converted from raw ×2^16 units (`kI` is per 1/16 s tick there, per second here).
@@ -239,8 +263,8 @@ pub struct Law {
     /// helix direction once one fits (0 while following the street), and the next time it looks for one.
     pub axis: f64,
     pub side: f64,
-    next_try: f64,
-    captured: bool,
+    pub next_try: f64,
+    pub captured: bool,
     pub p: LawP,
     /// Turn direction and bank of the terminal turn: `ESCAPES[esc]` unless overridden (`with_turn`, used
     /// by the boundary-regime search for escapes outside the library).
@@ -289,7 +313,8 @@ impl Law {
     /// Street escape, every 0.25 s once the climb is established on the axis: start the helix toward the
     /// first side (left, then right) whose predicted annulus is clear at the current height.
     fn street_turn(&mut self, world: &World, q: &JsbPlant) {
-        if self.esc != STREET || self.axis.is_nan() || self.side != 0.0 || !self.turning() || self.t < self.next_try {
+        // Before the first end test only, so the end-set kind an end test accepts never changes afterwards.
+        if self.esc != STREET || self.axis.is_nan() || self.side != 0.0 || !self.turning() || self.t < self.next_try || self.t >= T_TERM {
             return;
         }
         self.next_try = self.t + 0.25;
@@ -316,6 +341,11 @@ impl Law {
         self.capture(&q.obs);
         self.street_turn(world, q);
         self.frame(q);
+    }
+
+    /// The end-set kind this escape is heading for: 0 a straight climb, 1 a 30° helix, 2 a 40° helix.
+    pub fn kind(&self) -> usize {
+        if self.dir() == 0.0 { 0 } else if self.esc == STREET || self.tbank > 0.6 { 2 } else { 1 }
     }
 
     pub fn turning(&self) -> bool {
@@ -377,7 +407,12 @@ impl Law {
     /// Elevator (+1 nose up) from the cegis law; in a bank the load factor is divided by cos φ.
     fn elev_cegis(&mut self, o: &Obs, v: f64, g: f64, cphi: f64, v_ref: f64) -> f64 {
         let p = &self.p;
-        let gc = (p.gc_ref + p.kv * (v - v_ref)).clamp(p.gc_lo, p.gc_hi);
+        let ve = p.v_eas_t[self.kind()];
+        let term = self.turning() && ve > 0.0;
+        let (kv, gc_lo, gc_hi, ki_a) = if term { (p.kv_t, p.gc_lo_t, p.gc_hi_t, p.ki_a_t) } else { (p.kv, p.gc_lo, p.gc_hi, p.ki_a) };
+        let vs = if term { v * (rho_of(o.h) / 1.225).sqrt() - ve } else { v - v_ref };
+        let gc_c = (p.gc_ref + kv * vs).clamp(gc_lo, gc_hi);
+        let gc = gc_c.min((p.k_hold * (p.h_level - o.h)).clamp(-p.gc_hi, p.gc_hi));
         let n_long = g.cos() + v * p.kg * (gc - g) / G0;
         // Unload while steeply banked or inverted; otherwise pull for the vertical component.
         let ncmd = if cphi < 0.35 { p.nmin } else { (n_long / cphi).clamp(p.nmin, p.nmax) };
@@ -396,7 +431,7 @@ impl Law {
         let e_raw = p.e0 + p.e1 * acmd + p.kqf * qcmd * 40.0 / v + sc * (p.ka * ea - p.kq * (o.pqr[1] - qcmd)) + self.ia;
         let e = e_raw.clamp(-1.0, 1.0);
         if e == e_raw || ea * self.ia < 0.0 {
-            self.ia = (self.ia + p.ki_a * ea * DT_JSB).clamp(-0.4, 0.4);
+            self.ia = (self.ia + ki_a * ea * DT_JSB).clamp(-0.4, 0.4);
         }
         e
     }
@@ -432,7 +467,7 @@ impl Law {
 /// Longest rollout (s) and the earliest terminal test (s); terminal tests run every `TERM_EVERY` frames.
 pub const HORIZON: f64 = 16.0;
 pub const T_TERM: f64 = 6.0;
-const TERM_EVERY: usize = 64;
+pub const TERM_EVERY: usize = 64;
 /// Path sample spacing (frames) and the clearance required at every sample (m).
 pub const SAMPLE: usize = 8;
 pub const MARGIN: f64 = 4.0;
@@ -443,6 +478,14 @@ pub const VZ_MIN: f64 = 1.0;
 /// climb cannot set it.
 pub const VZ_SETTLED: f64 = 1.0;
 pub const GRAD_MAX: f64 = 0.11;
+/// Helix ending: lowest settled airspeed per end-set kind (m/s), above the post-stall branch (`termhunt trim`); the
+/// halves' mean airspeeds agree within `V_SETTLED`; radii and centres agree within these fractions of the radius;
+/// the annulus is widened by the airframe's half-size `E_AIR` (m).
+pub const V_HELIX_MIN: [f64; 3] = [0.0, 37.5, 39.5];
+pub const V_SETTLED: f64 = 1.0;
+pub const R_SETTLED: f64 = 0.03;
+pub const C_SETTLED: f64 = 0.05;
+pub const E_AIR: f64 = 7.0;
 /// Settling window for terminal tests (samples): two halves of 2 s each.
 const HALF: usize = 32;
 
@@ -485,6 +528,8 @@ pub enum TermFail {
     NotTurning,
     /// Climb rate below `VZ_MIN` somewhere in the settling window.
     Unsettled,
+    /// Helix: airspeed below `V_HELIX_MIN` or unsettled, or specific energy falling in a half.
+    Slow,
     /// Track rate, radius or centre not steady across the two halves.
     Wobble,
     /// The straight escape's climb gradient is too shallow for a ray.
@@ -563,7 +608,7 @@ impl Roll {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Hist {
+pub struct Hist {
     t: f64,
     x: f64,
     y: f64,
@@ -572,6 +617,26 @@ struct Hist {
     psi: f64,
     vh: f64,
     vz: f64,
+    /// Airspeed (m/s).
+    v: f64,
+}
+
+impl Hist {
+    /// The path sample of `q` at time `t`, unwrapping the track against the previous sample's `psi_prev`.
+    pub fn of(q: &JsbPlant, t: f64, psi_prev: &mut f64) -> Hist {
+        let (s, o) = (q.state(), &q.obs);
+        let mut psi = o.vned[0].atan2(o.vned[1]);
+        if !psi_prev.is_nan() {
+            psi = *psi_prev + wrap(psi - *psi_prev);
+        }
+        *psi_prev = psi;
+        Hist { t, x: s[X], y: s[Y], z: s[Z], psi, vh: (o.vned[0] * o.vned[0] + o.vned[1] * o.vned[1]).sqrt(), vz: -o.vned[2], v: o.vt }
+    }
+}
+
+/// The end-of-escape test's verdict on a sample history (`terminal`), for the Rust/Lean comparison (`gatefaith`).
+pub fn terminal_ok(world: &World, dir: f64, kind: usize, hist: &[Hist]) -> bool {
+    terminal(world, dir, kind, hist, MARGIN).is_ok()
 }
 
 /// Highest raw cell (terrain or roof) on the map (m).
@@ -640,13 +705,7 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
         if c <= cfg.margin + if cfg.swept { travel(&q.obs) } else { 0.0 } {
             return Some(Outcome::Hit);
         }
-        let o = &q.obs;
-        let mut psi = o.vned[0].atan2(o.vned[1]);
-        if !psi_prev.is_nan() {
-            psi = psi_prev + wrap(psi - psi_prev);
-        }
-        psi_prev = psi;
-        hist.push(Hist { t, x: s[X], y: s[Y], z: s[Z], psi, vh: (o.vned[0] * o.vned[0] + o.vned[1] * o.vned[1]).sqrt(), vz: -o.vned[2] });
+        hist.push(Hist::of(q, t, &mut psi_prev));
         None
     };
     if let Some(out) = push(&q, 0.0, &mut hist, &mut r) {
@@ -701,7 +760,7 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
                 if !law.turning() {
                     r.why = Some(TermFail::NotTurning);
                 } else {
-                    match terminal(world, law.dir(), &hist, cfg.term_margin) {
+                    match terminal(world, law.dir(), law.kind(), &hist, cfg.term_margin) {
                         Ok(tail) => {
                             r.tail = tail;
                             return finish(r, &q, &law, Outcome::Ok);
@@ -721,7 +780,14 @@ struct Seg {
     vh: f64,
     vz_min: f64,
     vz_mean: f64,
+    v_mean: f64,
+    /// Change of specific energy `z + v²/2g` from the first sample to the last (m).
+    de: f64,
     end: Hist,
+}
+
+fn energy(h: &Hist) -> f64 {
+    h.z + h.v * h.v / (2.0 * G0)
 }
 
 fn seg(h: &[Hist]) -> Seg {
@@ -732,13 +798,15 @@ fn seg(h: &[Hist]) -> Seg {
         vh: h.iter().map(|x| x.vh).sum::<f64>() / n,
         vz_min: h.iter().map(|x| x.vz).fold(f64::INFINITY, f64::min),
         vz_mean: h.iter().map(|x| x.vz).sum::<f64>() / n,
+        v_mean: h.iter().map(|x| x.v).sum::<f64>() / n,
+        de: energy(&b) - energy(&a),
         end: b,
     }
 }
 
 /// Terminal test on the rollout so far: `Some(continuation points)` if the escape has settled into its
 /// terminal set and that set is clear.
-fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
+fn terminal(world: &World, dir: f64, kind: usize, hist: &[Hist], margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
     if hist.len() < 2 * HALF + 1 {
         return Err(TermFail::Unsettled);
     }
@@ -766,6 +834,10 @@ fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64) -> Result<Vec<[
         if a.omega * want <= 0.02 || b.omega * want <= 0.02 {
             return Err(TermFail::Wobble);
         }
+        // Speed first: settled above the post-stall branch, and not climbing on airspeed.
+        if b.v_mean < V_HELIX_MIN[kind] || (a.v_mean - b.v_mean).abs() > V_SETTLED || a.de < 0.0 || b.de < 0.0 {
+            return Err(TermFail::Slow);
+        }
         let circ = |s: &Seg| {
             let rr = s.vh / s.omega;
             (rr.abs(), [s.end.x - rr * s.end.psi.sin(), s.end.y + rr * s.end.psi.cos()])
@@ -774,11 +846,13 @@ fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64) -> Result<Vec<[
         let (rb, cb) = circ(&b);
         let d_r = (ra - rb).abs();
         let d_c = ((ca[0] - cb[0]).powi(2) + (ca[1] - cb[1]).powi(2)).sqrt();
-        if d_r > 0.1 * rb || d_c > 0.1 * rb {
+        if d_r > R_SETTLED * rb || d_c > C_SETTLED * rb {
             return Err(TermFail::Wobble);
         }
+        // Radial slack: fit disagreement, plus outward the radius growth of a constant-EAS turn up to the top.
         let m = 5.0 + 3.0 * (d_r + d_c);
-        helix_check(world, cb, rb, m, e.z, top, margin)?;
+        let grow = if e.z < top { rb * (rho_of(e.z) / rho_of(top) - 1.0) } else { 0.0 };
+        helix_check_annulus(world, cb, (rb - m - E_AIR).max(0.0), rb + m + grow + E_AIR, e.z, top, margin)?;
         Ok((0..=72).map(|i| {
             let th = i as f64 * PI / 36.0;
             [cb[0] + rb * th.cos(), cb[1] + rb * th.sin(), e.z + b.vz_mean * (i as f64 / 72.0) * 2.0 * PI * rb / b.vh.max(1.0)]
@@ -795,11 +869,15 @@ pub fn helix_clear(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64)
 
 /// `helix_clear` with the vertical margin `margin` in place of `MARGIN`, saying what blocks the annulus.
 pub fn helix_check(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64, margin: f64) -> Result<(), TermFail> {
+    helix_check_annulus(world, c, (r - m - R_BODY).max(0.0), r + m + R_BODY, z, top, margin)
+}
+
+/// Every raw cell within the annulus `[r0, r1]` around `c` is at least `R_BODY + margin` below `z`.
+pub fn helix_check_annulus(world: &World, c: [f64; 2], r0: f64, r1: f64, z: f64, top: f64, margin: f64) -> Result<(), TermFail> {
     let floor = z - R_BODY - margin;
     if floor > top {
         return Ok(());
     }
-    let (r0, r1) = ((r - m - R_BODY).max(0.0), r + m + R_BODY);
     // Cell centres within half a cell diagonal of the annulus.
     let pad = CELL * std::f64::consts::FRAC_1_SQRT_2;
     let (lo2, hi2) = ((r0 - pad).max(0.0).powi(2), (r1 + pad).powi(2));

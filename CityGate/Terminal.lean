@@ -119,6 +119,17 @@ def HALF : Nat := 32
 def VZ_SETTLED : Float := 1.0
 /-- Cap on the straight escape's ray gradient: 0.8 of its settled climb gradient (about 0.14). -/
 def GRAD_MAX : Float := 0.11
+/-- Helix ending (`V_HELIX_MIN` … `E_AIR` in Rust): lowest settled airspeed per end-set kind, airspeed agreement of
+the halves, radius and centre agreement as fractions of the radius, and the airframe half-size widening the annulus. -/
+def V_HELIX_MIN : Array Float := #[0.0, 37.5, 39.5]
+def V_SETTLED : Float := 1.0
+def R_SETTLED : Float := 0.03
+def C_SETTLED : Float := 0.05
+def E_AIR : Float := 7.0
+def G0T : Float := 9.80665
+
+/-- `rho_of`: the law's density model. -/
+def rhoT (h : Float) : Float := 1.225 * (fmax (1.0 - 2.2558e-5 * h) 0.5).pow 4.256
 
 structure Hist where
   t : Float
@@ -128,6 +139,7 @@ structure Hist where
   psi : Float
   vh : Float
   vz : Float
+  v : Float
   deriving Inhabited
 
 structure Seg where
@@ -135,7 +147,12 @@ structure Seg where
   vh : Float
   vzMin : Float
   vzMean : Float
+  vMean : Float
+  de : Float
   e : Hist
+
+/-- Specific energy `z + v²/2g` (m). -/
+def energy (h : Hist) : Float := h.z + h.v * h.v / (2.0 * G0T)
 
 def seg (h : Array Hist) : Seg :=
   let a := h[0]!
@@ -145,15 +162,15 @@ def seg (h : Array Hist) : Seg :=
     vh := (h.foldl (fun s x => s + x.vh) (-0.0)) / n
     vzMin := h.foldl (fun m x => fmin m x.vz) (1.0 / 0.0)
     vzMean := (h.foldl (fun s x => s + x.vz) (-0.0)) / n
+    vMean := (h.foldl (fun s x => s + x.v) (-0.0)) / n
+    de := energy b - energy a
     e := b }
 
-/-- `helix_clear`: every raw cell within the annulus `r ± (m + R_BODY)` around `c` is at least `R_BODY + MARGIN`
-below `z` (or `z` is that far above the map's top). -/
-def helixClear (cx cy r m z : Float) : Bool := Id.run do
+/-- `helix_check_annulus`: every raw cell within the annulus `[r0, r1]` around `c` is at least `R_BODY + MARGIN`
+below `z`; an annulus reaching past the map's edge fails. -/
+def helixClearAnn (cx cy r0 r1 z : Float) : Bool := Id.run do
   let floor := z - R_BODY - MARGIN
   if floor > top then return true
-  let r0 := fmax (r - m - R_BODY) 0.0
-  let r1 := r + m + R_BODY
   if !onMap (cx - r1) (cy - r1) || !onMap (cx + r1) (cy + r1) then return false
   let pad := CELL * FRAC_1_SQRT_2
   let lo2 := let d := fmax (r0 - pad) 0.0; d * d
@@ -167,6 +184,10 @@ def helixClear (cx cy r m z : Float) : Bool := Id.run do
       let d2 := dx * dx + dy * dy
       if d2 ≥ lo2 && d2 ≤ hi2 then return false
   return true
+
+/-- `helix_clear`: every raw cell within the annulus `r ± (m + R_BODY)` around `c` is at least `R_BODY + MARGIN`
+below `z` (or `z` is that far above the map's top). -/
+def helixClear (cx cy r m z : Float) : Bool := helixClearAnn cx cy (fmax (r - m - R_BODY) 0.0) (r + m + R_BODY) z
 
 /-- `ray_clear`: a climbing ray from `p` along track `psi` at gradient `grad`, in a corridor widening 2% of the
 distance, stays `R_BODY + MARGIN` above every raw cell until it is that far above the map's top. Off the map the
@@ -192,7 +213,7 @@ def rayClear (px py pz psi grad : Float) : Bool := Id.run do
 
 /-- `terminal`: the escape has settled into its terminal set (climbing ray or helix, by `dir`) and that set is
 clear, judged on the last `2·HALF + 1` samples. -/
-def terminalOK (dir : Float) (hist : Array Hist) : Bool := Id.run do
+def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run do
   if hist.size < 2 * HALF + 1 then return false
   let n := hist.size
   let a := seg (hist.extract (n - 2 * HALF - 1) (n - HALF))
@@ -208,6 +229,9 @@ def terminalOK (dir : Float) (hist : Array Hist) : Bool := Id.run do
   else
     let want := -dir
     if a.omega * want ≤ 0.02 || b.omega * want ≤ 0.02 then return false
+    -- speed first: settled above the post-stall branch, and not climbing on airspeed
+    if b.vMean < V_HELIX_MIN[kind]! || (a.vMean - b.vMean).abs > V_SETTLED || a.de < 0.0 || b.de < 0.0 then
+      return false
     let circ := fun (s : Seg) =>
       let rr := s.vh / s.omega
       (rr.abs, s.e.x - rr * s.e.psi.sin, s.e.y + rr * s.e.psi.cos)
@@ -215,8 +239,9 @@ def terminalOK (dir : Float) (hist : Array Hist) : Bool := Id.run do
     let (rb, cbx, cby) := circ b
     let dR := (ra - rb).abs
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
-    if dR > 0.1 * rb || dC > 0.1 * rb then return false
+    if dR > R_SETTLED * rb || dC > C_SETTLED * rb then return false
     let m := 5.0 + 3.0 * (dR + dC)
-    return helixClear cbx cby rb m e.z
+    let grow := if e.z < top then rb * (rhoT e.z / rhoT top - 1.0) else 0.0
+    return helixClearAnn cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + grow + E_AIR) e.z
 
 end CityGate.Esc

@@ -47,7 +47,7 @@ def Ctl.record (c : Ctl) (p : Plane) : Ctl :=
   let psi0 := Float.atan2 (obN o) (obE o)
   let psi := if c.psiPrev.isNaN then psi0 else c.psiPrev + wrap (psi0 - c.psiPrev)
   let h : Hist := { t := c.lk.toFloat * DT_JSB, x, y, z, psi, vh := (obN o * obN o + obE o * obE o).sqrt,
-                    vz := -(obD o) }
+                    vz := -(obD o), v := o[6]! }
   let hist := c.hist.push h
   let hist := if hist.size > 2 * HALF + 1 then hist.extract (hist.size - (2 * HALF + 1)) hist.size else hist
   { c with hist, psiPrev := psi }
@@ -76,7 +76,7 @@ def Ctl.streetOK (c : Ctl) (p : Plane) : Bool :=
 `terminal` on the samples including this one. Leaving the map is not an end: the terrain continues past its edge. -/
 def Ctl.term (c : Ctl) (p : Plane) : Bool :=
   if c.pf > 0 || c.lk % SAMPLE != 0 then false
-  else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir (c.record p).hist
+  else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir c.law.kind (c.record p).hist
   else false
 
 /-- The proposal layer's memory: frame counter, whether the held controller is a committed escape, frames since

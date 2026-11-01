@@ -175,3 +175,13 @@ extern_lib jxmath pkg := do
 lean_lib SpecBridgeNative where
   precompileModules := true
   precompileImports := true
+
+/-- End-test falsifier for the Lean city gate (`Tools/TermHunt.lean`). -/
+lean_exe termhunt where
+  root := `Tools.TermHunt
+  moreLinkObjs := #[jxmath.o]
+
+/-- The Lean side of `flight/src/bin/gatefaith.rs`. -/
+lean_exe gatefaith where
+  root := `Tools.GateFaith
+  moreLinkObjs := #[jxmath.o]

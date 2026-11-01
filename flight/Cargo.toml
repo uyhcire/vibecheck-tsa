@@ -66,3 +66,13 @@ miniquad = { path = "vendor/miniquad" }
 name = "regimes"
 path = "src/bin/regimes.rs"
 required-features = ["jsb"]
+
+[[bin]]
+name = "termhunt"
+path = "src/bin/termhunt.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "gatefaith"
+path = "src/bin/gatefaith.rs"
+required-features = ["jsb"]

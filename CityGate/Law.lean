@@ -54,6 +54,16 @@ def KR : Float := 0.5
 def T_PULL_MAX : Float := 6.0
 def GAM_TURN : Float := 0.03
 
+/-! Terminal phase (`docs/escape-law-terminal.md`), once the pull-up ends: equivalent-airspeed references per end-set
+kind (straight, 30° helix, 40° helix), gains and gradient limits; and the level-off at `H_LEVEL` for every escape. -/
+def V_EAS_T : Array Float := #[35.2, 37.8, 40.3]
+def KV_T : Float := 0.06
+def KI_A_T : Float := 6.0
+def GC_LO_T : Float := 0.0
+def GC_HI_T : Float := 0.5
+def H_LEVEL : Float := 1000.0
+def K_HOLD : Float := 0.005
+
 /-! The law's numeric literals as constants: a `Float` literal inside a function body is converted from decimal on
 every call. -/
 def F0_0 : Float := 0.0
@@ -67,6 +77,7 @@ def F0_35 : Float := 0.35
 def F0_4 : Float := 0.4
 def F0_45 : Float := 0.45
 def F0_5 : Float := 0.5
+def F0_6 : Float := 0.6
 def F1_0 : Float := 1.0
 def F1_225 : Float := 1.225
 def F4_256 : Float := 4.256
@@ -99,6 +110,10 @@ def Law.turning (l : Law) : Bool := !l.psiRef.isNaN
 /-- Turn direction of the terminal set (0 = a straight climb). -/
 def Law.dir (l : Law) : Float := if l.esc == STREET then l.side else ESC_DIR[l.esc]!
 
+/-- End-set kind (`Law::kind`): 0 a straight climb, 1 a 30° helix, 2 a 40° helix. -/
+def Law.kind (l : Law) : Nat :=
+  if l.dir == F0_0 then 0 else if l.esc == STREET || ESC_BANK[l.esc]! > F0_6 then 2 else 1
+
 /-! Observation fields (`CityJsb.obs`). -/
 def obN (o : FloatArray) : Float := o[3]!
 def obE (o : FloatArray) : Float := o[4]!
@@ -115,7 +130,7 @@ def Law.capture (l : Law) (o : FloatArray) : Law :=
 /-- Street escape, every 0.25 s once the climb is established on the axis: start the helix toward the first side
 (left, then right) whose predicted annulus is clear at the current height. -/
 def Law.streetTurn (l : Law) (p : Plane) : Law :=
-  if l.esc != STREET || l.axis.isNaN || l.side != F0_0 || !l.turning || l.t < l.nextTry then l
+  if l.esc != STREET || l.axis.isNaN || l.side != F0_0 || !l.turning || l.t < l.nextTry || l.t ≥ T_TERM then l
   else
     let l := { l with nextTry := l.t + F0_25 }
     let o := p.ob
@@ -133,7 +148,14 @@ def Law.streetTurn (l : Law) (p : Plane) : Law :=
 
 /-- Elevator (+1 nose up) from the cegis law, and the updated α integral. -/
 def Law.elevCegis (l : Law) (o : FloatArray) (v g cphi vRef : Float) : Float × Law :=
-  let gc := clamp (GC_REF + KV * (v - vRef)) GC_LO GC_HI
+  let term := l.turning
+  let kv := if term then KV_T else KV
+  let gcLo := if term then GC_LO_T else GC_LO
+  let gcHi := if term then GC_HI_T else GC_HI
+  let kiA := if term then KI_A_T else KI_A
+  let vs := if term then v * (rhoOf o[2]! / F1_225).sqrt - V_EAS_T[l.kind]! else v - vRef
+  let gcC := clamp (GC_REF + kv * vs) gcLo gcHi
+  let gc := fmin gcC (clamp (K_HOLD * (H_LEVEL - o[2]!)) (-GC_HI) GC_HI)
   let nLong := g.cos + v * KG * (gc - g) / G0
   let ncmd := if cphi < F0_35 then NMIN else clamp (nLong / cphi) NMIN NMAX
   let rv2 := rhoOf o[2]! * v * v
@@ -144,7 +166,7 @@ def Law.elevCegis (l : Law) (o : FloatArray) (v g cphi vRef : Float) : Float × 
   let ea := acmd - o[13]!
   let eRaw := E0 + E1 * acmd + KQF * qcmd * F40_0 / v + sc * (KA * ea - KQ * (o[11]! - qcmd)) + l.ia
   let e := clamp eRaw (-F1_0) F1_0
-  let ia := if e == eRaw || ea * l.ia < F0_0 then clamp (l.ia + KI_A * ea * DT_JSB) (-F0_4) F0_4 else l.ia
+  let ia := if e == eRaw || ea * l.ia < F0_0 then clamp (l.ia + kiA * ea * DT_JSB) (-F0_4) F0_4 else l.ia
   (e, { l with ia })
 
 /-- Surfaces for one frame (elevator positive nose down, aileron positive rolls right, rudder positive yaws left,

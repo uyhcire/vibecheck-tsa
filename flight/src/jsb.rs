@@ -158,6 +158,13 @@ pub struct Obs {
 }
 
 impl Obs {
+    /// The observation in `cityjsb_step`'s layout (the inverse of `from`).
+    pub fn to_array(&self) -> [f64; NOBS] {
+        let o = self;
+        [o.north, o.east, o.h, o.vned[0], o.vned[1], o.vned[2], o.vt, o.phi, o.theta, o.psi, o.pqr[0], o.pqr[1], o.pqr[2],
+         o.alpha, o.beta, o.nz, o.agl, o.qbar, o.rpm, o.ecef[0], o.ecef[1], o.ecef[2]]
+    }
+
     pub fn from(o: &[f64; NOBS]) -> Obs {
         Obs {
             north: o[0],
@@ -376,6 +383,19 @@ impl JsbPlant {
             each(self);
         }
         (surfs, dump)
+    }
+
+    /// The plant a state dump describes at map origin `origin` (as `new` places it), for the Rust/Lean comparison.
+    pub fn from_dump_origin(dump: &[f64], origin: [f64; 2]) -> Option<JsbPlant> {
+        let mut p = JsbPlant::from_dump(dump, MapFrame::new(0.0, 0.0, 0.0))?;
+        p.frame = None;
+        p.origin = origin;
+        Some(p)
+    }
+
+    /// `dump_after` and this plant's map origin.
+    pub fn dump_next(&self, s: [f64; 4]) -> (Vec<f64>, [f64; 2]) {
+        (self.dump_after(s), self.origin)
     }
 
     /// The state dump after one frame with surfaces `s`, leaving this plant unchanged: a clone steps instead
