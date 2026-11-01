@@ -4,6 +4,7 @@ import SpecBridgeNative
 
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_funnel_of
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_funnel
+#print axioms CityGate.SpecBridge.cityGate_spec_safe
 #print axioms CityGate.SpecBridge.initChecked
 #print axioms CityGate.SpecBridge.startsSafe
 #print axioms CityGate.SpecBridge.outputsInRange

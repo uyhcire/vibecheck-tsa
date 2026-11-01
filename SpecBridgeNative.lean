@@ -40,4 +40,11 @@ theorem cityGate_spec_safe_funnel (hc : ∀ e pl, clearAt e pl = true → ¬ GCr
     (hF : TermSoundR cityGate GCrash GInit) : CitySafety.Safe cityMap specFilter :=
   cityGate_spec_safe_funnel_of hc hF initChecked startsSafe
 
+/-- **The city gate is safe against the spec** (`CitySafety.Safe`): from the 4 starts, whatever the pilot does each
+frame, no reachable state is a crash, assuming only `FunnelSoundR` (from the landing funnel, the autoland's flight
+never crashes; a landing on the runway is not a crash). The clearance test is proved sound (`clear_spec_sound`);
+the starts are checked by running the plant (`native_decide`). -/
+theorem cityGate_spec_safe (hF : FunnelSoundR) : CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_funnel (fun e pl h => clear_spec_sound e pl h) hF
+
 end CityGate.SpecBridge
