@@ -10,14 +10,15 @@
 //! - turns: a steady climbing helix whose ground circle (with margin for radius and centre drift) is clear
 //!   at the current height, so climbing around it from here on never meets anything.
 //!
-//! `--env gate` schedules the checks gatekeeper-style under a per-tick frame budget (see `Gate`).
+//! `--env gate` schedules the checks gatekeeper-style (see `Gate`): either sequentially under a per-tick
+//! frame budget, or (`CHECK_THREADS` ≥ 1) every escape to its full horizon, in parallel (`verify_first`).
 
 use crate::jsb::*;
 use crate::model::*;
 use crate::world::{World, CELL, MAP_HALF, NC, R_BODY};
 use std::f64::consts::{FRAC_PI_2, PI};
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 pub static ENV_FILTER: AtomicU8 = AtomicU8::new(0);
 
@@ -479,7 +480,13 @@ pub fn rollout(world: &World, p: &JsbPlant, esc: usize, max_frames: usize) -> Ro
 }
 
 /// `rollout` with an explicit law, stopping with `Outcome::Budget` at the wall-clock `deadline` if given.
-pub fn rollout_law(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>) -> Roll {
+pub fn rollout_law(world: &World, p: &JsbPlant, law: Law, max_frames: usize, deadline: Option<std::time::Instant>) -> Roll {
+    rollout_ctl(world, p, law, max_frames, deadline, None)
+}
+
+/// `rollout_law` that also stops with `Outcome::Budget` once `cancel = (best, i)` has `best < i`: a candidate
+/// earlier in the priority order verified, so this one's verdict no longer matters.
+fn rollout_ctl(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, deadline: Option<std::time::Instant>, cancel: Option<(&AtomicUsize, usize)>) -> Roll {
     let esc = law.esc;
     let mut q = p.fork();
     law.capture(&q.obs);
@@ -521,7 +528,7 @@ pub fn rollout_law(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize,
         let t = k as f64 * DT_JSB;
         r.t = t;
         if k % SAMPLE == 0 {
-            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) || cancel.is_some_and(|(b, i)| b.load(Ordering::Relaxed) < i) {
                 r.outcome = Outcome::Budget;
                 return r;
             }
@@ -788,6 +795,186 @@ pub fn check(world: &World, kind: Kind, p: &JsbPlant) -> (Option<usize>, Vec<[f6
     (None, first)
 }
 
+/// How `Gate` checks its candidate escapes. 0: one after another under the per-tick frame budget `BUDGET`.
+/// N ≥ 1: every candidate gets its full horizon and the first in priority order that verifies wins
+/// (`verify_first`), on N threads (this one and N - 1 pool workers). The verdict does not depend on N: it is the
+/// one the sequential check reaches with an unlimited budget.
+pub static CHECK_THREADS: AtomicUsize = AtomicUsize::new(0);
+/// Debug: re-run every rollout a pool worker flew on the calling thread's plant and panic unless the two agree
+/// bit for bit (checks that a `Seed` rebuilds the plant exactly).
+pub static VERIFY_SEEDS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+/// Worker threads for `verify_first`, started on first use with `CHECK_THREADS - 1` of them (at least 1). They
+/// live as long as the process, so each sets up Lean's per-thread state once.
+fn pool() -> &'static Mutex<std::sync::mpsc::Sender<Job>> {
+    static POOL: OnceLock<Mutex<std::sync::mpsc::Sender<Job>>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Job>();
+        let rx = Arc::new(Mutex::new(rx));
+        for i in 0..CHECK_THREADS.load(Ordering::Relaxed).saturating_sub(1).max(1) {
+            let rx = rx.clone();
+            std::thread::Builder::new()
+                .name(format!("gate-check-{i}"))
+                .spawn(move || loop {
+                    let job = rx.lock().unwrap().recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => return,
+                    }
+                })
+                .expect("spawn a gate check worker");
+        }
+        Mutex::new(tx)
+    })
+}
+
+/// Jobs on the pool that may borrow from the caller's stack: dropping the scope waits until every job it
+/// spawned has finished (also when the caller unwinds), so the borrows outlive the jobs.
+struct Scope<'s> {
+    left: Arc<(Mutex<usize>, Condvar)>,
+    panicked: Arc<std::sync::atomic::AtomicBool>,
+    _borrows: std::marker::PhantomData<&'s ()>,
+}
+
+impl<'s> Scope<'s> {
+    fn new() -> Scope<'s> {
+        Scope { left: Arc::new((Mutex::new(0), Condvar::new())), panicked: Arc::default(), _borrows: std::marker::PhantomData }
+    }
+
+    fn spawn(&self, f: impl FnOnce() + Send + 's) {
+        *self.left.0.lock().unwrap() += 1;
+        let (left, panicked) = (self.left.clone(), self.panicked.clone());
+        let job: Box<dyn FnOnce() + Send + 's> = Box::new(move || {
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).is_err() {
+                panicked.store(true, Ordering::Relaxed);
+            }
+            let mut n = left.0.lock().unwrap();
+            *n -= 1;
+            if *n == 0 {
+                left.1.notify_all();
+            }
+        });
+        // SAFETY: `Scope::drop` blocks until this job has run, and `Scope` (which has a `Drop` impl) cannot
+        // outlive `'s`, so everything the job borrows is alive while it runs.
+        let job: Job = unsafe { std::mem::transmute::<Box<dyn FnOnce() + Send + 's>, Job>(job) };
+        pool().lock().unwrap().send(job).expect("gate check pool is gone");
+    }
+}
+
+impl Drop for Scope<'_> {
+    fn drop(&mut self) {
+        let mut n = self.left.0.lock().unwrap();
+        while *n > 0 {
+            n = self.left.1.wait(n).unwrap();
+        }
+        drop(n);
+        if self.panicked.load(Ordering::Relaxed) && !std::thread::panicking() {
+            panic!("a gate check worker panicked");
+        }
+    }
+}
+
+/// One candidate for `verify_first`: the escape `law` flown from `plant`. Candidates after the first are flown
+/// on other threads from `seed` (a `Seed` of `plant`); without one, everything runs on the calling thread.
+pub struct Cand<'a> {
+    pub plant: &'a JsbPlant,
+    pub seed: Option<&'a Seed>,
+    pub law: Law,
+}
+
+/// The outcome of `verify_first`.
+pub struct Verdict {
+    /// Index of the first candidate (in priority order) that verified, and its rollout.
+    pub first: Option<(usize, Roll)>,
+    /// The rollouts that decided it, in order: every candidate before `first`, then `first` (all of them if
+    /// none verified). These are exactly the rollouts the sequential check would fly.
+    pub rolls: Vec<Roll>,
+    /// JSBSim frames flown in all, including rollouts cut short or discarded because an earlier candidate
+    /// verified, and the thread CPU time (s) the pool workers spent.
+    pub frames_all: usize,
+    pub cpu_workers: f64,
+}
+
+/// Fly each candidate's escape to its full horizon and return the first in priority order that verifies.
+/// With `CHECK_THREADS` > 1 and seeds, the candidates run concurrently: the first on this thread, the rest on
+/// the pool, each from its own copy of the plant rebuilt from the seed on the worker (Lean objects are never
+/// shared between threads). A candidate stops as soon as an earlier one has verified, since it can no longer
+/// win; no other cut-off depends on timing, so the verdict is the sequential one (the wall-clock `deadline`,
+/// if given, is the exception).
+pub fn verify_first(world: &World, cands: &[Cand], deadline: Option<std::time::Instant>) -> Verdict {
+    let n = cands.len();
+    let parallel = CHECK_THREADS.load(Ordering::Relaxed) > 1 && n > 1 && cands[1..].iter().all(|c| c.seed.is_some());
+    let mut v = Verdict { first: None, rolls: Vec::new(), frames_all: 0, cpu_workers: 0.0 };
+    if !parallel {
+        for (i, c) in cands.iter().enumerate() {
+            let r = rollout_ctl(world, c.plant, c.law, usize::MAX, deadline, None);
+            v.frames_all += r.frames;
+            if r.ok() {
+                v.first = Some((i, r.clone()));
+                v.rolls.push(r);
+                break;
+            }
+            v.rolls.push(r);
+        }
+        return v;
+    }
+    let best = AtomicUsize::new(usize::MAX);
+    let slots: Vec<Mutex<Option<(Roll, f64)>>> = (0..n).map(|_| Mutex::new(None)).collect();
+    {
+        let scope = Scope::new();
+        for i in 1..n {
+            let (seed, law, best, slot) = (cands[i].seed.unwrap(), cands[i].law, &best, &slots[i]);
+            scope.spawn(move || {
+                if best.load(Ordering::Relaxed) < i {
+                    return;
+                }
+                let c0 = thread_cpu();
+                let p = JsbPlant::from_seed(seed);
+                let r = rollout_ctl(world, &p, law, usize::MAX, deadline, Some((best, i)));
+                drop(p);
+                if r.ok() {
+                    best.fetch_min(i, Ordering::Relaxed);
+                }
+                *slot.lock().unwrap() = Some((r, thread_cpu() - c0));
+            });
+        }
+        let r = rollout_ctl(world, cands[0].plant, cands[0].law, usize::MAX, deadline, None);
+        if r.ok() {
+            best.fetch_min(0, Ordering::Relaxed);
+        }
+        *slots[0].lock().unwrap() = Some((r, 0.0));
+    }
+    let verify = VERIFY_SEEDS.load(Ordering::Relaxed);
+    for (i, slot) in slots.into_iter().enumerate() {
+        let Some((r, cpu)) = slot.into_inner().unwrap() else { continue };
+        v.frames_all += r.frames;
+        v.cpu_workers += cpu;
+        if v.first.is_some() {
+            continue;
+        }
+        if verify && i > 0 {
+            let c = &cands[i];
+            let q = rollout_ctl(world, c.plant, c.law, usize::MAX, deadline, None);
+            let bits = |r: &Roll| r.path.iter().chain(&r.tail).flat_map(|p| p.map(f64::to_bits)).collect::<Vec<u64>>();
+            assert!(
+                q.outcome == r.outcome && q.frames == r.frames && q.min_clear.to_bits() == r.min_clear.to_bits() && bits(&q) == bits(&r),
+                "seeded rollout {i} (escape {}) differs from the fork's: {:?}/{} vs {:?}/{}",
+                r.esc,
+                r.outcome,
+                r.frames,
+                q.outcome,
+                q.frames
+            );
+        }
+        if r.ok() {
+            v.first = Some((i, r.clone()));
+        }
+        v.rolls.push(r);
+    }
+    v
+}
 
 /// Per-tick budget in JSBSim frames: 15 ms at the 6.7 µs per checked frame measured on an M4 Max. In frames,
 /// not wall time, so runs are reproducible.
@@ -830,10 +1017,14 @@ pub struct Gate {
     pub runs: u64,
     pub short_runs: u64,
     pub run_len: u64,
-    /// Per-tick filter cost: thread CPU (ms), wall (ms), JSBSim frames.
+    /// Per-tick filter cost: thread CPU (ms), wall (ms), JSBSim frames of the rollouts that decided the tick.
     pub cpu_ms: Vec<f32>,
     pub wall_ms: Vec<f32>,
     pub frames: Vec<u32>,
+    /// With parallel checks (`CHECK_THREADS` > 1): all JSBSim frames flown, including discarded rollouts, and
+    /// the pool workers' CPU (ms).
+    pub frames_all: Vec<u32>,
+    pub cpu_workers_ms: Vec<f32>,
 }
 
 impl Gate {
@@ -857,6 +1048,8 @@ impl Gate {
             cpu_ms: Vec::new(),
             wall_ms: Vec::new(),
             frames: Vec::new(),
+            frames_all: Vec::new(),
+            cpu_workers_ms: Vec::new(),
         };
         let mut best: Option<Roll> = None;
         for esc in 0..n_esc() {
@@ -894,7 +1087,8 @@ impl Gate {
             cand.bumpless_fbw();
         }
         let f0 = (-cand.lag / DT_JSB).ceil().max(0.0) as usize;
-        cand.advance_pilot(u_p, dt);
+        let full = CHECK_THREADS.load(Ordering::Relaxed) > 0;
+        let dump = if full && filter_on { cand.advance_pilot_dump(u_p, dt) } else { cand.advance_pilot(u_p, dt); None };
         if !filter_on {
             *plant = cand;
             self.law = None;
@@ -904,30 +1098,55 @@ impl Gate {
         let cap = TIME_CAP_MS.load(Ordering::Relaxed);
         let deadline = (cap > 0).then(|| w0 + std::time::Duration::from_millis(cap as u64));
         let mut frames = f0;
+        let mut frames_all = f0;
+        let mut cpu_workers = 0.0;
         let mut verified: Option<Roll> = None;
         let n = n_esc();
         // Flying the pilot: `last` first. Committed: continue the round robin from the previous tick.
         let mut esc = if self.law.is_none() { self.last } else { self.rr };
-        let mut tried = 0;
-        loop {
-            let left = BUDGET.load(Ordering::Relaxed).saturating_sub(frames);
-            if tried > 0 && left < MIN_ATTEMPT {
-                break;
+        if full {
+            // Every escape to its full horizon, in the same order; the first that verifies wins.
+            let seed = dump.map(|d| cand.seed(d));
+            let order: Vec<usize> = (0..n).map(|k| (esc + k) % n).collect();
+            let cands: Vec<Cand> = order.iter().map(|&e| Cand { plant: &cand, seed: seed.as_ref(), law: Law::new(e) }).collect();
+            let v = verify_first(world, &cands, deadline);
+            for r in &v.rolls {
+                frames += r.frames;
+                self.outcomes[r.esc][r.outcome as usize] += 1;
             }
-            let r = rollout_law(world, &cand, Law::new(esc), if tried == 0 { usize::MAX } else { left }, deadline);
-            frames += r.frames;
-            tried += 1;
-            self.outcomes[esc][r.outcome as usize] += 1;
-            self.shown_ok = r.ok();
-            self.shown = r.path.iter().chain(&r.tail).copied().collect();
-            if r.ok() {
+            frames_all += v.frames_all;
+            cpu_workers = v.cpu_workers;
+            if let Some(r) = v.rolls.last() {
+                self.shown_ok = r.ok();
+                self.shown = r.path.iter().chain(&r.tail).copied().collect();
+            }
+            if let Some((i, r)) = v.first {
+                esc = order[i];
                 verified = Some(r);
-                break;
             }
-            esc = (esc + 1) % n;
-            if tried >= n {
-                break;
+        } else {
+            let mut tried = 0;
+            loop {
+                let left = BUDGET.load(Ordering::Relaxed).saturating_sub(frames);
+                if tried > 0 && left < MIN_ATTEMPT {
+                    break;
+                }
+                let r = rollout_law(world, &cand, Law::new(esc), if tried == 0 { usize::MAX } else { left }, deadline);
+                frames += r.frames;
+                tried += 1;
+                self.outcomes[esc][r.outcome as usize] += 1;
+                self.shown_ok = r.ok();
+                self.shown = r.path.iter().chain(&r.tail).copied().collect();
+                if r.ok() {
+                    verified = Some(r);
+                    break;
+                }
+                esc = (esc + 1) % n;
+                if tried >= n {
+                    break;
+                }
             }
+            frames_all = frames;
         }
         self.rr = esc;
         let accept = if let Some(r) = verified {
@@ -970,6 +1189,8 @@ impl Gate {
         self.cpu_ms.push(((thread_cpu() - c0) * 1e3) as f32);
         self.wall_ms.push((w0.elapsed().as_secs_f64() * 1e3) as f32);
         self.frames.push(frames as u32);
+        self.frames_all.push(frames_all as u32);
+        self.cpu_workers_ms.push((cpu_workers * 1e3) as f32);
         accept
     }
 }
