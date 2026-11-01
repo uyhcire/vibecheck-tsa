@@ -638,6 +638,10 @@ struct App {
     invert: bool,
     stick: (f64, f64),
     acc: f64,
+    /// The aircraft and its control surfaces as drawn between ticks, and the `sim.k` they were last pushed at.
+    drawn: Drawn,
+    drawn_ctl: [(c172::Controls, f32); 2],
+    drawn_k: Option<u64>,
     trail: VecDeque<(Vec3, Color)>,
     trail_t: f64,
     paths: Vec<(Vec<Vec3>, bool)>,
@@ -826,17 +830,50 @@ impl App {
         }
     }
 
+    /// After each tick: record what is drawn between ticks (`Drawn`); start over if the sim was replaced.
+    fn push_drawn(&mut self) {
+        let ctl = self.tick_surfaces();
+        if self.drawn_k.is_some_and(|k| k + STEPS_PER_TICK == self.sim.k) {
+            self.drawn.push(&self.sim);
+            self.drawn_ctl = [self.drawn_ctl[1], ctl];
+        } else {
+            self.drawn = Drawn::new(&self.sim);
+            self.drawn_ctl = [ctl, ctl];
+        }
+        self.drawn_k = Some(self.sim.k);
+    }
+
+    /// The aircraft state to draw this frame: between the last two ticks at the accumulated fraction of a tick,
+    /// or the sim's own state if no tick has run since the sim was (re)built.
+    fn drawn_state(&self) -> State {
+        if self.drawn_k == Some(self.sim.k) {
+            self.drawn.at(self.acc / DT_F)
+        } else {
+            Drawn::of(&self.sim)
+        }
+    }
+
     /// Body axes with the nose raised by the angle of attack the load factor needs: the same frame the
     /// gate's wing clearance (`World::airframe_clearance`) checks.
     fn aircraft_axes(&self) -> (Vec3, Vec3, Vec3) {
-        let s = &self.sim.s;
+        let s = &self.drawn_state();
         let a = airframe_axes(s, drawn_alpha(&self.sim.prm_true, s));
         let v = |x: [f64; 3]| vec3(x[0] as f32, x[1] as f32, x[2] as f32);
         (v(a[0]), v(a[1]), v(a[2]))
     }
 
-    /// Control-surface deflections (trailing edge down, rad) and engine rpm.
+    /// Control-surface deflections and engine rpm as drawn: between the last two ticks, like `drawn_state`.
     fn surfaces(&self) -> (c172::Controls, f32) {
+        if self.drawn_k != Some(self.sim.k) {
+            return self.tick_surfaces();
+        }
+        let t = (self.acc / DT_F).clamp(0.0, 1.0) as f32;
+        let ([(a, ra), (b, rb)], l) = (self.drawn_ctl, |x: f32, y: f32| x + (y - x) * t);
+        (c172::Controls { elevator: l(a.elevator, b.elevator), aileron: l(a.aileron, b.aileron), rudder: l(a.rudder, b.rudder) }, l(ra, rb))
+    }
+
+    /// Control-surface deflections (trailing edge down, rad) and engine rpm after the latest tick.
+    fn tick_surfaces(&self) -> (c172::Controls, f32) {
         #[cfg(feature = "jsb")]
         if let Some(j) = &self.sim.jsb {
             let sf = j.surf;
@@ -854,7 +891,7 @@ impl App {
 
     /// Nav, strobe and landing lights: glow sprites, plus the landing spot and nav point lights for the shaders.
     fn aircraft_lights(&self, ov: &mut Vec<photo::DV>, oi: &mut Vec<u32>, cam: Vec3, right: Vec3, up: Vec3) -> ([f32; 4], [f32; 4], [[f32; 4]; 3]) {
-        let p = sv3(&self.sim.s);
+        let p = sv3(&self.drawn_state());
         let (f, l, u) = self.aircraft_axes();
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
         let t = get_time() as f32;
@@ -942,6 +979,7 @@ impl App {
             }
             let u = self.fbw.cmd(&self.sim.prm_ctrl, &self.sim.s);
             self.sim.tick(u);
+            self.push_drawn();
             self.fbw.resync(&self.sim.s, self.sim.fs.lam, DT_F);
             self.trail_t += DT_F;
             if self.trail_t >= 0.1 {
@@ -1023,7 +1061,7 @@ impl App {
     }
 
     fn camera(&mut self, dt: f32) -> Camera3D {
-        let s = &self.sim.s;
+        let s = &self.drawn_state();
         let p = sv3(s);
         let (f, _, _) = body_axes(s);
         let fh = vec3(f.x, f.y, 0.0).normalize_or_zero();
@@ -1119,7 +1157,7 @@ impl App {
 
     fn draw_world_dynamic(&self, cam: &Camera3D) {
         set_camera(cam);
-        let s = &self.sim.s;
+        let s = &self.drawn_state();
         let p = sv3(s);
         // Ground shadow under the aircraft.
         let gz = self.world.surface(s[X], s[Y]) as f32 + 0.4;
@@ -1153,7 +1191,7 @@ impl App {
     /// Aircraft (lit) and overlays (unlit, colours preserved through the tonemap) for the photoreal renderer.
     fn photo_dynamic(&self, cam: Vec3, exposure: f32) -> (Vec<photo::DV>, Vec<u32>, Vec<photo::DV>, Vec<u32>) {
         use photo::DV;
-        let s = &self.sim.s;
+        let s = &self.drawn_state();
         let p = sv3(s);
         let (mut lv, mut li) = (Vec::new(), Vec::new());
         let (f, l, u) = self.aircraft_axes();
@@ -1267,7 +1305,7 @@ impl App {
         let mut env: Option<(String, &str, f64, bool)> = None;
         #[cfg(feature = "jsb")]
         if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
-            let e = g.law.map(|l| l.esc).or(g.witness);
+            let e = g.law.or(g.witness).map(|l| l.esc);
             env = Some((format!("{k:?} exact rollout").to_lowercase(), e.map_or("none verified", |i| cityflight::envfilter::ESCAPES[i].name), *g.cpu_ms.last().unwrap_or(&0.0) as f64, g.witness.is_some() || g.law.is_some()));
         }
         let (h_txt, esc, ms) = match &env {
@@ -1573,8 +1611,18 @@ async fn main() {
     if args.iter().any(|a| a == "--jsb") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    // The gate checks its escapes in parallel (one thread each, the verdict independent of how many) instead of
+    // under a wall-clock cap, so what flies does not depend on how busy the machine is. `--time-cap MS` brings
+    // the cap back; `--check-threads 0` the budgeted sequential check.
     #[cfg(feature = "jsb")]
-    cityflight::envfilter::TIME_CAP_MS.store(arg("--time-cap").and_then(|s| s.parse().ok()).unwrap_or(15), std::sync::atomic::Ordering::Relaxed);
+    cityflight::envfilter::TIME_CAP_MS.store(arg("--time-cap").and_then(|s| s.parse().ok()).unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+    #[cfg(feature = "jsb")]
+    cityflight::envfilter::CHECK_THREADS.store(
+        arg("--check-threads").and_then(|s| s.parse().ok()).unwrap_or_else(|| {
+            std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1)).clamp(1, cityflight::envfilter::N_ESC)
+        }),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     #[cfg(feature = "jsb")]
     if let Some(l) = arg("--law") {
         cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(&l), std::sync::atomic::Ordering::Relaxed);
@@ -1610,9 +1658,11 @@ async fn main() {
     };
     let scenario: usize = arg("--scenario").and_then(|s| s.parse::<usize>().ok()).map(|s| s.clamp(1, scenario_names(map).len()) - 1).unwrap_or(0);
     let s0 = scenario_start(world, scenario);
+    let sim = Sim::new(world, s0, SimCfg::default());
+    let drawn = Drawn::new(&sim);
     let mut app = App {
         world,
-        sim: Sim::new(world, s0, SimCfg::default()),
+        sim,
         fbw: Fbw::from_state(&s0),
         scenario,
         phase: Phase::P1,
@@ -1630,6 +1680,9 @@ async fn main() {
         invert: false,
         stick: (0.0, 0.0),
         acc: 0.0,
+        drawn,
+        drawn_ctl: [(c172::Controls::default(), 0.0); 2],
+        drawn_k: None,
         trail: VecDeque::new(),
         trail_t: 0.0,
         paths: Vec::new(),
@@ -1801,7 +1854,7 @@ async fn main() {
                         [app.prop_angle, app.surfaces().1 / 60.0 * std::f32::consts::TAU, 0.0, 1.0 / 120.0]
                     },
                     lens: photo::Lens {
-                        focus: if app.cam_mode == 1 { 400.0 } else { (sv3(&app.sim.s) - cam.position).length().max(2.0) },
+                        focus: if app.cam_mode == 1 { 400.0 } else { (sv3(&app.drawn_state()) - cam.position).length().max(2.0) },
                         focal_mm: app.focal_mm,
                         fstop: app.fstop,
                         tilt_shift: LENSES[app.lens].5,
@@ -1815,7 +1868,7 @@ async fn main() {
                     rt: app.renderer == 2,
                     model: {
                         let (f, l, u) = app.aircraft_axes();
-                        [sv3(&app.sim.s), f, l, u]
+                        [sv3(&app.drawn_state()), f, l, u]
                     },
                     land_pos: lights.0,
                     land_dir: lights.1,
