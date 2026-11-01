@@ -268,6 +268,209 @@ def adversary (L : Law) (seeds : Array (State × L.σ)) (budget : Nat) (longN : 
     k := k + lstride
   return ⟨tests, longT, inT, ces⟩
 
+/-! ### Falsifier: a second, structural attack on T
+
+The seeded adversary above runs a full 640-tick test per candidate, which caps it at a few hundred in-T
+candidates per seed. The falsifier screens many more candidates with a short test, ranks them by how close
+they come to the envelope, and hill-climbs the closest ones along the boundary of T. Any envelope failure in a
+short test is a genuine counterexample (the full test would fail at the same tick). Every 16th candidate also
+gets the full test, which catches `no-climb`. -/
+
+/-- Normalised distance to the envelope over a short flight, one entry per limit: α (per 0.05 rad of tan α),
+load (per 0.5 g), speed (per 2 m/s), height above clearance (per 2 m). Negative means violated. -/
+structure Margins where
+  a : Float
+  n : Float
+  v : Float
+  h : Float
+  deriving Inhabited
+
+def Margins.min (m : Margins) : Float := Min.min (Min.min m.a m.n) (Min.min m.v m.h)
+
+def Margins.get (m : Margins) (k : Nat) : Float :=
+  match k with | 0 => m.a | 1 => m.n | 2 => m.v | _ => m.h
+
+def stateMargins (s : State) : Margins :=
+  let u := s.vx.raw * s.dx.raw + s.vz.raw * s.dz.raw
+  let w := s.vx.raw * s.dz.raw - s.vz.raw * s.dx.raw
+  let a := if u ≤ 0 then -1.0 else Float.ofInt (alphaTanMax * u - w * 65536) / (Float.ofInt u * 65536) / 0.05
+  let n := Float.ofInt (loadMaxX10 * gRaw * 65536 - 10 * loadNum s) / (10 * Float.ofInt gRaw * 65536) / 0.5
+  let v := (Float.sqrt (F s.vx.raw ^ 2 + F s.vz.raw ^ 2) - F vFloor) / 2
+  let h := Min.min (F (s.h.raw - clearance)) (F (hMax - s.h.raw)) / 2
+  let st := if s.stall.raw != 0 then -1.0 else 1.0
+  ⟨Min.min a st, n, v, h⟩
+
+def Margins.meet (x y : Margins) : Margins :=
+  ⟨Min.min x.a y.a, Min.min x.n y.n, Min.min x.v y.v, Min.min x.h y.h⟩
+
+/-- Fly `k` ticks; the first unsafe substep (as in `testT`) and the worst margins seen. -/
+def shortTest (L : Law) (p : State × L.σ) (k : Nat) : Option String × Margins := Id.run do
+  let mut s := p.1
+  let mut m := p.2
+  let mut mg : Margins := ⟨1e9, 1e9, 1e9, 1e9⟩
+  for t in [0:k] do
+    let r := L.step m s
+    let u := clampInput r.1
+    for _ in [0:8] do
+      s := sub u s
+      mg := mg.meet (stateMargins s)
+      if !safeOk s then return (some s!"{classify s}@tick{t}", mg)
+    m := r.2
+  return (none, mg)
+
+/-- Bisection along `dir` (scaled by `scale`) from an in-T vector to the last in-T point before `tMax`. -/
+def boundary (L : Law) (base : Array Int) (dir : Array Float) (scale : Array Int) (tMax : Float) (iters : Nat) :
+    Option (State × L.σ) := Id.run do
+  let at_ (tt : Float) : Option (State × L.σ) :=
+    (unvec L ((List.range base.size).toArray.map fun (j : Nat) =>
+      (base[j]! + (tt * dir[j]! * Float.ofInt scale[j]!).round.toInt64.toInt : Int))).filter L.inT
+  if (at_ tMax).isSome then return at_ tMax
+  let mut a := 0.0
+  let mut b := tMax
+  for _ in [0:iters] do
+    let mid := (a + b) / 2
+    if (at_ mid).isSome then a := mid else b := mid
+  return at_ a
+
+/-- Lowest height at which `v` (otherwise unchanged) is still in T, by bisection; `none` if `v` is not in T. -/
+def lowestH (L : Law) (v : Array Int) : Option (State × L.σ) := Id.run do
+  let atH (h : Int) : Option (State × L.σ) := (unvec L (v.set! 1 h)).filter L.inT
+  if (atH v[1]!).isNone then return none
+  if (atH clearance).isSome then return atH clearance
+  let mut a : Int := clearance
+  let mut b : Int := v[1]!
+  for _ in [0:32] do
+    if b - a ≤ 1 then break
+    let mid := (a + b) / 2
+    if (atH mid).isSome then b := mid else a := mid
+  return atH b
+
+structure FalsRes where
+  screened : Nat
+  full : Nat
+  hill : Nat
+  ces : Array CE
+  worst : Margins
+
+/-- Structural falsifier for one law. Generators, cycled: perturbation (modes 0), boundary bisection along a random
+direction, coordinate extremes (one axis to the boundary, both signs), the same at the lowest height in T (the
+first-substep dip of h-dependent sets), altitude jumps (same state at another height, acceleration fields
+unchanged), and one-tick images. Then hill-climbing on the boundary of T from the candidates closest to each
+envelope limit. Deterministic: splitmix64 from `seed`. -/
+def falsify (L : Law) (seeds : Array (State × L.σ)) (nScreen nHill hillSteps : Nat) (seed : UInt64) : FalsRes :=
+  Id.run do
+  if seeds.isEmpty then return ⟨0, 0, 0, #[], ⟨1e9, 1e9, 1e9, 1e9⟩⟩
+  let shortK : Nat := 64
+  let vs := seeds.map (vecOf L)
+  let d := vs[0]!.size
+  let idx : Array Nat := (List.range d).toArray
+  let lo : Array Int := idx.map fun j => vs.foldl (fun a v => min a v[j]!) (vs[0]![j]!)
+  let hi : Array Int := idx.map fun j => vs.foldl (fun a v => max a v[j]!) (vs[0]![j]!)
+  let scale : Array Int := idx.map fun j =>
+    if j < 19 then (if minScale[j]! == 0 then (0 : Int) else max minScale[j]! ((hi[j]! - lo[j]!) / 2))
+    else max (655 : Int) ((hi[j]! - lo[j]!) / 2)
+  let free : Array Nat := idx.filter fun j => scale[j]! != 0
+  let hTop : Int := hi[1]! + (hi[1]! - lo[1]!) / 2
+  let mut r : Ci.Rng := ⟨seed⟩
+  let mut ces : Array CE := #[]
+  let mut screened := 0
+  let mut full := 0
+  let mut worst : Margins := ⟨1e9, 1e9, 1e9, 1e9⟩
+  -- best (smallest) margin per limit, kept as (margin, vector) for hill-climbing
+  let mut tops : Array (Array (Float × Array Int)) := #[#[], #[], #[], #[]]
+  let keep := Max.max 1 nHill
+  for t in [0:nScreen + seeds.size] do
+    let mut cand : Option (State × L.σ) := none
+    let (x, r1) := r.next; r := r1
+    -- every seed once at its lowest height in T, then the cycled generators
+    let base := if t < seeds.size then vs[t]! else vs[(x % vs.size.toUInt64).toNat]!
+    let g := if t < seeds.size then 99 else (t - seeds.size) % 6
+    if g == 99 then
+      cand := lowestH L base
+    else if g == 0 then
+      let mut tries := 0
+      while cand.isNone && tries < 20 do
+        tries := tries + 1
+        let (amp, r2) := r.pick #[0.02, 0.05, 0.2, 0.5, 1.0]; r := r2
+        let mut v := base
+        for j in free do
+          let (u, r3) := r.unif (-1) 1; r := r3
+          v := v.set! j (v[j]! + (amp * u * Float.ofInt scale[j]!).round.toInt64.toInt)
+        cand := (unvec L v).filter L.inT
+    else if g == 1 then
+      let mut dir : Array Float := Array.replicate d 0
+      for j in free do
+        let (u, r3) := r.unif (-1) 1; r := r3
+        dir := dir.set! j u
+      cand := boundary L base dir scale 4.0 20
+    else if g == 2 || g == 3 then
+      let (k, r2) := r.next; r := r2
+      let j := free[(k % free.size.toUInt64).toNat]!
+      let (sgn, r3) := r.pick #[-1.0, 1.0]; r := r3
+      let b0 := if g == 3 then ((lowestH L base).map (vecOf L)).getD base else base
+      let dir := (Array.replicate d 0.0).set! j sgn
+      let c := boundary L b0 dir scale 8.0 24
+      cand := if g == 3 then (c.bind fun p => lowestH L (vecOf L p)) else c
+    else if g == 4 then
+      let (u, r2) := r.unif 0 1; r := r2
+      let h := clearance + (u * Float.ofInt (hTop - clearance)).round.toInt64.toInt
+      cand := (unvec L (base.set! 1 h)).filter L.inT
+    else
+      let mut v := base
+      for j in free do
+        let (u, r3) := r.unif (-1) 1; r := r3
+        v := v.set! j (v[j]! + (u * Float.ofInt scale[j]!).round.toInt64.toInt)
+      if let some p := unvec L v then
+        let mut q := p
+        for _ in [0:8] do
+          if cand.isNone then
+            let rr := tickT L q.1 q.2
+            q := (rr.s, rr.m)
+            if L.inT q then cand := some q
+    if let some p := cand then
+      screened := screened + 1
+      let (fail, mg) := shortTest L p shortK
+      worst := worst.meet mg
+      if let some why := fail then
+        ces := ces.push ⟨s!"fals{g}", why, vecOf L p⟩
+      else
+        if screened % 16 == 0 then
+          full := full + 1
+          if let some why := testT L p 640 then ces := ces.push ⟨s!"fals{g}-full", why, vecOf L p⟩
+        for k in [0:4] do
+          let m := mg.get k
+          let row := tops[k]!
+          if row.size < keep || m < (row.back?.map (·.1)).getD 1e9 then
+            let row := (row.push (m, vecOf L p)).qsort (fun a b => a.1 < b.1)
+            tops := tops.set! k (if row.size > keep then row.pop else row)
+  -- hill-climbing: shrink each limit's margin by small moves that stay in T (pulled back onto the boundary)
+  let mut hill := 0
+  for k in [0:4] do
+    for (m0, v0) in tops[k]! do
+      let mut cur := v0
+      let mut curM := m0
+      let mut step := 0.05
+      for _ in [0:hillSteps] do
+        let mut dir : Array Float := Array.replicate d 0
+        for j in free do
+          let (u, r3) := r.unif (-1) 1; r := r3
+          dir := dir.set! j u
+        let mv := (List.range d).toArray.map fun (j : Nat) =>
+          (cur[j]! + (step * dir[j]! * Float.ofInt scale[j]!).round.toInt64.toInt : Int)
+        let next : Option (State × L.σ) := match (unvec L mv).filter L.inT with
+          | some p => some p
+          | none => boundary L cur (dir.map (· * step)) scale 1.0 12
+        if let some p := next then
+          hill := hill + 1
+          let (fail, mg) := shortTest L p shortK
+          worst := worst.meet mg
+          if let some why := fail then
+            ces := ces.push ⟨s!"hill{k}", why, vecOf L p⟩
+            break
+          if mg.get k < curM then cur := vecOf L p; curM := mg.get k; step := Min.min 0.2 (step * 1.5)
+          else step := Max.max 0.005 (step * 0.7)
+  return ⟨screened, full, hill, ces, worst⟩
+
 structure Audit where
   rows : List (String × String × Bool × String × Int)
   provedLaws : List Nat
@@ -302,6 +505,25 @@ def traceMain (i n : Nat) : IO UInt32 := do
   return 0
 
 open Ci.Score in
+/-- `--verify-ce FILE [N]`: re-test up to N counterexample rows (law name, kind, why, raw vector) with the full
+T test, independently of how they were found, and print the per-tick trace around the failure. -/
+def verifyMain (path : String) (n : Nat) : IO UInt32 := do
+  let rows := ((← IO.FS.lines path).toList.drop 1).filter (· ≠ "")
+  let mut bad := 0
+  let mut k := 0
+  for row in rows.take n do
+    let parts := row.splitOn ","
+    let some L := Ci.Agent.submission.laws.find? (·.name == parts[0]!) | IO.println s!"no law {parts[0]!}"; continue
+    let vec := ((parts.getLast!).splitOn " ").filterMap String.toInt? |>.toArray
+    let some p := unvec L vec | IO.println "undecodable"; bad := bad + 1; continue
+    let r := testT L p 640
+    IO.println s!"row {k} {parts[1]!} claimed {parts[2]!}: inT {L.inT p} full-test {r.getD "PASS"}"
+    if !L.inT p || r.isNone then bad := bad + 1
+    k := k + 1
+  IO.println s!"verified {k - bad}/{k}"
+  return if bad == 0 then 0 else 1
+
+open Ci.Score in
 /-- Worst box-baseline loss (raw, -1 if any throttle is rejected) per typical-grid (V, γ) node, as a Lean literal. -/
 def fitMain : IO UInt32 := do
   let lines := (← IO.FS.lines benchPath).toList.drop 1
@@ -325,6 +547,7 @@ open Ci.Score in
 def main (args : List String) : IO UInt32 := do
   if args == ["--fit"] then return ← fitMain
   if let ["--trace", i, n] := args then return ← traceMain i.toNat! n.toNat!
+  if let ["--verify-ce", f, n] := args then return ← verifyMain f n.toNat!
   let rec optSub : List String → String
     | "--sub" :: n :: _ => n
     | _ :: rest => optSub rest
@@ -394,6 +617,12 @@ def main (args : List String) : IO UInt32 := do
       let a := adversary L seeds (if quick then 200 else 2000) (if quick then 8 else 64) (sd + li.toUInt64)
       advLines := advLines.push s!"\{\"law\":{jsonStr L.name},\"adv_seed\":{sd},\"seeds\":{seeds.size},\"tests\":{a.tests},\"long_tests\":{a.longTests},\"counterexamples\":{a.ces.size}}"
       ces := ces ++ a.ces.map (L.name, ·)
+    -- Structural falsifier: many short screened tests, coordinate extremes, lowest-height and altitude-jump
+    -- candidates, then hill-climbing toward each envelope limit (see `falsify`).
+    let fr := falsify L seeds (if quick then 3000 else 30000) (if quick then 4 else 24) (if quick then 20 else 40)
+      (0xF00D + li.toUInt64)
+    advLines := advLines.push s!"\{\"law\":{jsonStr L.name},\"falsifier\":true,\"seeds\":{seeds.size},\"screened\":{fr.screened},\"full_tests\":{fr.full},\"hill_tests\":{fr.hill},\"worst_margin\":{fmt fr.worst.min},\"counterexamples\":{fr.ces.size}}"
+    ces := ces ++ fr.ces.map (L.name, ·)
     li := li + 1
   let tAdv ← IO.monoMsNow
   let au := audit S.laws.length ext
