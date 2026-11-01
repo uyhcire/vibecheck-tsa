@@ -1,0 +1,49 @@
+[package]
+name = "cityflight"
+version = "0.1.0"
+edition = "2021"
+default-run = "cityflight"
+
+[features]
+default = ["gui"]
+gui = ["dep:macroquad"]
+jsb = []
+
+[dependencies]
+macroquad = { version = "0.4", optional = true, default-features = false }
+
+[[bin]]
+name = "cityflight"
+path = "src/main.rs"
+required-features = ["gui"]
+
+[[bin]]
+name = "harness"
+path = "src/bin/harness.rs"
+
+[profile.release]
+opt-level = 3
+debug = false
+
+[profile.dev]
+opt-level = 2
+
+[[bin]]
+name = "jsbtune"
+path = "src/bin/jsbtune.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "crashes"
+path = "src/bin/crashes.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "adversary"
+path = "src/bin/adversary.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "esclab"
+path = "src/bin/esclab.rs"
+required-features = ["jsb"]

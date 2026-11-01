@@ -93,6 +93,9 @@ Trusted surface (read these to believe the statement): `Envelope/Terrain.lean` (
 - `JsbExact/`, `Tools/JsbExactResid.lean`, `jsbx/`, `c/jxmath.c`: offline bit-exact Lean port of JSBSim's c172p (see below; unverified, not imported by anything else).
 - `VcFilter/`, `c/vcfilter.h`, `c/filter_abi.c`: the safety-filter C ABI (`docs/filter-interface.md`) with the envelope filter behind it (`make filter-lib`; mappings in `docs/vcfilter-envelope.md`).
 - `host/`: Python host for the C ABI: conformance tests and a JSBSim lockstep run (`make filter-test`).
+- `flight/`: Luis Pabon's procedural-city flight demo (Rust), with `JsbExact` as its plant (`--jsb`) and the gatekeeper filter (`--env gate`); see `flight/README.md`.
+- `CityJsb/`, `c/cityjsb_abi.c`: `JsbExact` as a plant (`libcityjsb`): start, step, clone, and import of a JSBSim state dump.
+- `gate/`: the gatekeeper filter as a C library for a host running JSBSim (`libgate`, `gate/gate.h`, `make gate`).
 - `Tools/`: `simtest` / `filtertest` headless runs, `Audit.lean`.
 - `proofs/`: the Mathlib fidelity package above.
 - `problems/`: open problems with checkable goals, for semi-independent work (start with `problems/robust-safety/`).
@@ -130,4 +133,83 @@ ext/harness-on $R ext/data/bank bank 20 8000 3       # modes: level, rud0, bank,
 .venv/bin/python -I jsbx/replay_pip.py ext/data/bank  # source build equals the pip binary bitwise
 .venv/bin/python -I jsbx/gen_lean.py ext/data/bank.cfg.json $R/aircraft/c172p/c172p.xml JsbExact/C172Gen.lean
 lake build jsbx && .lake/build/bin/jsbx ext/data/bank step   # also: tick (8 steps), free (open-loop episode), bench
+```
+
+### State import and drift check
+
+A host running JSBSim can hand its live state to `JsbExact`. `jsbx/export_state.hpp` (header-only, C++) writes a
+state dump of an `FGFDMExec`: 289 doubles, including the private members `JsbExact.step` needs (integrator
+histories, gear friction multipliers, stall hysteresis). `jsbx/harness.cpp` writes its records with the same
+code. `CityJsb.fromDump` (C: `cityjsb_from_dump` in `libcityjsb`) builds the `JsbExact` state from it, and
+`CityJsb.obsFromDump` (`cityjsb_obs_from_dump`) the plant's observation at that state; the field order is
+`CityJsb.dumpNames`, listed at run time by `cityjsb_dump_field`.
+
+The drift check compares a host's JSBSim with `JsbExact`. The host logs every frame with `jsbx::DriftLog`
+(the commands about to be applied, then the dump), and `jsbdrift` imports the first record, steps `JsbExact`
+with the logged commands and reports, per field, how many frames are bit-identical, the largest absolute and
+relative difference, and where they first differ (`--horizon N` re-imports every `N` frames). `jsbx/drift_host.cpp`
+is an example host.
+
+```
+jsbx/build.sh on                                         # also builds ext/drift_host-on
+ext/drift_host-on $R /tmp/drift 120 7 && lake build jsbdrift && .lake/build/bin/jsbdrift /tmp/drift
+lake build cityimporttest && .lake/build/bin/cityimporttest ext/data/bank ext/data/to   # import round trip
+```
+
+Measured: `cityimporttest` on the `bank`, `level`, `rud0`, `ld` and `to` dumps imports 274,401 records and
+steps each once, bit-identical to the next record in every compared field, and `obsFromDump` of each next
+record equals the plant's observation after the step. `drift_host-on` (the reference build)
+logs 120 s that `jsbdrift` reproduces bit for bit; `drift_host-off` (JSBSim built with `-ffp-contract=off`)
+differs from the first frame, by at most 4e-9 ft in position and 2e-12 ft/s in body velocity over the 120 s.
+
+## libgate: the gatekeeper filter for a host running JSBSim
+
+Integration guide: `docs/xplane-integration.md`. What is and is not proved about the gate: `docs/gate-proof-status.md`.
+
+`gate/` packages the gatekeeper filter of `flight/src/envfilter.rs` as a C library for a host that flies the
+c172p in JSBSim 1.3.3 itself. Each tick the host passes its JSBSim state dump (`jsbx::export_state`) and the
+pilot's command; `gate_tick` imports the state into `JsbExact`, checks the pilot's command for one tick followed
+by an escape, and returns the surfaces to apply on each JSBSim frame of the tick (the pilot's, or the escape's),
+the mode, the escape and its verified path. The pilot's command is raw surfaces (`GATE_PILOT_SURFACES`:
+JSBSim's elevator, aileron, rudder and throttle commands) or the demo's fly-by-wire demands (`GATE_PILOT_FBW`).
+The map is Luis's procedural city, built from a seed, placed at a latitude, longitude and altitude the host
+chooses (`gate_config`).
+
+Packaging: `libgate.dylib` is a Rust `cdylib` (the filter is Rust) that links `libcityjsb.dylib` (the Lean code
+with the Lean runtime linked in, built by `lake`). `make gate` builds both and copies them with the headers to
+`dist/`; `libgate` looks for `libcityjsb` next to itself first (`@loader_path`). Keeping the Lean side a separate
+dylib lets `lake` and `cargo` each build what they own; a single static archive would need the Lean runtime's
+static libraries on the Rust link line.
+
+```
+make gate             # dist/libgate.dylib, dist/libcityjsb.dylib, dist/gate.h, dist/cityjsb.h
+make gate-example     # gate/examples/gate_example.c: a flight under the filter, JsbExact standing in for JSBSim
+make gate-check       # gatecheck: closed-loop crash check with raw-surface pilots through the dump import
+```
+
+`gate/examples/gate_example.c` and `gatecheck` use `cityjsb_step_dump` as the host: `JsbExact` steps the aircraft
+and writes the dump JSBSim would export, so every tick goes through the same import a JSBSim host uses.
+
+
+### The filter's map as files
+
+The filter checks clearance against Luis's procedural city, built from a seed. `Tools/city-export` writes that
+exact geometry as plain files, for building matching scenery or a matching JSBSim ground:
+
+- `map.json`: the seed, units (metres), axes (x east, y north, z up; map (0, 0) is the origin a host gives
+  `gate_config`, z is altitude above sea level minus `origin_alt_m`), the extent (±3,000 m), the terrain grid
+  layout and its interpolation rule, the street axes, the clearance the filter keeps, and how the filter's
+  2.5 m max-height raster is derived.
+- `buildings.csv`: 2,145 axis-aligned boxes for seed 1337 (`id,lot,x_min,y_min,x_max,y_max,z_min,z_max`).
+- `terrain.csv`: 301 × 301 heights on a 20 m grid from (-3000, -3000), row by row from south to north.
+
+`city-export check` rebuilds the filter's geometry from the files alone and compares it with the library's
+`World` bit for bit: the terrain grid, the terrain function at 200,000 random points, the boxes, the raster and
+the map top. Values are written in shortest round-trip form, so the files determine the map exactly; a future
+`gate_config.map_path` can load them instead of a seed. `gate_map_to_geodetic` converts a map point to WGS84
+latitude, longitude and altitude for a given origin.
+
+```
+cargo run --release --manifest-path Tools/city-export/Cargo.toml -- map city-map        # seed 1337
+cargo run --release --manifest-path Tools/city-export/Cargo.toml -- check city-map
 ```

@@ -9,3 +9,9 @@ sysid/*.npy
 sysid/__pycache__/
 ext/
 host/__pycache__/
+
+# Rust demo build output
+flight/target/
+gate/target/
+dist/
+Tools/city-export/target/
