@@ -1,7 +1,8 @@
 import JsbExact.Model
 import Std.Data.HashMap
 
-/-! `jsbx RUN [step|tick|free]`: lockstep residuals of `JsbExact.step` against `jsbx/harness.cpp` dumps. -/
+/-! `jsbx RUN [step|tick|free|bench] [verbose] [freeze]`: lockstep residuals of `JsbExact.step` against `jsbx/harness.cpp`
+dumps. `freeze` steps with `fuelFreeze` on, for dumps the harness wrote with `propulsion/fuel_freeze` set. -/
 
 open JsbExact
 
@@ -68,11 +69,11 @@ def fields (s : State Float) (d : Diag Float) : List (String × Float) :=
     [(p ++ "wow", if g.wow then 1.0 else 0.0), (p ++ "lm0", g.lm0), (p ++ "lm1", g.lm1), (p ++ "lm2", g.lm2),
      (p ++ "slip", g.slip), (p ++ "steer", g.steer), (p ++ "d_fz", d.gearFz[i]!)] ++ v (p ++ "act") g.act)
 
-def stepN (r : Run) (k n : Nat) : State Float × Diag Float := Id.run do
+def stepN (ff : Bool) (r : Run) (k n : Nat) : State Float × Diag Float := Id.run do
   let mut s := stateOf r k
-  let mut d : Diag Float := (step s (inputOf r k)).2
+  let mut d : Diag Float := (step s (inputOf r k) ff).2
   for i in [0:n] do
-    let (s', d') := step s (inputOf r (k + i))
+    let (s', d') := step s (inputOf r (k + i)) ff
     s := s'
     d := d'
   return (s, d)
@@ -93,14 +94,15 @@ def fmt (x : Float) : String :=
 def main (args : List String) : IO Unit := do
   let pfx := args.headD "ext/data/t_on"
   let mode := args.getD 1 "step"
-  let verbose := args.getD 2 "" == "verbose"
+  let verbose := args.contains "verbose"
+  let ff := args.contains "freeze"
   let n := if mode == "tick" then 8 else 1
   let r ← loadRun pfx
   let nrec := r.data.size / r.nf
   let cEp := r.col "ep"
   let cK := r.col "k"
   let cStop := r.col "stop"
-  let names := (fields (stateOf r 0) (step (stateOf r 0) (inputOf r 0)).2).map (·.1) |>.toArray
+  let names := (fields (stateOf r 0) (step (stateOf r 0) (inputOf r 0) ff).2).map (·.1) |>.toArray
   let cols := names.map r.col
   let mut errs : Array FloatArray := names.map fun _ => FloatArray.emptyWithCapacity nrec
   let mut exact : Array Nat := names.map fun _ => 0
@@ -128,7 +130,7 @@ def main (args : List String) : IO Unit := do
     for (s0, a, b) in eps do
       let mut s := s0
       for j in [a:b] do
-        s := (step s inputs[j]!).1
+        s := (step s inputs[j]! ff).1
         n := n + 1
       acc := acc + s.vi.x
     let t1 ← IO.monoNanosNow
@@ -144,7 +146,7 @@ def main (args : List String) : IO Unit := do
       let mut s := stateOf r k
       let mut j := k
       while j + 1 < nrec && r.get (j + 1) cEp == ep && r.get j cStop == 0.0 do
-        let (s', d) := step s (inputOf r j)
+        let (s', d) := step s (inputOf r j) ff
         s := s'
         let mut i := 0
         let mut allExact := true
@@ -158,15 +160,15 @@ def main (args : List String) : IO Unit := do
         ncmp := ncmp + 1
         j := j + 1
       k := j + 1
-    IO.println s!"{pfx} mode=free (each episode run open-loop from its first record): {nexact}/{ncmp} steps with all {names.size} fields bit-exact; worst abs difference {worst}"
+    IO.println s!"{pfx} mode=free{if ff then " fuel-freeze" else ""} (each episode run open-loop from its first record): {nexact}/{ncmp} steps with all {names.size} fields bit-exact; worst abs difference {worst}"
     return
   let t0 ← IO.monoNanosNow
   let mut acc := 0.0
   for k in starts do
-    acc := acc + (stepN r k n).1.vi.x
+    acc := acc + (stepN ff r k n).1.vi.x
   let t1 ← IO.monoNanosNow
   for k in starts do
-    let (s, d) := stepN r k n
+    let (s, d) := stepN ff r k n
     let mut i := 0
     for (name, val) in fields s d do
       let ref := r.get (k + n) cols[i]!
@@ -176,7 +178,7 @@ def main (args : List String) : IO Unit := do
         IO.println s!"mismatch ep {r.get k cEp} k {r.get k cK} {name}: model {val} ref {ref}"
       i := i + 1
   let nsteps := starts.size * n
-  IO.println s!"{pfx} mode={mode}: {starts.size} comparisons, {(t1 - t0).toFloat / nsteps.toFloat / 1000.0} us per model step (checksum {acc})"
+  IO.println s!"{pfx} mode={mode}{if ff then " fuel-freeze" else ""}: {starts.size} comparisons, {(t1 - t0).toFloat / nsteps.toFloat / 1000.0} us per model step (checksum {acc})"
   IO.println "field            bit-exact      p50        p99        max"
   for i in [0:names.size] do
     let es := errs[i]!.toList.toArray

@@ -135,12 +135,14 @@ static void setupPaths(FGFDMExec& fdm, const std::string& root) {
 
 int main(int argc, char** argv) {
   if (argc < 7) {
-    fprintf(stderr, "usage: harness ROOT OUT MODE(level|rud0|bank|takeoff|land|bench) EPISODES STEPS SEED\n");
+    fprintf(stderr, "usage: harness ROOT OUT MODE(level|rud0|bank|takeoff|land|bench) EPISODES STEPS SEED [freeze]\n");
     return 2;
   }
   std::string root = argv[1], out = argv[2], mode = argv[3];
   int nep = atoi(argv[4]), nsteps = atoi(argv[5]);
   Rng rng(strtoull(argv[6], nullptr, 10));
+  // "freeze": propulsion/fuel_freeze on after RunIC (tanks never drain; JsbExact.step with fuelFreeze).
+  bool freeze = argc > 7 && std::string(argv[7]) == "freeze";
   FILE* fb = fopen((out + ".bin").c_str(), "wb");
   FILE* fi = fopen((out + ".ic").c_str(), "w");
   size_t nfields = 0; long total = 0;
@@ -163,6 +165,7 @@ int main(int argc, char** argv) {
     fdm.Setdt(1.0 / 128);
     fdm.RunIC();
     fdm.SetPropertyValue("propulsion/set-running", -1);
+    if (freeze) fdm.SetPropertyValue("propulsion/fuel_freeze", 1);
     fdm.SetPropertyValue("fcs/mixture-cmd-norm", 0.9);
     fprintf(fi, "%d %a %a %a %s\n", ep, h0, vc0, gam0, hprop);
     if (ep == 0) dumpConfig(fdm, out + ".cfg.json");
