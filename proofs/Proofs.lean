@@ -7,3 +7,4 @@ import Proofs.Fidelity
 import Proofs.Examples
 import Proofs.Audit
 import Proofs.TermSound.Checks
+import Proofs.SafeRegion
