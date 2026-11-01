@@ -26,10 +26,13 @@ structure Ctl where
   cap : Nat
   deriving Inhabited
 
-/-- Frames between checks (≈ the demo's 20 ms tick), and the frames a candidate holds the pilot's surfaces. -/
-def CHECK_EVERY : Nat := 3
-/-- `HORIZON` (16 s) and `RESUME_CAP` in JSBSim frames. -/
-def HORIZON_FRAMES : Nat := 2048
+/-- Frames between checks, and the frames a candidate holds the pilot's surfaces: funnel mode's
+`FUNNEL_CHECK_TICKS` (10 ticks of 20 ms = 25.6 frames; Rust flies 25 or 26 by its tick accounting). -/
+def CHECK_EVERY : Nat := 26
+/-- Escapes: the autoland variants (`N_AUTO`; `n_esc()` in funnel mode). -/
+def N_GATE : Nat := N_AUTO
+/-- `HORIZON_FUNNEL` (300 s) and `RESUME_CAP` in JSBSim frames. -/
+def HORIZON_FRAMES : Nat := 38400
 def RESUME_CAP : Nat := 1100
 /-- `HOLD_TICKS` (15 ticks = 0.3 s) and `RESUME_TICKS` (100 ticks = 2 s), in frames. -/
 def HOLD_FRAMES : Nat := 38
@@ -66,32 +69,6 @@ def Ctl.ctl (c : Ctl) (p : Plane) : Surf × Ctl :=
 def Ctl.streetOK (c : Ctl) (p : Plane) : Bool :=
   c.pf > 0 || c.law.esc != STREET || !(c.law.capture p.ob).axis.isNaN
 
-/-- A runway constant as a `Float` (they are integers). -/
-def ratF (q : Rat) : Float := Float.ofInt q.num / q.den.toFloat
-
-def degF (d : Float) : Float := d * PI / 180.0
-
-/-- The landing funnel (`flight/src/runway.rs`): on final, `d = rwyX0 - x` in `[funD0, funD1]` m before the threshold;
-`|y - rwyYC| ≤ max(funLatFloor, tan(funLatDeg) d)`; height above the runway minus `tch` in
-`[tan(funGsLoDeg) d, tan(funGsHiDeg) d]`; true airspeed in `[funVLo, funVHi]`; track within `funTrackDeg` of east;
-`|bank| ≤ funBankDeg`; vertical speed in `[funVzLo, funVzHi]`; engine running with at least `funFuelLb` of fuel. -/
-def inFunnel (p : Plane) : Bool :=
-  open Landing in
-  let o := p.ob
-  let (x, y, z) := p.pos
-  let d := ratF rwyX0 - x
-  let h := z - ratF rwyZ - tch
-  let track := Float.atan2 (obE o) (obN o)
-  let fuel := p.st.tank0 + p.st.tank1
-  funD0 ≤ d && d ≤ funD1 &&
-    (y - ratF rwyYC).abs ≤ fmax funLatFloor ((degF funLatDeg).tan * d) &&
-    (degF funGsLoDeg).tan * d ≤ h && h ≤ (degF funGsHiDeg).tan * d &&
-    funVLo ≤ o[6]! && o[6]! ≤ funVHi &&
-    (wrap (track - PI / 2.0)).abs ≤ degF funTrackDeg &&
-    (o[7]!).abs ≤ degF funBankDeg &&
-    funVzLo ≤ -(obD o) && -(obD o) ≤ funVzHi &&
-    p.st.running && funFuelLb ≤ fuel
-
 /-- End of an escape: the escape (past the pilot's frames) has brought the aircraft into the landing funnel. From
 there the autoland lands it; that is the assumption `FunnelSound` (`CityGate.Safety`). -/
 def Ctl.term (c : Ctl) (p : Plane) : Bool := c.pf == 0 && inFunnel p
@@ -126,7 +103,7 @@ def candidateLaws (m : Mem) (p : Plane) (w : Ctl) : List Law × Nat :=
   let first := if m.committed || wl.t == 0.0 || m.sinceHandback < RESUME_FRAMES then [wl] else []
   let pref := prefDir m p w
   let start := if m.committed then m.rr else wl.esc
-  let order := (List.range N_ESC).map fun i => (start + i) % N_ESC
+  let order := (List.range N_GATE).map fun i => (start + i) % N_GATE
   let ordered := order.filter (fun e => ESC_DIR[e]! * pref ≥ 0.0) ++ order.filter (fun e => !(ESC_DIR[e]! * pref ≥ 0.0))
   let fresh := (ordered.filter fun e => !first.any fun l => l.t == 0.0 && l.esc == e).map Law.new
   let laws := (first ++ fresh).take MAX_CANDS
@@ -148,7 +125,7 @@ def updateM (m : Mem) (p : Plane) (w : Ctl) (_u : Surf) (accepted : Bool) : Mem 
     { m' with committed := true, runFrames := 1, prevDir := if d != 0.0 then d else m.prevDir }
   else if m.committed then
     let d := lawDir w.law
-    let rr := if m.checks then (m.rr + Nat.max (candidateLaws m p w).2 1) % N_ESC else m.rr
+    let rr := if m.checks then (m.rr + Nat.max (candidateLaws m p w).2 1) % N_GATE else m.rr
     { m' with runFrames := m.runFrames + 1, rr, prevDir := if d != 0.0 then d else m.prevDir }
   else { m' with sinceHandback := m.sinceHandback + 1 }
 
@@ -158,7 +135,7 @@ def MEM0 : Mem := { frame := 0, committed := false, runFrames := 0, sinceHandbac
 def gate0 : Gate Plane Surf Ctl Mem where
   step := Plane.step
   ctl := Ctl.ctl
-  clear x := (decide (x.1.lk ≤ x.1.cap) && x.1.streetOK x.2) && clearAt x.1.extra x.2
+  clear x := ((decide (x.1.lk ≤ x.1.cap) && x.1.streetOK x.2) && onMap x.2.pos.1 x.2.pos.2.1) && clearAt x.1.extra x.2
   term x := x.1.term x.2
   horizon := CHECK_EVERY + HORIZON_FRAMES
   propose := proposeC
@@ -170,7 +147,7 @@ def gate0 : Gate Plane Surf Ctl Mem where
 either way such a start is outside `Init`). -/
 def startCtl (p : Plane) : Ctl :=
   let c := fun e => Ctl.fresh ⟨0, 0, 0, 0, 0⟩ 0 (Law.new e) 0.0 HORIZON_FRAMES
-  match (List.range N_ESC).find? fun e => gate0.rolloutOK gate0.horizon (c e, p) with
+  match (List.range N_GATE).find? fun e => gate0.rolloutOK gate0.horizon (c e, p) with
   | some e => c e
   | none => c 0
 
