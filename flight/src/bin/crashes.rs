@@ -403,12 +403,19 @@ fn main() {
         },
         |_, _| {},
     );
-    let mut rows = String::from("name,crashed,t_end,first_accept,ticks,commit_ticks,blind_ticks,digest,active_ticks,first_int\n");
+    let mut rows = String::from("name,crashed,t_end,first_accept,ticks,commit_ticks,blind_ticks,digest,active_ticks,first_int,d_elev,d_ail,n_surf,d_elev_act,d_ail_act,n_surf_act,cpu_ms_sum,tv_elev,tv_ail,switches,secs\n");
     for (name, crashed, t, st) in &res {
         if *crashed {
             println!("{name} crashed at t={t:.1} ({} start)", if st.first_accept { "verified" } else { "unverified" });
         }
-        writeln!(rows, "{name},{crashed},{t:.2},{},{},{},{},{:016x},{},{:.2}", st.first_accept, st.ticks, st.commit_ticks, st.blind_ticks, st.digest, st.active_ticks, st.first_int).unwrap();
+        let cpu: f64 = st.tick_cpu.iter().map(|&x| x as f64).sum();
+        let tv = |k: usize| st.tv.iter().map(|v| v[k] as f64).sum::<f64>();
+        writeln!(
+            rows,
+            "{name},{crashed},{t:.2},{},{},{},{},{:016x},{},{:.2},{:.4},{:.4},{},{:.4},{:.4},{},{cpu:.1},{:.4},{:.4},{},{:.2}",
+            st.first_accept, st.ticks, st.commit_ticks, st.blind_ticks, st.digest, st.active_ticks, st.first_int, st.d_surf[0], st.d_surf[1], st.n_surf, st.d_surf_act[0], st.d_surf_act[1], st.n_surf_act, tv(0), tv(1), st.switches, st.secs
+        )
+        .unwrap();
     }
     std::fs::write(format!("{out}/summary.csv"), rows).unwrap();
     let count = |f: &dyn Fn(&(String, bool, f64, Stats)) -> bool| res.iter().filter(|r| f(r)).count();
