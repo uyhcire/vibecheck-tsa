@@ -52,10 +52,9 @@ theorem ceil_div_nat (n d y : Nat) (hd : 0 < d) (h1 : n ≤ y * d) (h2 : y * d <
       grind
     omega
 
-/-- `(⌊n / 2^s⌋, ⌈n / 2^s⌉)` by shifts. -/
+/-- `(⌊n / 2^s⌋, ⌈n / 2^s⌉)` by right shifts (Lean's `Nat` left shift always goes through GMP). -/
 def shiftFloorCeil (n s : Nat) : Nat × Nat :=
-  let f := n >>> s
-  (f, if f <<< s == n then f else f + 1)
+  (n >>> s, if n = 0 then 0 else ((n - 1) >>> s) + 1)
 
 theorem shiftFloorCeil_eq (n s : Nat) :
     (((shiftFloorCeil n s).1 : Nat) : Int) = ((n : Rat) / ((2 ^ s : Nat) : Rat)).floor ∧
@@ -63,16 +62,14 @@ theorem shiftFloorCeil_eq (n s : Nat) :
   have hd : 0 < 2 ^ s := Nat.pow_pos (by decide)
   refine ⟨?_, ?_⟩
   · simp only [shiftFloorCeil, Nat.shiftRight_eq_div_pow]; rw [floor_div_nat _ _ hd]
-  · simp only [shiftFloorCeil, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq]
-    have a1 := Nat.div_mul_le_self n (2 ^ s)
-    have a2 := Nat.lt_div_mul_add (a := n) hd
+  · simp only [shiftFloorCeil, Nat.shiftRight_eq_div_pow]
     split
+    · rename_i h; subst h
+      rw [ceil_div_nat 0 _ 0 hd (by omega) (by omega)]
     · rename_i h
-      have h' : n / 2 ^ s * 2 ^ s = n := by simpa using h
-      rw [ceil_div_nat n _ (n / 2 ^ s) hd (by omega) (by omega)]
-    · rename_i h
-      have h' : n / 2 ^ s * 2 ^ s ≠ n := by simpa using h
-      rw [ceil_div_nat n _ (n / 2 ^ s + 1) hd (by rw [Nat.add_mul]; omega) (by rw [Nat.add_mul]; omega)]
+      have a1 := Nat.div_mul_le_self (n - 1) (2 ^ s)
+      have a2 := Nat.lt_div_mul_add (a := n - 1) hd
+      rw [ceil_div_nat n _ ((n - 1) / 2 ^ s + 1) hd (by rw [Nat.add_mul]; omega) (by rw [Nat.add_mul]; omega)]
 
 theorem dyadic_mul16 (m : Nat) (ex : Int) :
     dyadic (m : Int) ex * S = ((m <<< (ex + 4).toNat : Nat) : Rat) / ((2 ^ (-(ex + 4)).toNat : Nat) : Rat) := by
@@ -109,8 +106,10 @@ def fix16 (b : UInt64) : Option (Int × Int) :=
   let frac := (b &&& 0xFFFFFFFFFFFFF).toNat
   if e == 0x7FF then none
   else
-    let (m, ex) : Nat × Int := if e == 0 then (frac, -1074) else (frac + 2 ^ 52, (e : Int) - 1075)
-    let r := shiftFloorCeil (m <<< (ex + 4).toNat) (-(ex + 4)).toNat
+    let (m, ex) : Nat × Int := if e == 0 then (frac, -1074)
+      else (((b &&& 0xFFFFFFFFFFFFF) + 0x10000000000000).toNat, (e : Int) - 1075)
+    let k := (ex + 4).toNat
+    let r := shiftFloorCeil (if k = 0 then m else m <<< k) (-(ex + 4)).toNat
     some (if neg then (-(r.2 : Int), -(r.1 : Int)) else ((r.1 : Int), (r.2 : Int)))
 
 theorem floor_neg (a : Rat) : (-a).floor = -a.ceil := by
@@ -119,9 +118,20 @@ theorem floor_neg (a : Rat) : (-a).floor = -a.ceil := by
 theorem ceil_neg (a : Rat) : (-a).ceil = -a.floor := by
   rw [Rat.ceil_eq_neg_floor_neg, Rat.neg_neg]
 
+theorem mantissa_toNat (b : UInt64) :
+    ((b &&& 0xFFFFFFFFFFFFF) + 0x10000000000000).toNat = (b &&& 0xFFFFFFFFFFFFF).toNat + 2 ^ 52 := by
+  have h : (b &&& 0xFFFFFFFFFFFFF).toNat ≤ 0xFFFFFFFFFFFFF := by
+    rw [UInt64.toNat_and]; exact Nat.and_le_right
+  rw [UInt64.toNat_add]
+  simp only [UInt64.reduceToNat]
+  omega
+
 theorem fix16_eq (b : UInt64) : fix16 b = (ratOfBits b).map fun q => ((q * S).floor, (q * S).ceil) := by
   unfold fix16 ratOfBits
   dsimp only
+  rw [mantissa_toNat]
+  simp only [show ∀ m k : Nat, (if k = 0 then m else m <<< k) = m <<< k from
+    fun m k => by split <;> simp_all [Nat.shiftLeft_zero]]
   split
   · rfl
   · generalize (if ((b >>> 52) &&& 0x7FF).toNat == 0 then ((b &&& 0xFFFFFFFFFFFFF).toNat, (-1074 : Int))
