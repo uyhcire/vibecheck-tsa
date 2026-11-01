@@ -44,3 +44,6 @@ lean_exe escapesim where
 
 lean_exe boxprobe where
   root := `Tools.BoxProbe
+
+lean_exe contprobe where
+  root := `Tools.ContProbe
