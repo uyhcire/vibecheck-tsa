@@ -11,7 +11,7 @@ manifold state (table at 10 m spacing, linear interpolation). With `d` the devia
   `e` from `c(h) + G(h) d` has a component along a kink direction `k(h)` bounded by `τk(h)` (this covers the
   breakpoints of the piecewise-linear lift and drag tables, which the linear slaving cannot follow), and the rest of
   `e` bounded componentwise by `τ⊥(h)`;
-* 10 m ≤ h ≤ 2640 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
+* 10 m ≤ h < 2640 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
 * the state and `eI` inside the bounding box of the above over the state's 50 m altitude cell (`boxOk`); redundant
   by construction, it lets the one-tick safety proof work on boxes.
 
@@ -54,7 +54,7 @@ def restOk (p : State × Mem) : Bool := Id.run do
   let s := p.1
   let m := p.2
   let h := s.h.raw
-  if !(hLoT ≤ h && h ≤ hHiT && s.stall.raw == 0 && -900000 ≤ m.ac && m.ac ≤ 900000) then return false
+  if !(hLoT ≤ h && h < hHiT && s.stall.raw == 0 && -900000 ≤ m.ac && m.ac ≤ 900000) then return false
   -- centre at h
   let span : Int := 10 * 65536
   let i := (h / span).toNat
@@ -113,7 +113,7 @@ def pt (p : State × Mem) : CLOf Fx := ⟨p.1, ⟨p.2.eI⟩⟩
 def boxOk (p : State × Mem) : Bool := decide ((cellBox (cellIdx p.1.h.raw)).Mem (pt p))
 
 /-- The terminal set: the cell box (redundant, for the safety proof) and the conditions above. -/
-def inT (p : State × Mem) : Bool := boxOk p && restOk p
+def inT (p : State × Mem) : Bool := restOk p && boxOk p
 
 /-- The ci-proof law with the climb-manifold terminal set. -/
 def lawT : Ci.Law :=
