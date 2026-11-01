@@ -13,7 +13,7 @@ VERDICTS = {PASS: 'PASS', ADJUSTED: 'ADJUSTED', ESCAPE: 'ESCAPE', MONITOR_FAIL: 
 CMD_SURFACES, CMD_DEMAND, CMD_ESCAPE = 1, 2, 3
 OBS_T, OBS_POS, OBS_VEL, OBS_ATT, OBS_RATES, OBS_ELEV, OBS_THROTTLE, OBS_FUEL, OBS_GROUND, OBS_AIRSPEED = (
     1 << i for i in range(10))
-MON_BITS = ['vx_min', 'vx_max', 'x_lo', 'x_hi', 'h_gain', 'vz_floor', 'v_floor', 'init', 'bad_obs']
+MON_BITS = ['vx_min', 'vx_max', 'x_lo', 'x_hi', 'h_gain', 'vz_floor', 'v_floor', 'init', 'bad_obs', 'substep']
 LATCH_SHIFT = 16
 
 
@@ -50,6 +50,9 @@ def load(path=LIB_PATH):
     lib.vc_filter_new.argtypes = [C.POINTER(Config), C.POINTER(C.c_int)]
     lib.vc_filter_tick.restype = C.c_int
     lib.vc_filter_tick.argtypes = [C.c_void_p, C.POINTER(Obs), C.POINTER(Cmd), C.POINTER(Cmd), C.POINTER(Info)]
+    lib.vc_filter_tick_substeps.restype = C.c_int
+    lib.vc_filter_tick_substeps.argtypes = [C.c_void_p, C.POINTER(Obs), C.POINTER(Cmd), C.POINTER(Cmd),
+                                            C.POINTER(Info), C.POINTER(Obs), C.c_uint32]
     lib.vc_filter_reset.argtypes = [C.c_void_p]
     lib.vc_filter_free.argtypes = [C.c_void_p]
     lib.vc_filter_guarantee.restype = C.c_char_p
@@ -90,10 +93,12 @@ class Filter:
         if not self.h:
             raise RuntimeError(f'vc_filter_new failed: {err.value}')
 
-    def tick(self, o, pilot):
+    def tick(self, o, pilot, subs=()):
         applied, info = Cmd(), Info()
-        ret = self.lib.vc_filter_tick(self.h, C.byref(o) if o is not None else None,
-                                      C.byref(pilot) if pilot is not None else None, C.byref(applied), C.byref(info))
+        arr = (Obs * len(subs))(*subs) if subs else None
+        ret = self.lib.vc_filter_tick_substeps(self.h, C.byref(o) if o is not None else None,
+                                               C.byref(pilot) if pilot is not None else None, C.byref(applied),
+                                               C.byref(info), arr, len(subs))
         return ret, applied, info
 
     def reset(self):

@@ -43,7 +43,7 @@ filter-lib:
 
 # needs .venv with jsbsim (sysid/README.md)
 filter-test: filter-lib
-	.venv/bin/python -I host/conformance.py
+	.venv/bin/python -I host/conformance.py --leak-ticks 200000
 	.venv/bin/python -I host/lockstep.py --episodes 100
 
 clean:

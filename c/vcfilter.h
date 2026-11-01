@@ -24,11 +24,11 @@ enum {
   VC_OBS_GROUND = 1u << 8, VC_OBS_AIRSPEED = 1u << 9
 };
 
-// Envelope monitor_flags: bits 0-8 failed this tick, the same bits << 16 latched since reset.
+// Envelope monitor_flags: bits 0-9 failed this tick, the same bits << 16 latched since reset.
 enum {
   VC_MON_VX_MIN = 1u << 0, VC_MON_VX_MAX = 1u << 1, VC_MON_X_LO = 1u << 2, VC_MON_X_HI = 1u << 3,
   VC_MON_H_GAIN = 1u << 4, VC_MON_VZ_FLOOR = 1u << 5, VC_MON_V_FLOOR = 1u << 6,
-  VC_MON_INIT = 1u << 7, VC_MON_BAD_OBS = 1u << 8, VC_MON_LATCH_SHIFT = 16
+  VC_MON_INIT = 1u << 7, VC_MON_BAD_OBS = 1u << 8, VC_MON_SUBSTEP = 1u << 9, VC_MON_LATCH_SHIFT = 16
 };
 
 typedef struct vc_filter vc_filter;
@@ -79,6 +79,9 @@ typedef struct {
 
 vc_filter *vc_filter_new(const vc_config *cfg, int *err);
 int vc_filter_tick(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot, vc_cmd *applied, vc_info *info);
+// subs: the plant's states strictly inside the tick that ends at obs, checked with Envelope.substepOK.
+int vc_filter_tick_substeps(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot, vc_cmd *applied, vc_info *info,
+                            const vc_obs *subs, uint32_t nsubs);
 void vc_filter_reset(vc_filter *f);
 void vc_filter_free(vc_filter *f);
 const char *vc_filter_guarantee(const vc_filter *f);

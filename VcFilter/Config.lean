@@ -87,7 +87,7 @@ def Cfg.ofString (s : String) : Except String Cfg := do
   let j ← if s.trimAscii.isEmpty then pure (Json.obj []) else Json.parse s
   let (P, holdElevMax) ← paramsOfJson j
   if h : P.WellFormed then pure ⟨P, h, holdElevMax⟩
-  else throw "parameters are not WellFormed (need 0 ≤ dt, 0 < terrain.w, 0 ≤ sag, 0 ≤ base.pull, hSlack ≤ dt·base.climb)"
+  else throw "parameters are not WellFormed (need 0 ≤ dt, 0 < terrain.w, 0 ≤ sag, 0 ≤ base.pull, hSlack ≤ dt·base.climb, 0 ≤ vxMin)"
 
 /-- Pilot class of a surface command with elevator `elev`. -/
 def Cfg.classify (c : Cfg) (elev : Rat) : Stick :=

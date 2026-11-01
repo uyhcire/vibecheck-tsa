@@ -133,6 +133,11 @@ def main():
           f'flags {i1.monitor_flags:#x}')
     check('monitor flag latched until reset', i2.monitor_flags >> 16 & 2 and not i2.monitor_flags & 0xFFFF)
     f.reset()
+    f.tick(vc.obs(0, 300, 50, 0, 55), vc.surfaces(0, 0.6))
+    _, _, i4 = f.tick(vc.obs(6, 300, 50, 0, 55), vc.surfaces(0, 0.6), [vc.obs(3, 299, 50, 0, 55)])
+    check('negative control: substep below the swept box', i4.verdict == vc.MONITOR_FAIL and
+          i4.monitor_flags & 0xFFFF == 1 << 9, f'flags {i4.monitor_flags:#x}')
+    f.reset()
     _, _, i3 = f.tick(vc.obs(0, 300, 50, 0, 55), vc.surfaces(0, 0.6))
     check('reset clears latch', i3.monitor_flags == 0 and i3.verdict == vc.PASS)
 

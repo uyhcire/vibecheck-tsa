@@ -18,7 +18,8 @@ extern void lean_init_task_manager(void);
 lean_object *initialize_vibecheck_VcFilter(uint8_t builtin);
 lean_object *vcf_env_config(lean_obj_arg json);
 lean_object *vcf_env_init(lean_object *unit);
-lean_object *vcf_env_tick(lean_obj_arg cfg, lean_obj_arg st, lean_obj_arg obs, uint8_t present, double elev);
+lean_object *vcf_env_tick(lean_obj_arg cfg, lean_obj_arg st, lean_obj_arg obs, uint8_t present, double elev,
+                          lean_obj_arg subs);
 
 struct vc_filter { lean_object *cfg; lean_object *st; };
 
@@ -134,7 +135,8 @@ static int cmd_ok(const vc_cmd *c) {
   return c && c->abi_version == VC_ABI_VERSION && c->size >= sizeof(vc_cmd) && c->kind == VC_CMD_SURFACES;
 }
 
-VC_API int vc_filter_tick(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot, vc_cmd *applied, vc_info *info) {
+VC_API int vc_filter_tick_substeps(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot, vc_cmd *applied,
+                                   vc_info *info, const vc_obs *subs, uint32_t nsubs) {
   double t0 = now_us();
   vc_info tmp;
   vc_info *in = info ? info : &tmp;
@@ -155,9 +157,18 @@ VC_API int vc_filter_tick(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot, 
   if (present) { a[0] = obs->pos[0]; a[1] = obs->pos[2]; a[2] = obs->vel[0]; a[3] = obs->vel[2]; a[4] = obs->airspeed; }
   else memset(a, 0, 5 * sizeof(double));
   double elev = present ? pilot->elevator : 0.0;
+  lean_object *sarr = lean_alloc_sarray(sizeof(double), 5 * (size_t)nsubs, 5 * (size_t)nsubs);
+  double *sa = lean_float_array_cptr(sarr);
+  for (uint32_t i = 0; i < nsubs; i++) {
+    const vc_obs *p = &subs[i];
+    double nan = __builtin_nan("");
+    int ok = obs_ok(p);
+    sa[5 * i] = ok ? p->pos[0] : nan; sa[5 * i + 1] = ok ? p->pos[2] : nan; sa[5 * i + 2] = ok ? p->vel[0] : nan;
+    sa[5 * i + 3] = ok ? p->vel[2] : nan; sa[5 * i + 4] = ok ? p->airspeed : nan;
+  }
   lean_inc(f->cfg);
   double t1 = now_us();
-  lean_object *res = vcf_env_tick(f->cfg, f->st, arr, present, elev);
+  lean_object *res = vcf_env_tick(f->cfg, f->st, arr, present, elev, sarr);
   double t2 = now_us();
   f->st = lean_ctor_get(res, 0);
   lean_inc(f->st);
@@ -179,6 +190,10 @@ VC_API int vc_filter_tick(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot, 
   in->us_lean = t2 - t1;
   in->us_total = now_us() - t0;
   return ret;
+}
+
+VC_API int vc_filter_tick(vc_filter *f, const vc_obs *obs, const vc_cmd *pilot, vc_cmd *applied, vc_info *info) {
+  return vc_filter_tick_substeps(f, obs, pilot, applied, info, NULL, 0);
 }
 
 VC_API void vc_filter_reset(vc_filter *f) {

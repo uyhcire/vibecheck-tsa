@@ -103,7 +103,7 @@ def episode(ep, seed, filt, T, log):
     kind = 'dive' if ep % 2 else 'random'
     x = rng.uniform(-800, -300)
     gen = pilot(rng, kind)
-    elev_act = 0.0
+    elev_act, subs = 0.0, []
     res = dict(ep=ep, kind=kind, crashed=False, crash_x=None, min_clear=math.inf, verdicts=[0, 0, 0, 0],
                mon_ticks=0, clause_counts=[0] * len(vc.MON_BITS), first_fail=None, us_lean=[], us_total=[],
                margins=[], escaped_at=None, ticks=0, diverged=False)
@@ -114,7 +114,7 @@ def episode(ep, seed, filt, T, log):
         pilot_cmd = vc.surfaces(p_elev, p_thr)
         o = observe(fdm, x, k / 8)
         if filt:
-            ret, applied, info = filt.tick(o, pilot_cmd)
+            ret, applied, info = filt.tick(o, pilot_cmd, subs)
             res['verdicts'][info.verdict] += 1
             res['us_lean'].append(info.us_lean)
             res['us_total'].append(info.us_total)
@@ -138,7 +138,8 @@ def episode(ep, seed, filt, T, log):
                               phase=info.escape_phase if info else ''))
         escaping = applied.kind == vc.CMD_ESCAPE
         fdm['fcs/throttle-cmd-norm'] = 1.0 if escaping else applied.throttle
-        for _ in range(SUB):
+        subs = []
+        for j in range(SUB):
             target = escape_elevator(fdm) if escaping else applied.elevator
             elev_act += max(-ELEV_RATE, min(ELEV_RATE, target - elev_act))
             fdm['fcs/elevator-cmd-norm'] = elev_act
@@ -150,6 +151,8 @@ def episode(ep, seed, filt, T, log):
                 return res
             clear = fdm['position/h-sl-meters'] - height_at(T, x)
             res['min_clear'] = min(res['min_clear'], clear)
+            if j < SUB - 1:
+                subs.append(observe(fdm, x, k / 8 + (j + 1) / 128))
             if clear <= 0:
                 res['crashed'], res['crash_x'], res['ticks'] = True, x, k + 1
                 return res

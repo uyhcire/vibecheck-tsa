@@ -16,6 +16,7 @@ def flagVzFloor : UInt32 := 32
 def flagVFloor : UInt32 := 64
 def flagInit : UInt32 := 128
 def flagBadObs : UInt32 := 256
+def flagSubstep : UInt32 := 512
 
 /-- The bits of the `Allowed` clauses that fail on `s → s'` (same conjuncts as `monitor`, in order). -/
 def clauseFlags (P : Params Stick) (m : Mode) (s : State) (u : Stick) (s' : State) : UInt32 :=
@@ -49,12 +50,12 @@ def tickSlack (P : Params Stick) (b c : Box) : Rat :=
   min b.hLo c.hLo - P.sag - (P.terrain.maxOver (min b.xlo c.xlo) (max b.xhi c.xhi) + P.margin)
 
 /-- Smallest `tickSlack` along the worst-case escape loop of `escLoop`. -/
-def escSlack (P : Params Stick) (top : Rat) : Nat → Nat → Box → Option Rat
+def escSlack (P : Params Stick) : Nat → Nat → Box → Option Rat
   | n, k, b =>
-    if escDone P top k b then some (b.hLo - P.sag - top - P.margin)
+    if escDone P k b then some (b.hLo - P.sag - P.terrain.maxAhead b.xlo - P.margin)
     else match n with
       | 0 => none
-      | n + 1 => let c := b.esc P k; (escSlack P top n (k + 1) c).map (min (tickSlack P b c))
+      | n + 1 => let c := b.esc P k; (escSlack P n (k + 1) c).map (min (tickSlack P b c))
 
 /-- Reported margin (m, ≥ 0): worst-case terrain slack of the escape the filter relies on now. -/
 def marginOf (P : Params Stick) (m : Mode) (s : State) (u : Stick) : Rat :=
@@ -62,10 +63,10 @@ def marginOf (P : Params Stick) (m : Mode) (s : State) (u : Stick) : Rat :=
     | .free =>
       let b := Box.point s
       let c := b.next P .free u
-      if P.vMin ≤ c.VLo then (escSlack P P.terrain.top P.horizon 0 c).map (min (tickSlack P b c)) else none
+      if P.vMin ≤ c.VLo then (escSlack P P.horizon 0 c).map (min (tickSlack P b c)) else none
     | .escape k =>
       let b := Box.point s
-      if P.vMin ≤ b.VLo then escSlack P P.terrain.top (P.horizon - k) k b else none
+      if P.vMin ≤ b.VLo then escSlack P (P.horizon - k) k b else none
   max 0 (slack.getD 0)
 
 def outRecord (ret : Int) (verdict : Nat) (esc : Bool) (flags : UInt32) (margin : Rat) (st : FState)
@@ -79,7 +80,8 @@ def commitEscape : Mode → Mode
   | .free => .escape 0
   | .escape k => .escape k
 
-def step (c : Cfg) (st : FState) (obs : Option State) (u : Stick) : FState × FloatArray :=
+def step (c : Cfg) (st : FState) (obs : Option State) (u : Stick) (subs : Option (List State)) :
+    FState × FloatArray :=
   let P := c.P
   match obs with
   | none =>
@@ -91,10 +93,11 @@ def step (c : Cfg) (st : FState) (obs : Option State) (u : Stick) : FState × Fl
       a P P.vMin)
   | some s =>
     let flags : UInt32 := match st.prev with
-      | some p => clauseFlags P p.applied p.s p.u s
+      | some p => clauseFlags P p.applied p.s p.u s |||
+        (if subs.all (substepOK P p.s s) then 0 else flagSubstep)
       | none => if st.tick == 0 && !decide (Init P s) then flagInit else 0
     let monOk := match st.prev with
-      | some p => monitor P p.applied p.s p.u s
+      | some p => monitor P p.applied p.s p.u s && subs.all (substepOK P p.s s)
       | none => true
     let a := filter P st.mode s u
     let escapes := if st.mode == .free && a != .free then st.escapes + 1 else st.escapes
@@ -116,14 +119,19 @@ def configExport (json : String) : Except String Cfg := Cfg.ofString json
 @[export vcf_env_init]
 def initExport (_ : Unit) : FState := FState.init
 
+/-- Substep states, 5 entries each; `none` (a failed check) if any entry is not finite. -/
+def statesOfArray (a : FloatArray) : Option (List State) :=
+  (List.range (a.size / 5)).mapM fun i =>
+    stateOfObs ⟨#[a[5 * i]!, a[5 * i + 1]!, a[5 * i + 2]!, a[5 * i + 3]!, a[5 * i + 4]!]⟩
+
 @[export vcf_env_tick]
-def tickExport (c : Cfg) (st : FState) (obs : FloatArray) (present : UInt8) (elev : Float) :
+def tickExport (c : Cfg) (st : FState) (obs : FloatArray) (present : UInt8) (elev : Float) (subs : FloatArray) :
     FState × FloatArray :=
   let s := if present == 0 then none else stateOfObs obs
   let u := match ratOfFloat elev with
     | some e => c.classify e
     | none => .dive
-  step c st s u
+  step c st s u (statesOfArray subs)
 
 /-! ### Checks -/
 
@@ -137,7 +145,7 @@ def runTicks (c : Cfg) (st : FState) : List (State × Float) → List FloatArray
   | [] => []
   | (s, e) :: rest =>
     let (st', out) := tickExport c st ⟨#[ratToFloat s.x, ratToFloat s.h, ratToFloat s.vx, ratToFloat s.vz,
-      ratToFloat s.V]⟩ 1 e
+      ratToFloat s.V]⟩ 1 e ⟨#[]⟩
     out :: runTicks c st' rest
 
 def cfg0 : Cfg := match Cfg.ofString "" with | .ok c => c | .error _ => ⟨P0, P0_wf, none⟩
@@ -145,6 +153,9 @@ def cfg0 : Cfg := match Cfg.ofString "" with | .ok c => c | .error _ => ⟨P0, P
 #guard (runTicks cfg0 .init [(⟨0, 300, 50, 0, 55⟩, 0), (⟨6, 300, 50, 0, 55⟩, 0)]).map (·[1]!) == [0, 0]
 #guard (runTicks cfg0 .init [(⟨200, 223, 50, -5, 55⟩, 0), (⟨206, 222.4, 50, -5.4, 54.9⟩, 0)]).map (·[1]!) == [2, 2]
 #guard (runTicks cfg0 .init [(⟨0, 300, 50, 0, 55⟩, 0), (⟨7, 300, 64, 0, 55⟩, 0)]).map (·[3]!) == [0, 2 + 2 * 65536]
-#guard ((tickExport cfg0 .init ⟨#[0, 0 / 0, 50, 0, 55]⟩ 1 0).2.toList.take 3) == [-1, 3, 1]
+#guard ((tickExport cfg0 .init ⟨#[0, 0 / 0, 50, 0, 55]⟩ 1 0 ⟨#[]⟩).2.toList.take 3) == [-1, 3, 1]
+#guard let st := (tickExport cfg0 .init ⟨#[0, 300, 50, 0, 55]⟩ 1 0 ⟨#[]⟩).1
+  [⟨#[3, 300, 50, 0, 55]⟩, ⟨#[3, 299, 50, 0, 55]⟩].map (fun subs => (tickExport cfg0 st ⟨#[6, 300, 50, 0, 55]⟩ 1 0 subs).2[3]!)
+    == [0, 512 + 512 * 65536]
 
 end VcFilter
