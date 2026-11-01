@@ -52,28 +52,32 @@ def Ctl.record (c : Ctl) (p : Plane) : Ctl :=
   let hist := if hist.size > 2 * HALF + 1 then hist.extract (hist.size - (2 * HALF + 1)) hist.size else hist
   { c with hist, psiPrev := psi }
 
+/-- `x` clamped to `[lo, hi]`, NaN to `lo`: `CitySafety.clampTo`, so the spec's clamp of an output is a no-op. -/
+def clampIn (lo hi x : Float) : Float := if lo ≤ x then (if x ≤ hi then x else hi) else lo
+
+/-- Surfaces clamped to their ranges (`CitySafety.Surfaces.clamp`); a no-op on finite in-range values. -/
+def Surf.clamp (u : Surf) : Surf :=
+  ⟨clampIn (-1) 1 u.elev, clampIn (-1) 1 u.ail, clampIn (-1) 1 u.rud, clampIn 0 1 u.thr⟩
+
 /-- One frame: the latched pilot surfaces, or a frame of the law (recording a sample every `SAMPLE` law
-frames). -/
+frames), clamped to their ranges. -/
 def Ctl.ctl (c : Ctl) (p : Plane) : Surf × Ctl :=
-  if c.pf > 0 then (c.pilot, { c with pf := c.pf - 1 })
+  if c.pf > 0 then (c.pilot.clamp, { c with pf := c.pf - 1 })
   else
     let c := if c.lk % SAMPLE == 0 then c.record p else c
     let (u, law) := c.law.step p
-    (u, { c with law, lk := c.lk + 1 })
+    (u.clamp, { c with law, lk := c.lk + 1 })
 
 /-- The street escape fails a rollout that captures no street axis (`rollout_law`'s early return). -/
 def Ctl.streetOK (c : Ctl) (p : Plane) : Bool :=
   c.pf > 0 || c.law.esc != STREET || !(c.law.capture p.ob).axis.isNaN
 
-/-- End-of-escape test on the schedule of `rollout_law`: at path samples, off the map, or from `T_TERM` every
-`TERM_EVERY` frames while turning, `terminal` on the samples including this one. -/
+/-- End-of-escape test on the schedule of `rollout_law`: from `T_TERM` every `TERM_EVERY` frames while turning,
+`terminal` on the samples including this one. Leaving the map is not an end: the terrain continues past its edge. -/
 def Ctl.term (c : Ctl) (p : Plane) : Bool :=
   if c.pf > 0 || c.lk % SAMPLE != 0 then false
-  else
-    let (x, y, _) := p.pos
-    if !onMap x y then true
-    else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir (c.record p).hist
-    else false
+  else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir (c.record p).hist
+  else false
 
 /-- The proposal layer's memory: frame counter, whether the held controller is a committed escape, frames since
 the commit, frames since the last hand-back, the round-robin start while committed, the last turn direction. -/

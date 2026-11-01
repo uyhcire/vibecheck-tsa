@@ -155,3 +155,19 @@ target libcityjsb pkg : FilePath := do
           "-Wl,-soname,libcityjsb.so"]
       proc {cmd := "cc", args}
     return lib
+
+/-- Numeric check of the spec bridge's start assumption (`InitChecked cityGate GInit`) and sweep margins. -/
+lean_exe specbridgeinit where
+  root := `Tools.SpecBridgeInit
+  moreLinkObjs := #[jxmath.o]
+
+/-- `jx_*` libm shims as a library, so precompiled modules (`SpecBridgeNative`) can run `JsbExact` in the elaborator. -/
+extern_lib jxmath pkg := do
+  let o ← jxmath.o.fetch
+  let name := nameToStaticLib "jxmath"
+  buildStaticLib (pkg.staticLibDir / name) #[o]
+
+/-- `native_decide` proofs that run the plant (`InitChecked` for the spec's starts): imports precompiled. -/
+lean_lib SpecBridgeNative where
+  precompileModules := true
+  precompileImports := true
