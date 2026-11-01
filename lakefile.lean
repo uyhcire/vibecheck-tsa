@@ -47,3 +47,6 @@ lean_exe boxprobe where
 
 lean_exe contprobe where
   root := `Tools.ContProbe
+
+lean_exe envconf where
+  root := `Tools.EnvConf
