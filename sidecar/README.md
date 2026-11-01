@@ -39,7 +39,11 @@ JSBSim has a flat world, so the sidecar checks three things every frame and ends
 - X-Plane's terrain under the aircraft (`sim/flightmodel/position/y_agl`), so hills JSBSim cannot see still count;
 - a touchdown faster than 600 ft/min.
 
-On a crash it prints why, writes the aircraft's velocity into X-Plane with a hard downward component, and hands X-Plane its physics back at that spot, so X-Plane's own damage model breaks the airplane and shows its crash. The status line names the nearest building within 400 m. The same footprints are the obstacle set for a safety filter. X-Plane's downtown is procedural, so its office blocks line up with OpenStreetMap only roughly; the landmark towers match exactly. The downtown scenario is aimed at the Salesforce Tower: hands off, you hit it.
+On a crash it prints why, writes the aircraft's velocity into X-Plane with a hard downward component, and hands X-Plane its physics back at that spot, so X-Plane's own damage model breaks the airplane and shows its crash. The status line names the nearest building within 400 m. The same footprints are the obstacle set for a safety filter.
+
+### Drawing the obstacles in X-Plane
+
+X-Plane's own downtown is procedural autogen and does not match the footprints, so `build_xplane_scenery.py` writes a custom scenery pack, `Custom Scenery/OSM Obstacles - SF Downtown`, straight from `sf_buildings.json`: each polygon becomes a facade extruded to its height, and X-Plane's objects, facades, autogen, forests, draped polygons and strings are excluded inside the obstacle box. What X-Plane draws there is then exactly what the sidecar can crash into. The script encodes the DSF tile itself (no DSFTool); rebuild it after refreshing the JSON and restart X-Plane. The downtown scenario is aimed at the Salesforce Tower: hands off, you hit it.
 
 ## Which JSBSim model
 
