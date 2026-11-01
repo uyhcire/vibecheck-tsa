@@ -833,10 +833,11 @@ impl App {
     /// Control-surface deflections (trailing edge down, rad) and engine rpm after the latest tick.
     fn tick_surfaces(&self) -> (c172::Controls, f32) {
         #[cfg(feature = "jsb")]
-        if let Some(j) = &self.sim.jsb {
-            let sf = j.surf;
+        let jsb_surf = self.sim.jsb.as_ref().map(|j| (j.surf, j.obs.rpm)).or(self.sim.lean.as_ref().map(|g| (g.surf, g.obs.rpm)));
+        #[cfg(feature = "jsb")]
+        if let Some((sf, rpm)) = jsb_surf {
             let c = c172::Controls { elevator: (sf[0] * 0.40) as f32, aileron: (sf[1] * 0.35) as f32, rudder: (sf[2] * 0.28) as f32 };
-            return (c, j.obs.rpm as f32);
+            return (c, rpm as f32);
         }
         let s = &self.sim.s;
         let u = self.sim.applied;
@@ -975,6 +976,13 @@ impl App {
     }
 
     fn update_paths(&mut self) {
+        #[cfg(feature = "jsb")]
+        if let Some(g) = &self.sim.lean {
+            // The Lean gate: the held controller's predicted path (the committed escape, or the pilot's candidate).
+            self.paths.clear();
+            self.plan_path = g.path().iter().map(|q| vec3(q[0] as f32, q[1] as f32, q[2] as f32)).collect();
+            return;
+        }
         #[cfg(feature = "jsb")]
         if cityflight::envfilter::kind().is_some() {
             let v3f = |q: &[f64; 3]| vec3(q[0] as f32, q[1] as f32, q[2] as f32);
@@ -1258,9 +1266,14 @@ impl App {
             (true, Mode::Blend) | (true, Mode::Commit) => fs.act_esc.map(|i| ESC_NAMES[i]).unwrap_or("-"),
             _ => "-",
         };
-        // Exact-rollout filters (`--env`): filter name, escape (committed or verified) and check time.
+        // Exact-rollout filters (`--safety-filter`): filter name, escape (committed or verified) and check time.
         #[allow(unused_mut)]
         let mut env: Option<(String, &str, f64, bool)> = None;
+        #[cfg(feature = "jsb")]
+        if let Some(g) = &self.sim.lean {
+            let e = if g.escaping { "escape" } else { "pilot" };
+            env = Some(("lean gate (proved)".to_string(), e, *g.wall_ms.last().unwrap_or(&0.0) as f64, g.start_ok));
+        }
         #[cfg(feature = "jsb")]
         if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
             let e = g.law.or(g.witness).map(|l| l.esc);
@@ -1593,8 +1606,11 @@ async fn main() {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
-    if let Some(f) = arg("--env") {
+    if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
+        if f == "exact-rollout-lean" {
+            cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse(&f), std::sync::atomic::Ordering::Relaxed);
         if matches!(cityflight::envfilter::kind(), Some(cityflight::envfilter::Kind::Fitted { .. })) {
             cityflight::envfilter::table();

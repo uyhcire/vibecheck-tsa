@@ -86,7 +86,7 @@ cargo run --release --no-default-features --features jsb --bin harness -- --jsb 
 cargo run --release --no-default-features --features jsb --bin jsbtune             # fly-by-wire tracking
 ```
 
-### Exact-rollout gatekeeper (`--env gate`)
+### Exact-rollout gatekeeper (`--safety-filter exact-rollout`)
 
 Proof status (nothing about this filter is proved yet; what is exact and what is numerical): `../docs/gate-proof-status.md`.
 
@@ -122,12 +122,12 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   its verified escape. Headless runs stay deterministic unless given `--time-cap`.
 
 ```sh
-cargo run --release --features jsb -- --env gate                                    # fly it (B: escapes)
-cargo run --release --features jsb -- --env gate --episode 59                       # replay an episode
-cargo run --release --features jsb -- --env gate --showcase --paths                # Tower gap showcase
-cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/s 100 --env gate --scenario 5
-cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/c 200 --env gate
-cargo run --release --no-default-features --features jsb --bin adversary -- /tmp/a gate 200
+cargo run --release --features jsb -- --safety-filter exact-rollout                                    # fly it (B: escapes)
+cargo run --release --features jsb -- --safety-filter exact-rollout --episode 59                       # replay an episode
+cargo run --release --features jsb -- --safety-filter exact-rollout --showcase --paths                # Tower gap showcase
+cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/s 100 --safety-filter exact-rollout --scenario 5
+cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/c 200 --safety-filter exact-rollout
+cargo run --release --no-default-features --features jsb --bin adversary -- /tmp/a exact-rollout 200
 cargo run --release --no-default-features --features jsb --bin esclab -- trace     # escape-law traces
 ```
 
@@ -175,7 +175,7 @@ same way.
 | 50 hostile + 50 kamikaze pilots | 0 / 100 | 100 / 100 | 31.3% |
 | showcase pilot (60 s) | 0 | yes | 208 of 3,000 |
 
-`adversary -- /tmp/a gate 200`: 0 crashes in 2,640 gap-guided flights from 200 verified starts. An
+`adversary -- /tmp/a exact-rollout 200`: 0 crashes in 2,640 gap-guided flights from 200 verified starts. An
 unlimited budget (`--budget 100000`) commits 29.5% of ticks too: the interventions are what the escapes
 require, not budget starvation.
 
