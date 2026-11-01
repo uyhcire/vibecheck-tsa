@@ -73,5 +73,11 @@ leads to a reachable crash.
   the plant has no state between frames that would define a curved path. A thin obstacle passed between two frames
   therefore counts, though neither frame touches it.
 - **A NaN or infinite pose counts as a crash.**
-- **Numbers.** Plant states are `Float`; the contact geometry is exact rational arithmetic on the decoded values,
-  except that the cosine and sine of the Earth's rotation angle are the plant's own libm values.
+- **Touching counts as a crash:** terrain and buildings are closed sets.
+- **The map frame is the demo's.** East and north are ECEF y and z (the demo's `MapFrame` axes at latitude and
+  longitude 0) and up is altitude above sea level, computed for each airframe point with the plant's own formula
+  for the aircraft's altitude. Hulls are taken in these map coordinates, which follow the Earth's curvature; for the
+  12 m airframe a straight segment there differs from a straight segment in space by at most L²/8R, about 3 µm.
+- **Numbers.** Plant states are `Float`. Each airframe point's map position is the plant's own `Float` computation
+  (the same placement JSBSim uses for gear contact points), read exactly; hulls, terrain and buildings are exact
+  rational arithmetic from there.
