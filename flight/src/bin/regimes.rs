@@ -147,6 +147,8 @@ fn main() {
         }
         "demo" => {
             // regimes demo [KEY..]: the demo flights of each slice, headless, and their commands.
+            // As the GUI does: full-horizon checks (`CHECK_THREADS` ≥ 1; the verdict does not depend on the count).
+            cityflight::envfilter::CHECK_THREADS.store(1, std::sync::atomic::Ordering::Relaxed);
             let keys: Vec<&String> = args[1..].iter().take_while(|a| !a.starts_with("--")).collect();
             for def in slices().into_iter().filter(|d| keys.is_empty() || keys.iter().any(|k| d.key.starts_with(k.as_str()))) {
                 let cam = def.cam;

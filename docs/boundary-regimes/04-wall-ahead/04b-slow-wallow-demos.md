@@ -6,7 +6,7 @@
 cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -412.21,295.00,47.51,27.00,6.000,0.000,0.000,0.25 --lead 2.5 --cinematic --cam 0 --paths --label "04b-slow-wallow: closest safe call, zero-margin gate, 194.1 m"
 ```
 
-- filter on: no crash; closest pass during the save **15.63 m** at t = 0.0 s; minimum over 25 s 0.00 m (filter takes over at t = 0.0 s, hands back at 7.3 s, 29 takeovers in all)
+- filter on: no crash; closest pass during the save **15.63 m** at t = 0.0 s; minimum over 25 s 0.00 m (filter takes over at t = 0.0 s, hands back at 9.6 s, 9 takeovers in all)
 - filter off (`--off`): **crashes** at t = 10.6 s (filter never takes over; start not verified)
 
 **Just-barely-unsafe twin**: 128.0 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
@@ -23,7 +23,7 @@ cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check
 cargo run --release --features jsb -- --env gate --time-cap 0 --start -412.21,295.00,47.51,27.00,6.000,0.000,0.000,0.25 --lead 2.5 --cinematic --cam 0 --paths --label "04b-slow-wallow: closest call, deployed gate, 194.1 m"
 ```
 
-- filter on: no crash; closest pass during the save **15.63 m** at t = 0.0 s; minimum over 25 s 3.99 m (filter takes over at t = 0.0 s, hands back at 9.2 s, 41 takeovers in all)
+- filter on: no crash; closest pass during the save **15.63 m** at t = 0.0 s; minimum over 25 s 4.09 m (filter takes over at t = 0.0 s, hands back at 9.6 s, 9 takeovers in all)
 - filter off: **crashes** at t = 10.6 s (filter never takes over; start not verified)
 
 **Closest proven-unsafe call**:

@@ -12,7 +12,7 @@ Run the commands from `flight/` (after `(cd .. && lake build libcityjsb)`). The 
 cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -120.00,-150.00,37.11,50.00,-30.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label "01a-street-dive: closest safe call, zero-margin gate, 28.7 m"
 ```
 
-A 30° dive at 50 m/s into a 28 m street between 260 m and 290 m towers, pulled out by the street escape with **0.01 m** of clearance above the asphalt (filter off: it hits the street 3.5 s in). Starting 8 m lower instead (`--start -120.00,-150.00,29.11,…` in [the regime page](01-terrain-roof-below/README.md)), nothing verifies and it crashes 0.8 s later even with the filter on.
+A 30° dive at 50 m/s into a 28 m street between 260 m and 290 m towers, pulled out by the street escape with **0.40 m** of clearance above the asphalt (filter off: it hits the street 3.5 s in). Starting 8 m lower instead (`--start -120.00,-150.00,29.11,…` in [the regime page](01-terrain-roof-below/README.md)), nothing verifies and it crashes 0.8 s later even with the filter on.
 
 ## 2. Wingtip against the glass
 
@@ -22,7 +22,7 @@ A 30° dive at 50 m/s into a 28 m street between 260 m and 290 m towers, pulled 
 cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths --label "02a-wall-beside-park: closest safe call, zero-margin gate, 12.0 m"
 ```
 
-Drifting 10° into an 87 m tower face from 12 m away at 45 m/s, the filter rolls away into its left 40° escape and the airframe envelope passes the glass with **under 1 cm** to spare (filter off: it hits the face 0.7 s in). Half a metre closer, it hits the face 1.4 s after the start with the filter on.
+Drifting 10° into an 87 m tower face from 12 m away at 45 m/s, the filter rolls away into its left 40° escape and the airframe envelope passes the glass with **0.03 m** to spare (filter off: it hits the face 0.7 s in). Half a metre closer, it hits the face 1.4 s after the start with the filter on.
 
 ## 3. A 67 m/s dive at the park
 
@@ -32,7 +32,7 @@ Drifting 10° into an 87 m tower face from 12 m away at 45 m/s, the filter rolls
 cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,66.88,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label "01d-fast-dive: closest safe call, zero-margin gate, 66.9 m/s"
 ```
 
-A 35° dive at 130 knots toward the park, pulled out **0.01 m** above the grass between the towers (filter off: ground contact 3.8 s in). At 0.5 m/s faster no escape verifies and it crashes 1.7 s after the start with the filter on; the richer search, pulling up to 6.8 g, still finds a way out at 95 m/s, so the limit here is the escape law's 3.5 g cap.
+A 35° dive at 130 knots toward the park, pulled out **0.01 m** above the park between the towers (filter off: ground contact 3.8 s in). At 0.5 m/s faster no escape verifies and it crashes 1.7 s after the start with the filter on; the richer search, pulling up to 6.8 g, still finds a way out at 95 m/s, so the limit here is the escape law's 3.5 g cap.
 
 ## 4. Closing on the tower at a steeper angle
 
@@ -42,7 +42,7 @@ A 35° dive at 130 knots toward the park, pulled out **0.01 m** above the grass 
 cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -243.10,265.00,57.05,45.00,0.000,69.190,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: closest safe call, zero-margin gate, 20.8 deg"
 ```
 
-From 25 m off the face, closing at 20.8°, the turn away clears the glass by **under 1 cm** (filter off: contact 2.7 s in). At 21.3° the filter has no escape and the aircraft hits the face 1.7 s after the start.
+From 25 m off the face, closing at 20.8°, the turn away clears the glass by **0.08 m** (filter off: contact 2.7 s in). At 21.3° the filter has no escape and the aircraft hits the face 1.7 s after the start.
 
 ## 5. Into the park
 
@@ -52,7 +52,7 @@ From 25 m off the face, closing at 20.8°, the turn away clears the glass by **u
 cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,36.14,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label "01b-park-dive: closest safe call, zero-margin gate, 28.7 m"
 ```
 
-The clean version of the dive: 35° at 50 m/s over open ground, a pull-out **0.01 m** above the park (filter off: ground contact 3.4 s in). Starting half a metre lower, it crashes 1.3 s in with the filter on.
+The clean version of the dive: 35° at 50 m/s over open ground, a pull-out **0.04 m** above the park (filter off: ground contact 3.4 s in). Starting half a metre lower, it crashes 1.3 s in with the filter on.
 
 ## 6. The same street dive with the deployed gate
 
@@ -62,14 +62,14 @@ The clean version of the dive: 35° at 50 m/s over open ground, a pull-out **0.0
 cargo run --release --features jsb -- --env gate --time-cap 0 --start -120.00,-150.00,40.98,50.00,-30.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label "01a-street-dive: closest call, deployed gate, 32.6 m"
 ```
 
-The gate as shipped, with its 4 m margin, from the closest start it accepts (3.9 m higher than demo 1): the same pull-out, bottoming out at **4.00 m** of clearance. Demos 1 and 6 side by side show what the margin buys, and what it costs (3.9 m of height on this slice).
+The gate as shipped, with its 4 m margin, from the closest start it accepts (3.9 m higher than demo 1): the same pull-out, bottoming out at **4.27 m** of clearance. Demos 1 and 6 side by side show what the margin buys, and what it costs (3.9 m of height on this slice).
 
-## 7. The wall that is closer than it looks
+## 7. Head-on at the tower
 
-![wall ahead twin](04-wall-ahead/shots/04a-wall-ahead-twin.jpg)
+![wall ahead](04-wall-ahead/shots/04a-wall-ahead-safe.jpg)
 
 ```sh
-cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -398.69,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths --label "04a-wall-ahead: unverified twin, 180.6 m"
+cargo run --release --features jsb -- --env gate --time-cap 0 --margin 0 --check-every 1 --start -399.19,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --lead 2 --cinematic --cam 0 --paths --label "04a-wall-ahead: closest safe call, zero-margin gate, 181.1 m"
 ```
 
-Head-on at an 87 m tower face across the park, 180.6 m out at 45 m/s, half a metre inside the closest start the gate's escapes can save: the filter commits blind to the escape that got farthest, banks hard and climbs, and still meets the face 5.8 s later. From 181.1 m (the regime page's closest safe call) it gets away, though the closest pass there is 6.3 m. On this slice the richer search finds escapes from 115 m: the gap is the escape library, not physics (see [regime 4](04-wall-ahead/README.md)).
+Straight at an 87 m tower face across the park at 45 m/s: the filter takes over 2 s in and climbs away in a 40° left bank, skimming over the 87 m roof with **0.25 m** to spare (filter off: it hits the face 5.8 s in). Half a metre further in (180.6 m out, `--start -398.69,295.00,…` on [the regime page](04-wall-ahead/README.md)), nothing verifies and the blind fallback escape meets the face 5.8 s later. On this slice the richer search finds escapes from 115 m: the gap is the escape library, not physics.

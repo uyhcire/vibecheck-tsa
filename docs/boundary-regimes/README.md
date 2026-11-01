@@ -83,7 +83,7 @@ The bound is loose in two ways that matter: it lets the whole lift vector point 
 
 ## Demos
 
-Every folder lists, per slice, one-line GUI commands (run them from `flight/`) with outcomes measured headless on the same deterministic simulation (`--time-cap 0` turns off the GUI's wall-clock cap, so the GUI flies the same frames):
+Every folder lists, per slice, one-line GUI commands (run them from `flight/`) with outcomes measured headless on the same deterministic simulation. The GUI checks the gate's escapes at full horizon on several threads, with no wall-clock cap (`--time-cap 0`, the default since #23, is kept in the commands for clarity); `regimes demo` reaches the same verdicts on one thread (`CHECK_THREADS = 1`; the verdict does not depend on the thread count), so the GUI flies the same frames:
 
 - the **closest safe call**: the proven-safe state, moved back along its velocity by a lead-in of up to 3 s (as long as that path is clear), flown with the sticks released, so the fly-by-wire holds flight path and bank into the obstacle. The gate runs with its margin set to zero and clearance checked at every frame (`--margin 0 --check-every 1`): the filter that matches the contact objective. It takes over when its check fails and hands back once the pilot's command verifies again. The HUD shows the current and minimum airframe clearance;
 - its **just-barely-unsafe twin**: the first start closer than the marker (0.5, 1, 2, 4, … units in) that crashes under the same zero-margin gate with no lead-in. No escape verifies there, so the gate commits blind to the escape that got farthest;
