@@ -110,7 +110,9 @@ def cellBox (i : Nat) : CLOf Iv :=
 /-- The state and memory as a point of `cellBox`'s space. -/
 def pt (p : State × Mem) : CLOf Fx := ⟨p.1, ⟨p.2.eI⟩⟩
 
-def boxOk (p : State × Mem) : Bool := decide ((cellBox (cellIdx p.1.h.raw)).Mem (pt p))
+def boxOk (p : State × Mem) : Bool :=
+  decide (cellIdx p.1.h.raw < TData.boxTab.size) && decide (-900000 ≤ p.2.ac ∧ p.2.ac ≤ 900000) &&
+  decide ((cellBox (cellIdx p.1.h.raw)).Mem (pt p))
 
 /-- The terminal set: the cell box (redundant, for the safety proof) and the conditions above. -/
 def inT (p : State × Mem) : Bool := restOk p && boxOk p
