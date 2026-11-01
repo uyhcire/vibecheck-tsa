@@ -1,4 +1,5 @@
-//! Gap-guided search for pilot programs that crash an exact-rollout filter (`exact`, `fitted`, `exact-rollout`);
+//! Gap-guided search for pilot programs that crash an exact-rollout filter (`exact`, `fitted`, `exact-rollout`,
+//! `exact-rollout-lean`);
 //! `--verify F` re-flies them under F.
 //! `cargo run --release --no-default-features --features jsb --bin adversary -- OUT_DIR FILTER [trials] [--threads N]`
 use cityflight::envfilter::{self, check, Kind};
@@ -143,6 +144,9 @@ fn fly(world: &World, p: &Prog) -> (f64, bool) {
 }
 
 fn verified_start(world: &World, s: &State) -> bool {
+    if cityflight::leangate::enabled() {
+        return cityflight::leangate::LeanGate::new(s).start_ok;
+    }
     let p = JsbPlant::new(s);
     match envfilter::kind() {
         Some(Kind::Gate) => envfilter::Gate::new(world, &p).witness.is_some(),
@@ -155,6 +159,12 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let out = args[0].clone();
     let filt = envfilter::parse(&args[1]);
+    let lean_arg = |f: &str| {
+        if f == "exact-rollout-lean" {
+            assert!(cityflight::jsb::fuel_freeze_default(), "--fuel-drain does not combine with exact-rollout-lean");
+            cityflight::leangate::LEAN_GATE.store(true, Ordering::Relaxed);
+        }
+    };
     let trials: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(400);
     cityflight::jsb::parse_fuel_args(&args);
     cityflight::jsb::JSB_PLANT.store(true, Ordering::Relaxed);
@@ -171,6 +181,7 @@ fn main() {
         .and_then(|i| args.get(i + 1)?.parse().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4));
     if let Some(i) = args.iter().position(|a| a == "--verify") {
+        lean_arg(&args[i + 1]);
         envfilter::ENV_FILTER.store(envfilter::parse(&args[i + 1]), Ordering::Relaxed);
         if matches!(envfilter::kind(), Some(Kind::Fitted { .. })) {
             envfilter::table();
@@ -185,6 +196,7 @@ fn main() {
         println!("{n} / {} crash under {}", res.len(), args[i + 1]);
         return;
     }
+    lean_arg(&args[1]);
     envfilter::ENV_FILTER.store(filt, Ordering::Relaxed);
     if matches!(envfilter::kind(), Some(Kind::Fitted { .. })) {
         envfilter::table();
