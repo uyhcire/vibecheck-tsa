@@ -5,10 +5,12 @@ Default box covers downtown San Francisco (Financial District, SoMa, Embarcadero
 """
 import argparse
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
+MIRRORS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+           "https://overpass.private.coffee/api/interpreter"]
 
 
 def height_m(tags):
@@ -34,10 +36,18 @@ def main():
     ap.add_argument("--out", default="sidecar/sf_buildings.json")
     args = ap.parse_args()
     q = f'[out:json][timeout:120];(way["building"]({args.bbox});relation["building"]({args.bbox}););out body geom;'
-    req = urllib.request.Request(OVERPASS, data=urllib.parse.urlencode({"data": q}).encode(),
-                                 headers={"User-Agent": "vibecheck-tsa sidecar"})
-    with urllib.request.urlopen(req, timeout=180) as r:
-        data = json.load(r)
+    data = None
+    for url in MIRRORS:
+        req = urllib.request.Request(url, data=urllib.parse.urlencode({"data": q}).encode(),
+                                     headers={"User-Agent": "vibecheck-tsa sidecar"})
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                data = json.load(r)
+            break
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            print(f"{url}: {e}; trying the next mirror")
+    if data is None:
+        raise SystemExit("all Overpass mirrors failed")
     out, skipped = [], 0
     for el in data["elements"]:
         tags = el.get("tags", {})

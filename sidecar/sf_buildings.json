@@ -844,7 +844,7 @@
 ]
 },
 {
-"name": "way/693629257",
+"name": "488 Folsom Street",
 "height_m": 188.0,
 "polygon": [
 [
@@ -2148,7 +2148,7 @@
 ]
 },
 {
-"name": "way/432712476",
+"name": "160 m building (way/432712476)",
 "height_m": 160.0,
 "polygon": [
 [
@@ -2566,7 +2566,7 @@
 ]
 },
 {
-"name": "way/260291408",
+"name": "58 Main Street",
 "height_m": 151.0,
 "polygon": [
 [
@@ -3404,7 +3404,7 @@
 ]
 },
 {
-"name": "way/260925344",
+"name": "505 Montgomery Street",
 "height_m": 134.0,
 "polygon": [
 [
@@ -3554,7 +3554,7 @@
 ]
 },
 {
-"name": "way/192026933",
+"name": "123 Mission Street",
 "height_m": 133.0,
 "polygon": [
 [
@@ -4226,7 +4226,7 @@
 ]
 },
 {
-"name": "way/693630796",
+"name": "120 Folsom Street",
 "height_m": 129.0,
 "polygon": [
 [
@@ -5286,7 +5286,7 @@
 ]
 },
 {
-"name": "way/941649701",
+"name": "595 Market Street",
 "height_m": 125.0,
 "polygon": [
 [
@@ -5408,7 +5408,7 @@
 ]
 },
 {
-"name": "way/32859640",
+"name": "601 California Street",
 "height_m": 122.0,
 "polygon": [
 [
@@ -5948,7 +5948,7 @@
 ]
 },
 {
-"name": "way/127460048",
+"name": "535 Mission Street",
 "height_m": 115.0,
 "polygon": [
 [
@@ -6080,7 +6080,7 @@
 ]
 },
 {
-"name": "way/151183779",
+"name": "456 Montgomery Street",
 "height_m": 114.0,
 "polygon": [
 [
@@ -6282,7 +6282,7 @@
 ]
 },
 {
-"name": "way/80296740",
+"name": "108 m building (way/80296740)",
 "height_m": 108.0,
 "polygon": [
 [
@@ -6518,7 +6518,7 @@
 ]
 },
 {
-"name": "way/132125163",
+"name": "104 m building (way/132125163)",
 "height_m": 104.0,
 "polygon": [
 [
@@ -6560,7 +6560,7 @@
 ]
 },
 {
-"name": "way/192026935",
+"name": "135 Main Street",
 "height_m": 104.0,
 "polygon": [
 [
@@ -6766,7 +6766,7 @@
 ]
 },
 {
-"name": "way/256072715",
+"name": "655 Montgomery Street",
 "height_m": 103.0,
 "polygon": [
 [
@@ -6850,7 +6850,7 @@
 ]
 },
 {
-"name": "way/1279447597",
+"name": "150 California Street",
 "height_m": 101.0,
 "polygon": [
 [
@@ -6936,7 +6936,7 @@
 ]
 },
 {
-"name": "way/79377189",
+"name": "55 2nd Street",
 "height_m": 100.0,
 "polygon": [
 [
@@ -7052,7 +7052,7 @@
 ]
 },
 {
-"name": "way/32947408",
+"name": "350 Sansome Street",
 "height_m": 99.0,
 "polygon": [
 [
@@ -7094,7 +7094,7 @@
 ]
 },
 {
-"name": "way/80296709",
+"name": "99 m building (way/80296709)",
 "height_m": 99.0,
 "polygon": [
 [
@@ -7132,7 +7132,7 @@
 ]
 },
 {
-"name": "way/80296716",
+"name": "99 m building (way/80296716)",
 "height_m": 99.0,
 "polygon": [
 [
@@ -7174,7 +7174,7 @@
 ]
 },
 {
-"name": "way/80296724",
+"name": "101 2nd Street",
 "height_m": 99.0,
 "polygon": [
 [
@@ -7266,7 +7266,7 @@
 ]
 },
 {
-"name": "way/113347427",
+"name": "75 Hawthorne Street",
 "height_m": 99.0,
 "polygon": [
 [
@@ -7312,7 +7312,7 @@
 ]
 },
 {
-"name": "way/148741786",
+"name": "580 California Street",
 "height_m": 98.0,
 "polygon": [
 [
@@ -7338,7 +7338,7 @@
 ]
 },
 {
-"name": "way/260298022",
+"name": "98 m building (way/260298022)",
 "height_m": 98.0,
 "polygon": [
 [
@@ -7372,7 +7372,7 @@
 ]
 },
 {
-"name": "way/1309156966",
+"name": "301;305;315 Howard Street",
 "height_m": 97.0,
 "polygon": [
 [
@@ -7438,7 +7438,7 @@
 ]
 },
 {
-"name": "relation/3492880",
+"name": "97 m building (relation/3492880)",
 "height_m": 97.0,
 "polygon": [
 [
@@ -7616,7 +7616,7 @@
 ]
 },
 {
-"name": "way/260282396",
+"name": "235 Pine Street",
 "height_m": 95.0,
 "polygon": [
 [
@@ -7692,7 +7692,7 @@
 ]
 },
 {
-"name": "way/192026938",
+"name": "100 Spear Street",
 "height_m": 94.0,
 "polygon": [
 [
@@ -7998,7 +7998,7 @@
 ]
 },
 {
-"name": "way/80296721",
+"name": "93 m building (way/80296721)",
 "height_m": 93.0,
 "polygon": [
 [
@@ -8062,7 +8062,7 @@
 ]
 },
 {
-"name": "way/260318174",
+"name": "633;639 Howard Street",
 "height_m": 93.0,
 "polygon": [
 [
@@ -8134,7 +8134,7 @@
 ]
 },
 {
-"name": "way/260924224",
+"name": "555 Montgomery Street",
 "height_m": 93.0,
 "polygon": [
 [
@@ -8360,7 +8360,7 @@
 ]
 },
 {
-"name": "way/32946353",
+"name": "601 Montgomery Street",
 "height_m": 91.0,
 "polygon": [
 [
@@ -8492,7 +8492,7 @@
 ]
 },
 {
-"name": "way/93817368",
+"name": "2 Folsom Street",
 "height_m": 91.0,
 "polygon": [
 [
@@ -8662,7 +8662,7 @@
 ]
 },
 {
-"name": "way/256076607",
+"name": "555 Pine Street",
 "height_m": 90.0,
 "polygon": [
 [
@@ -8712,7 +8712,7 @@
 ]
 },
 {
-"name": "way/260286865",
+"name": "290 Battery Street",
 "height_m": 90.0,
 "polygon": [
 [
@@ -8794,7 +8794,7 @@
 ]
 },
 {
-"name": "way/260286440",
+"name": "430;432;444 California Street",
 "height_m": 89.0,
 "polygon": [
 [
@@ -8868,7 +8868,7 @@
 ]
 },
 {
-"name": "way/1122226053",
+"name": "88 m building (way/1122226053)",
 "height_m": 87.5,
 "polygon": [
 [
@@ -8902,7 +8902,7 @@
 ]
 },
 {
-"name": "way/112928951",
+"name": "799 Market Street",
 "height_m": 87.0,
 "polygon": [
 [
@@ -9032,7 +9032,7 @@
 ]
 },
 {
-"name": "way/1474572306",
+"name": "400 Beale Street",
 "height_m": 85.0,
 "polygon": [
 [
@@ -9114,7 +9114,7 @@
 ]
 },
 {
-"name": "way/148710880",
+"name": "84 m building (way/148710880)",
 "height_m": 84.0,
 "polygon": [
 [
@@ -9144,7 +9144,7 @@
 ]
 },
 {
-"name": "way/148710883",
+"name": "84 m building (way/148710883)",
 "height_m": 84.0,
 "polygon": [
 [
@@ -9316,7 +9316,7 @@
 ]
 },
 {
-"name": "way/149837280",
+"name": "25 Jessie Street",
 "height_m": 83.0,
 "polygon": [
 [
@@ -9466,7 +9466,7 @@
 ]
 },
 {
-"name": "way/288645261",
+"name": "83 m building (way/288645261)",
 "height_m": 83.0,
 "polygon": [
 [
@@ -10432,7 +10432,7 @@
 ]
 },
 {
-"name": "way/944032191",
+"name": "351 California Street",
 "height_m": 81.0,
 "polygon": [
 [
@@ -10512,7 +10512,7 @@
 ]
 },
 {
-"name": "way/192026939",
+"name": "150 Spear Street",
 "height_m": 80.0,
 "polygon": [
 [
@@ -10542,7 +10542,7 @@
 ]
 },
 {
-"name": "way/32612241",
+"name": "155 Jackson Street",
 "height_m": 78.0,
 "polygon": [
 [
@@ -10796,7 +10796,7 @@
 ]
 },
 {
-"name": "way/288714525",
+"name": "221 Main Street",
 "height_m": 76.0,
 "polygon": [
 [
@@ -10862,7 +10862,7 @@
 ]
 },
 {
-"name": "way/105027010",
+"name": "501 Beale Street",
 "height_m": 75.0,
 "polygon": [
 [
@@ -10900,7 +10900,7 @@
 ]
 },
 {
-"name": "way/260282401",
+"name": "160;180 Sansome Street",
 "height_m": 75.0,
 "polygon": [
 [
@@ -11432,7 +11432,7 @@
 ]
 },
 {
-"name": "way/260520157",
+"name": "600 California Street",
 "height_m": 74.0,
 "polygon": [
 [
@@ -11564,7 +11564,7 @@
 ]
 },
 {
-"name": "way/113096845",
+"name": "246 2nd Street",
 "height_m": 73.0,
 "polygon": [
 [
@@ -11606,7 +11606,7 @@
 ]
 },
 {
-"name": "way/93817366",
+"name": "611 Folsom Street",
 "height_m": 71.0,
 "polygon": [
 [
@@ -11636,7 +11636,7 @@
 ]
 },
 {
-"name": "way/80296718",
+"name": "680 Folsom Street",
 "height_m": 70.0,
 "polygon": [
 [
@@ -11686,7 +11686,7 @@
 ]
 },
 {
-"name": "way/260523200",
+"name": "70 m building (way/260523200)",
 "height_m": 70.0,
 "polygon": [
 [
@@ -11736,7 +11736,7 @@
 ]
 },
 {
-"name": "way/32859862",
+"name": "200;204;206 Sansome Street",
 "height_m": 69.0,
 "polygon": [
 [
@@ -11762,7 +11762,7 @@
 ]
 },
 {
-"name": "way/256067709",
+"name": "201 California Street",
 "height_m": 69.0,
 "polygon": [
 [
@@ -12130,7 +12130,7 @@
 ]
 },
 {
-"name": "way/79377197",
+"name": "90 New Montgomery Street",
 "height_m": 65.0,
 "polygon": [
 [
@@ -12600,7 +12600,7 @@
 ]
 },
 {
-"name": "way/332627424",
+"name": "845 Market Street",
 "height_m": 62.0,
 "polygon": [
 [
@@ -12856,7 +12856,7 @@
 ]
 },
 {
-"name": "way/944025916",
+"name": "61 m building (way/944025916)",
 "height_m": 61.0,
 "polygon": [
 [
@@ -13000,7 +13000,7 @@
 ]
 },
 {
-"name": "way/149837256",
+"name": "49 Stevenson Street",
 "height_m": 60.0,
 "polygon": [
 [
@@ -13164,7 +13164,7 @@
 ]
 },
 {
-"name": "way/1258806534",
+"name": "60 m building (way/1258806534)",
 "height_m": 59.5,
 "polygon": [
 [
@@ -13218,7 +13218,7 @@
 ]
 },
 {
-"name": "way/1389914425",
+"name": "230 Folsom Street",
 "height_m": 59.5,
 "polygon": [
 [
@@ -13260,7 +13260,7 @@
 ]
 },
 {
-"name": "way/32612487",
+"name": "100 California Street",
 "height_m": 59.0,
 "polygon": [
 [
@@ -13424,7 +13424,7 @@
 ]
 },
 {
-"name": "way/944039725",
+"name": "300 Montgomery Street",
 "height_m": 58.0,
 "polygon": [
 [
@@ -13474,7 +13474,7 @@
 ]
 },
 {
-"name": "way/80296753",
+"name": "55 Hawthorne Street",
 "height_m": 57.0,
 "polygon": [
 [
@@ -13532,7 +13532,7 @@
 ]
 },
 {
-"name": "way/149757921",
+"name": "195;199 Grant Avenue",
 "height_m": 57.0,
 "polygon": [
 [
@@ -13578,7 +13578,7 @@
 ]
 },
 {
-"name": "way/192026934",
+"name": "180 Howard Street",
 "height_m": 57.0,
 "polygon": [
 [
@@ -13672,7 +13672,7 @@
 ]
 },
 {
-"name": "way/148551346",
+"name": "229 Brannan Street",
 "height_m": 56.0,
 "polygon": [
 [
@@ -13926,7 +13926,7 @@
 ]
 },
 {
-"name": "way/148710884",
+"name": "10;18;2;22 Battery Street",
 "height_m": 55.0,
 "polygon": [
 [
@@ -13968,7 +13968,7 @@
 ]
 },
 {
-"name": "way/243794014",
+"name": "550 California Street",
 "height_m": 55.0,
 "polygon": [
 [
@@ -14136,7 +14136,7 @@
 ]
 },
 {
-"name": "way/79377175",
+"name": "605 Market Street",
 "height_m": 54.0,
 "polygon": [
 [
@@ -14166,7 +14166,7 @@
 ]
 },
 {
-"name": "way/148285587",
+"name": "607 Market Street",
 "height_m": 54.0,
 "polygon": [
 [
@@ -14192,7 +14192,7 @@
 ]
 },
 {
-"name": "way/148551351",
+"name": "239 Brannan Street",
 "height_m": 54.0,
 "polygon": [
 [
@@ -14252,7 +14252,7 @@
 ]
 },
 {
-"name": "way/256029750",
+"name": "54 m building (way/256029750)",
 "height_m": 54.0,
 "polygon": [
 [
@@ -14472,7 +14472,7 @@
 ]
 },
 {
-"name": "way/332381174",
+"name": "70 4th Street",
 "height_m": 54.0,
 "polygon": [
 [
@@ -14498,7 +14498,7 @@
 ]
 },
 {
-"name": "way/148551352",
+"name": "219 Brannan Street",
 "height_m": 53.0,
 "polygon": [
 [
@@ -14570,7 +14570,7 @@
 ]
 },
 {
-"name": "way/256067714",
+"name": "233;241 Sansome Street",
 "height_m": 53.0,
 "polygon": [
 [
@@ -14670,7 +14670,7 @@
 ]
 },
 {
-"name": "way/260286443",
+"name": "52 m building (way/260286443)",
 "height_m": 52.5,
 "polygon": [
 [
@@ -14756,7 +14756,7 @@
 ]
 },
 {
-"name": "way/944032189",
+"name": "311 California Street",
 "height_m": 51.0,
 "polygon": [
 [
@@ -15194,7 +15194,7 @@
 ]
 },
 {
-"name": "way/135174117",
+"name": "49 m building (way/135174117)",
 "height_m": 49.0,
 "polygon": [
 [
@@ -15236,7 +15236,7 @@
 ]
 },
 {
-"name": "way/256072725",
+"name": "49 m building (way/256072725)",
 "height_m": 49.0,
 "polygon": [
 [
@@ -15452,7 +15452,7 @@
 ]
 },
 {
-"name": "way/93817371",
+"name": "633 Folsom Street",
 "height_m": 48.0,
 "polygon": [
 [
@@ -15478,7 +15478,7 @@
 ]
 },
 {
-"name": "way/256067734",
+"name": "48 m building (way/256067734)",
 "height_m": 48.0,
 "polygon": [
 [
@@ -15552,7 +15552,7 @@
 ]
 },
 {
-"name": "way/149335979",
+"name": "1 Kearny Street",
 "height_m": 47.0,
 "polygon": [
 [
@@ -15598,7 +15598,7 @@
 ]
 },
 {
-"name": "way/149335987",
+"name": "700 Market Street",
 "height_m": 47.0,
 "polygon": [
 [
@@ -15628,7 +15628,7 @@
 ]
 },
 {
-"name": "way/151183777",
+"name": "Market Street",
 "height_m": 47.0,
 "polygon": [
 [
@@ -15860,7 +15860,7 @@
 ]
 },
 {
-"name": "way/79377152",
+"name": "199 New Montgomery Street",
 "height_m": 46.0,
 "polygon": [
 [
@@ -16244,7 +16244,7 @@
 ]
 },
 {
-"name": "way/260286437",
+"name": "260 California Street",
 "height_m": 45.0,
 "polygon": [
 [
@@ -16336,7 +16336,7 @@
 ]
 },
 {
-"name": "way/192026937",
+"name": "120 Howard Street",
 "height_m": 44.0,
 "polygon": [
 [
@@ -16638,7 +16638,7 @@
 ]
 },
 {
-"name": "way/32947355",
+"name": "530;540;546;550 Kearny Street",
 "height_m": 42.0,
 "polygon": [
 [
@@ -16722,7 +16722,7 @@
 ]
 },
 {
-"name": "way/35115844",
+"name": "42 m building (way/35115844)",
 "height_m": 42.0,
 "polygon": [
 [
@@ -16818,7 +16818,7 @@
 ]
 },
 {
-"name": "way/114709400",
+"name": "77 Dow Place",
 "height_m": 42.0,
 "polygon": [
 [
@@ -16856,7 +16856,7 @@
 ]
 },
 {
-"name": "way/149335982",
+"name": "42 m building (way/149335982)",
 "height_m": 42.0,
 "polygon": [
 [
@@ -16882,7 +16882,7 @@
 ]
 },
 {
-"name": "way/149335990",
+"name": "720 Market Street",
 "height_m": 42.0,
 "polygon": [
 [
@@ -16920,7 +16920,7 @@
 ]
 },
 {
-"name": "way/151195285",
+"name": "222 Kearny Street",
 "height_m": 42.0,
 "polygon": [
 [
@@ -17000,7 +17000,7 @@
 ]
 },
 {
-"name": "way/256733820",
+"name": "630 Mason Street",
 "height_m": 42.0,
 "polygon": [
 [
@@ -17072,7 +17072,7 @@
 ]
 },
 {
-"name": "way/260286436",
+"name": "343 Sansome Street",
 "height_m": 42.0,
 "polygon": [
 [
@@ -17106,7 +17106,7 @@
 ]
 },
 {
-"name": "way/474354570",
+"name": "42 m building (way/474354570)",
 "height_m": 42.0,
 "polygon": [
 [
@@ -17346,7 +17346,7 @@
 ]
 },
 {
-"name": "way/32946751",
+"name": "1 Powell Street",
 "height_m": 41.0,
 "polygon": [
 [
@@ -17426,7 +17426,7 @@
 ]
 },
 {
-"name": "way/79377188",
+"name": "602;604;606 Mission Street",
 "height_m": 41.0,
 "polygon": [
 [
@@ -17456,7 +17456,7 @@
 ]
 },
 {
-"name": "way/141026524",
+"name": "26 O'Farrell Street",
 "height_m": 41.0,
 "polygon": [
 [
@@ -17490,7 +17490,7 @@
 ]
 },
 {
-"name": "way/151183782",
+"name": "417 Montgomery Street",
 "height_m": 41.0,
 "polygon": [
 [
@@ -17676,7 +17676,7 @@
 ]
 },
 {
-"name": "way/32859888",
+"name": "40 m building (way/32859888)",
 "height_m": 40.0,
 "polygon": [
 [
@@ -17702,7 +17702,7 @@
 ]
 },
 {
-"name": "way/256917321",
+"name": "234;238;240 Stockton Street",
 "height_m": 40.0,
 "polygon": [
 [
@@ -18102,7 +18102,7 @@
 ]
 },
 {
-"name": "way/288716389",
+"name": "40 m building (way/288716389)",
 "height_m": 40.0,
 "polygon": [
 [
@@ -18164,7 +18164,7 @@
 ]
 },
 {
-"name": "way/113347426",
+"name": "95 Hawthorne Street",
 "height_m": 39.0,
 "polygon": [
 [
@@ -18198,7 +18198,7 @@
 ]
 },
 {
-"name": "way/149757922",
+"name": "39 m building (way/149757922)",
 "height_m": 39.0,
 "polygon": [
 [
@@ -18248,7 +18248,7 @@
 ]
 },
 {
-"name": "way/151195282",
+"name": "108;110 Sutter Street",
 "height_m": 39.0,
 "polygon": [
 [
@@ -18324,7 +18324,7 @@
 ]
 },
 {
-"name": "way/256068384",
+"name": "39 m building (way/256068384)",
 "height_m": 39.0,
 "polygon": [
 [
@@ -18378,7 +18378,7 @@
 ]
 },
 {
-"name": "way/333823795",
+"name": "153 Kearny Street",
 "height_m": 39.0,
 "polygon": [
 [
@@ -18404,7 +18404,7 @@
 ]
 },
 {
-"name": "way/256749453",
+"name": "1100 Sacramento Street",
 "height_m": 38.5,
 "polygon": [
 [
@@ -18450,7 +18450,7 @@
 ]
 },
 {
-"name": "way/617990577",
+"name": "38 m building (way/617990577)",
 "height_m": 38.5,
 "polygon": [
 [
@@ -18626,7 +18626,7 @@
 ]
 },
 {
-"name": "way/260283288",
+"name": "330;332 Pine Street",
 "height_m": 38.0,
 "polygon": [
 [
@@ -18696,7 +18696,7 @@
 ]
 },
 {
-"name": "relation/15336268",
+"name": "85 2nd Street",
 "height_m": 38.0,
 "polygon": [
 [
@@ -18764,7 +18764,7 @@
 ]
 },
 {
-"name": "way/151980105",
+"name": "832 Folsom Street",
 "height_m": 37.0,
 "polygon": [
 [
@@ -18806,7 +18806,7 @@
 ]
 },
 {
-"name": "way/260517113",
+"name": "850 Powell Street",
 "height_m": 37.0,
 "polygon": [
 [
@@ -19220,7 +19220,7 @@
 ]
 },
 {
-"name": "way/151195272",
+"name": "240;244 Kearny Street",
 "height_m": 36.0,
 "polygon": [
 [
@@ -19312,7 +19312,7 @@
 ]
 },
 {
-"name": "way/288648571",
+"name": "2 Townsend Street",
 "height_m": 36.0,
 "polygon": [
 [
@@ -19662,7 +19662,7 @@
 ]
 },
 {
-"name": "relation/2013691",
+"name": "36 m building (relation/2013691)",
 "height_m": 36.0,
 "polygon": [
 [
@@ -19816,7 +19816,7 @@
 ]
 },
 {
-"name": "way/243358586",
+"name": "959;965 Mission Street",
 "height_m": 35.0,
 "polygon": [
 [
@@ -19884,7 +19884,7 @@
 ]
 },
 {
-"name": "way/256068381",
+"name": "552 Montgomery Street",
 "height_m": 35.0,
 "polygon": [
 [
@@ -19922,7 +19922,7 @@
 ]
 },
 {
-"name": "way/256917324",
+"name": "35 m building (way/256917324)",
 "height_m": 35.0,
 "polygon": [
 [
@@ -19972,7 +19972,7 @@
 ]
 },
 {
-"name": "way/260183824",
+"name": "665 Pine Street",
 "height_m": 35.0,
 "polygon": [
 [
@@ -20022,7 +20022,7 @@
 ]
 },
 {
-"name": "way/260282398",
+"name": "130 Bush Street",
 "height_m": 35.0,
 "polygon": [
 [
@@ -20052,7 +20052,7 @@
 ]
 },
 {
-"name": "way/288647982",
+"name": "2 Townsend Street",
 "height_m": 35.0,
 "polygon": [
 [
@@ -20374,7 +20374,7 @@
 ]
 },
 {
-"name": "way/421816058",
+"name": "333 Main Street",
 "height_m": 35.0,
 "polygon": [
 [
@@ -20490,7 +20490,7 @@
 ]
 },
 {
-"name": "way/35536960",
+"name": "34 m building (way/35536960)",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20520,7 +20520,7 @@
 ]
 },
 {
-"name": "way/79377215",
+"name": "34 m building (way/79377215)",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20578,7 +20578,7 @@
 ]
 },
 {
-"name": "way/112864753",
+"name": "340 Bryant Street",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20652,7 +20652,7 @@
 ]
 },
 {
-"name": "way/148758717",
+"name": "34 m building (way/148758717)",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20710,7 +20710,7 @@
 ]
 },
 {
-"name": "way/149757918",
+"name": "49 Kearny Street",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20736,7 +20736,7 @@
 ]
 },
 {
-"name": "way/149757923",
+"name": "45;47 Kearny Street",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20774,7 +20774,7 @@
 ]
 },
 {
-"name": "way/151316275",
+"name": "1001 California Street",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20872,7 +20872,7 @@
 ]
 },
 {
-"name": "way/256072719",
+"name": "500 Sansome Street",
 "height_m": 34.0,
 "polygon": [
 [
@@ -20964,7 +20964,7 @@
 ]
 },
 {
-"name": "way/260186727",
+"name": "34 m building (way/260186727)",
 "height_m": 34.0,
 "polygon": [
 [
@@ -21014,7 +21014,7 @@
 ]
 },
 {
-"name": "way/260280334",
+"name": "34 m building (way/260280334)",
 "height_m": 34.0,
 "polygon": [
 [
@@ -21144,7 +21144,7 @@
 ]
 },
 {
-"name": "way/32862740",
+"name": "1 Harrison Street",
 "height_m": 33.0,
 "polygon": [
 [
@@ -21174,7 +21174,7 @@
 ]
 },
 {
-"name": "way/32863657",
+"name": "33 m building (way/32863657)",
 "height_m": 33.0,
 "polygon": [
 [
@@ -21220,7 +21220,7 @@
 ]
 },
 {
-"name": "way/32946882",
+"name": "33 m building (way/32946882)",
 "height_m": 33.0,
 "polygon": [
 [
@@ -21468,7 +21468,7 @@
 ]
 },
 {
-"name": "way/112758588",
+"name": "501 2nd Street",
 "height_m": 33.0,
 "polygon": [
 [
@@ -21562,7 +21562,7 @@
 ]
 },
 {
-"name": "way/260283290",
+"name": "33 m building (way/260283290)",
 "height_m": 33.0,
 "polygon": [
 [
@@ -21596,7 +21596,7 @@
 ]
 },
 {
-"name": "way/941564337",
+"name": "33 m building (way/941564337)",
 "height_m": 33.0,
 "polygon": [
 [
@@ -21622,7 +21622,7 @@
 ]
 },
 {
-"name": "way/112774496",
+"name": "600 Folsom Street",
 "height_m": 32.0,
 "polygon": [
 [
@@ -21678,7 +21678,7 @@
 ]
 },
 {
-"name": "way/135232159",
+"name": "301;305 Grant Avenue",
 "height_m": 32.0,
 "polygon": [
 [
@@ -21762,7 +21762,7 @@
 ]
 },
 {
-"name": "way/147633861",
+"name": "32 m building (way/147633861)",
 "height_m": 32.0,
 "polygon": [
 [
@@ -21796,7 +21796,7 @@
 ]
 },
 {
-"name": "way/148712640",
+"name": "32 m building (way/148712640)",
 "height_m": 32.0,
 "polygon": [
 [
@@ -21988,7 +21988,7 @@
 ]
 },
 {
-"name": "way/159280391",
+"name": "32 m building (way/159280391)",
 "height_m": 32.0,
 "polygon": [
 [
@@ -22018,7 +22018,7 @@
 ]
 },
 {
-"name": "way/172250614",
+"name": "150 Post Street",
 "height_m": 32.0,
 "polygon": [
 [
@@ -22056,7 +22056,7 @@
 ]
 },
 {
-"name": "way/173725082",
+"name": "32 m building (way/173725082)",
 "height_m": 32.0,
 "polygon": [
 [
@@ -22086,7 +22086,7 @@
 ]
 },
 {
-"name": "way/173725088",
+"name": "10 Mint Plaza",
 "height_m": 32.0,
 "polygon": [
 [
@@ -22112,7 +22112,7 @@
 ]
 },
 {
-"name": "way/243466327",
+"name": "973 Market Street",
 "height_m": 32.0,
 "polygon": [
 [
@@ -22384,7 +22384,7 @@
 ]
 },
 {
-"name": "way/260183831",
+"name": "32 m building (way/260183831)",
 "height_m": 32.0,
 "polygon": [
 [
@@ -22410,7 +22410,7 @@
 ]
 },
 {
-"name": "way/260286441",
+"name": "244;252;256 California Street",
 "height_m": 32.0,
 "polygon": [
 [
@@ -22696,7 +22696,7 @@
 ]
 },
 {
-"name": "way/192883909",
+"name": "32 m building (way/192883909)",
 "height_m": 31.5,
 "polygon": [
 [
@@ -22890,7 +22890,7 @@
 ]
 },
 {
-"name": "way/1279452198",
+"name": "32 m building (way/1279452198)",
 "height_m": 31.5,
 "polygon": [
 [
@@ -22940,7 +22940,7 @@
 ]
 },
 {
-"name": "way/1389915136",
+"name": "Folsom Street",
 "height_m": 31.5,
 "polygon": [
 [
@@ -22982,7 +22982,7 @@
 ]
 },
 {
-"name": "relation/4669301",
+"name": "800;830 Market Street",
 "height_m": 31.5,
 "polygon": [
 [
@@ -23020,7 +23020,7 @@
 ]
 },
 {
-"name": "relation/4669301",
+"name": "800;830 Market Street",
 "height_m": 31.5,
 "polygon": [
 [
@@ -23178,7 +23178,7 @@
 ]
 },
 {
-"name": "way/113347425",
+"name": "620 Folsom Street",
 "height_m": 31.0,
 "polygon": [
 [
@@ -23204,7 +23204,7 @@
 ]
 },
 {
-"name": "way/147633863",
+"name": "31 m building (way/147633863)",
 "height_m": 31.0,
 "polygon": [
 [
@@ -23358,7 +23358,7 @@
 ]
 },
 {
-"name": "way/260288448",
+"name": "31 m building (way/260288448)",
 "height_m": 31.0,
 "polygon": [
 [
@@ -23510,7 +23510,7 @@
 ]
 },
 {
-"name": "way/48995284",
+"name": "663;665;679 Sutter Street",
 "height_m": 30.0,
 "polygon": [
 [
@@ -23552,7 +23552,7 @@
 ]
 },
 {
-"name": "way/147689076",
+"name": "30 m building (way/147689076)",
 "height_m": 30.0,
 "polygon": [
 [
@@ -23582,7 +23582,7 @@
 ]
 },
 {
-"name": "way/151195278",
+"name": "30 m building (way/151195278)",
 "height_m": 30.0,
 "polygon": [
 [
@@ -23686,7 +23686,7 @@
 ]
 },
 {
-"name": "way/151316272",
+"name": "1055 California Street",
 "height_m": 30.0,
 "polygon": [
 [
@@ -23748,7 +23748,7 @@
 ]
 },
 {
-"name": "way/151683977",
+"name": "30 m building (way/151683977)",
 "height_m": 30.0,
 "polygon": [
 [
@@ -23774,7 +23774,7 @@
 ]
 },
 {
-"name": "way/230778227",
+"name": "979;981;985;989;991 Market Street",
 "height_m": 30.0,
 "polygon": [
 [
@@ -23994,7 +23994,7 @@
 ]
 },
 {
-"name": "way/260519112",
+"name": "720;726 California Street",
 "height_m": 30.0,
 "polygon": [
 [
@@ -24020,7 +24020,7 @@
 ]
 },
 {
-"name": "way/288511103",
+"name": "345 Montgomery Street",
 "height_m": 30.0,
 "polygon": [
 [
@@ -24054,7 +24054,7 @@
 ]
 },
 {
-"name": "way/332235750",
+"name": "327;333 Grant Avenue",
 "height_m": 30.0,
 "polygon": [
 [
@@ -25470,7 +25470,7 @@
 ]
 },
 {
-"name": "way/256067720",
+"name": "29 m building (way/256067720)",
 "height_m": 29.0,
 "polygon": [
 [
@@ -25500,7 +25500,7 @@
 ]
 },
 {
-"name": "way/256067721",
+"name": "358;360 Pine Street",
 "height_m": 29.0,
 "polygon": [
 [
@@ -25530,7 +25530,7 @@
 ]
 },
 {
-"name": "way/256974932",
+"name": "29 m building (way/256974932)",
 "height_m": 29.0,
 "polygon": [
 [
@@ -25638,7 +25638,7 @@
 ]
 },
 {
-"name": "way/333814487",
+"name": "256;262 Sutter Street",
 "height_m": 29.0,
 "polygon": [
 [
@@ -25754,7 +25754,7 @@
 ]
 },
 {
-"name": "way/32612635",
+"name": "28 m building (way/32612635)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -25866,7 +25866,7 @@
 ]
 },
 {
-"name": "way/32946698",
+"name": "28 m building (way/32946698)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -25988,7 +25988,7 @@
 ]
 },
 {
-"name": "way/35176126",
+"name": "944 Market Street",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26146,7 +26146,7 @@
 ]
 },
 {
-"name": "way/149332505",
+"name": "735 Market Street",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26196,7 +26196,7 @@
 ]
 },
 {
-"name": "way/149335988",
+"name": "28 m building (way/149335988)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26250,7 +26250,7 @@
 ]
 },
 {
-"name": "way/149757917",
+"name": "28 m building (way/149757917)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26276,7 +26276,7 @@
 ]
 },
 {
-"name": "way/149757919",
+"name": "28 m building (way/149757919)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26302,7 +26302,7 @@
 ]
 },
 {
-"name": "way/149757920",
+"name": "28 m building (way/149757920)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26394,7 +26394,7 @@
 ]
 },
 {
-"name": "way/255716898",
+"name": "126 Post Street",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26444,7 +26444,7 @@
 ]
 },
 {
-"name": "way/256062978",
+"name": "28 m building (way/256062978)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26514,7 +26514,7 @@
 ]
 },
 {
-"name": "way/256067726",
+"name": "348;354 Pine Street",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26544,7 +26544,7 @@
 ]
 },
 {
-"name": "way/256749446",
+"name": "1150 Sacramento Street",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26618,7 +26618,7 @@
 ]
 },
 {
-"name": "way/260282397",
+"name": "140;142 Sansome Street",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26838,7 +26838,7 @@
 ]
 },
 {
-"name": "way/939467973",
+"name": "28 m building (way/939467973)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26922,7 +26922,7 @@
 ]
 },
 {
-"name": "way/1059927483",
+"name": "1075 Market Street",
 "height_m": 28.0,
 "polygon": [
 [
@@ -26988,7 +26988,7 @@
 ]
 },
 {
-"name": "way/1365382601",
+"name": "28 m building (way/1365382601)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -27026,7 +27026,7 @@
 ]
 },
 {
-"name": "way/1410037752",
+"name": "28 m building (way/1410037752)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -27052,7 +27052,7 @@
 ]
 },
 {
-"name": "relation/3492934",
+"name": "28 m building (relation/3492934)",
 "height_m": 28.0,
 "polygon": [
 [
@@ -27086,7 +27086,7 @@
 ]
 },
 {
-"name": "way/25759090",
+"name": "360 3rd Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27178,7 +27178,7 @@
 ]
 },
 {
-"name": "way/35174693",
+"name": "27 m building (way/35174693)",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27306,7 +27306,7 @@
 ]
 },
 {
-"name": "way/49429835",
+"name": "27 m building (way/49429835)",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27340,7 +27340,7 @@
 ]
 },
 {
-"name": "way/79377160",
+"name": "149 New Montgomery Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27366,7 +27366,7 @@
 ]
 },
 {
-"name": "way/80296713",
+"name": "111 New Montgomery Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27468,7 +27468,7 @@
 ]
 },
 {
-"name": "way/113347423",
+"name": "608 Folsom Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27502,7 +27502,7 @@
 ]
 },
 {
-"name": "way/135174114",
+"name": "27 m building (way/135174114)",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27582,7 +27582,7 @@
 ]
 },
 {
-"name": "way/136100940",
+"name": "1017;1019 Market Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27620,7 +27620,7 @@
 ]
 },
 {
-"name": "way/147689071",
+"name": "17;21;23 Grant Avenue",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27646,7 +27646,7 @@
 ]
 },
 {
-"name": "way/148285580",
+"name": "28 2nd Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27680,7 +27680,7 @@
 ]
 },
 {
-"name": "way/148741780",
+"name": "27 m building (way/148741780)",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27746,7 +27746,7 @@
 ]
 },
 {
-"name": "way/149086545",
+"name": "27 m building (way/149086545)",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27772,7 +27772,7 @@
 ]
 },
 {
-"name": "way/172250608",
+"name": "371;375 Sutter Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -27802,7 +27802,7 @@
 ]
 },
 {
-"name": "way/173886663",
+"name": "875 Howard Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28020,7 +28020,7 @@
 ]
 },
 {
-"name": "way/260186741",
+"name": "845 California Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28054,7 +28054,7 @@
 ]
 },
 {
-"name": "way/260517114",
+"name": "840 Powell Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28140,7 +28140,7 @@
 ]
 },
 {
-"name": "way/262243143",
+"name": "290 Lombard Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28202,7 +28202,7 @@
 ]
 },
 {
-"name": "way/288717621",
+"name": "27 m building (way/288717621)",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28508,7 +28508,7 @@
 ]
 },
 {
-"name": "way/288717625",
+"name": "27 m building (way/288717625)",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28806,7 +28806,7 @@
 ]
 },
 {
-"name": "way/474354575",
+"name": "484;486 Geary Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28832,7 +28832,7 @@
 ]
 },
 {
-"name": "way/1432655283",
+"name": "141 Kearny Street",
 "height_m": 27.0,
 "polygon": [
 [
@@ -28930,7 +28930,7 @@
 ]
 },
 {
-"name": "way/35024386",
+"name": "347;349;351;353;357;373 Geary Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29034,7 +29034,7 @@
 ]
 },
 {
-"name": "way/71504445",
+"name": "459 Geary Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29102,7 +29102,7 @@
 ]
 },
 {
-"name": "way/79377180",
+"name": "611;615 Mission Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29132,7 +29132,7 @@
 ]
 },
 {
-"name": "way/79377194",
+"name": "606;608;612 Howard Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29182,7 +29182,7 @@
 ]
 },
 {
-"name": "way/79377206",
+"name": "26 m building (way/79377206)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29274,7 +29274,7 @@
 ]
 },
 {
-"name": "way/113103853",
+"name": "200 Brannan Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29500,7 +29500,7 @@
 ]
 },
 {
-"name": "way/147633862",
+"name": "26 m building (way/147633862)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29538,7 +29538,7 @@
 ]
 },
 {
-"name": "way/148758716",
+"name": "26 m building (way/148758716)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29654,7 +29654,7 @@
 ]
 },
 {
-"name": "way/149332503",
+"name": "26 m building (way/149332503)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29696,7 +29696,7 @@
 ]
 },
 {
-"name": "way/151195276",
+"name": "154;160;168;170;176 Sutter Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29722,7 +29722,7 @@
 ]
 },
 {
-"name": "way/151980106",
+"name": "317;321;325 Clementina Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29826,7 +29826,7 @@
 ]
 },
 {
-"name": "way/174017678",
+"name": "766 Harrison Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29876,7 +29876,7 @@
 ]
 },
 {
-"name": "way/256032489",
+"name": "32;34;40 6th Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -29918,7 +29918,7 @@
 ]
 },
 {
-"name": "way/256035267",
+"name": "1049;1051 Market Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30022,7 +30022,7 @@
 ]
 },
 {
-"name": "way/256072712",
+"name": "401;423 Washington Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30052,7 +30052,7 @@
 ]
 },
 {
-"name": "way/256917346",
+"name": "245;251;253;255 Post Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30106,7 +30106,7 @@
 ]
 },
 {
-"name": "way/258857641",
+"name": "600;606;608;610;612 Post Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30338,7 +30338,7 @@
 ]
 },
 {
-"name": "way/260162817",
+"name": "26 m building (way/260162817)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30392,7 +30392,7 @@
 ]
 },
 {
-"name": "way/260280330",
+"name": "26 m building (way/260280330)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30480,7 +30480,7 @@
 ]
 },
 {
-"name": "way/260323193",
+"name": "50 Lansing Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30566,7 +30566,7 @@
 ]
 },
 {
-"name": "way/288476696",
+"name": "26 m building (way/288476696)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -30808,7 +30808,7 @@
 ]
 },
 {
-"name": "way/288483487",
+"name": "1155 Battery Street",
 "height_m": 26.0,
 "polygon": [
 [
@@ -31050,7 +31050,7 @@
 ]
 },
 {
-"name": "way/288721095",
+"name": "26 m building (way/288721095)",
 "height_m": 26.0,
 "polygon": [
 [
@@ -31316,7 +31316,7 @@
 ]
 },
 {
-"name": "way/32946764",
+"name": "25 m building (way/32946764)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31342,7 +31342,7 @@
 ]
 },
 {
-"name": "way/32947691",
+"name": "750 Battery Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31590,7 +31590,7 @@
 ]
 },
 {
-"name": "way/35536841",
+"name": "180 Geary Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31718,7 +31718,7 @@
 ]
 },
 {
-"name": "way/79377209",
+"name": "25 m building (way/79377209)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31748,7 +31748,7 @@
 ]
 },
 {
-"name": "way/79377218",
+"name": "140 2nd Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31782,7 +31782,7 @@
 ]
 },
 {
-"name": "way/80296725",
+"name": "145 Natoma Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31874,7 +31874,7 @@
 ]
 },
 {
-"name": "way/135174115",
+"name": "278 Post Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31908,7 +31908,7 @@
 ]
 },
 {
-"name": "way/135232167",
+"name": "312;314 Sutter Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -31950,7 +31950,7 @@
 ]
 },
 {
-"name": "way/147689079",
+"name": "25 m building (way/147689079)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32020,7 +32020,7 @@
 ]
 },
 {
-"name": "way/148288762",
+"name": "536 Mission Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32070,7 +32070,7 @@
 ]
 },
 {
-"name": "way/148712645",
+"name": "576;578;580 Market Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32214,7 +32214,7 @@
 ]
 },
 {
-"name": "way/149757916",
+"name": "25 m building (way/149757916)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32256,7 +32256,7 @@
 ]
 },
 {
-"name": "way/151979683",
+"name": "730;740 Harrison Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32298,7 +32298,7 @@
 ]
 },
 {
-"name": "way/172250596",
+"name": "239 Grant Avenue",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32324,7 +32324,7 @@
 ]
 },
 {
-"name": "way/172250600",
+"name": "220;222;224;228;288 Grant Avenue",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32354,7 +32354,7 @@
 ]
 },
 {
-"name": "way/256035269",
+"name": "1059;1061 Market Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32486,7 +32486,7 @@
 ]
 },
 {
-"name": "way/256067704",
+"name": "130 Battery Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32562,7 +32562,7 @@
 ]
 },
 {
-"name": "way/256087377",
+"name": "617;625;633 Battery Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32628,7 +32628,7 @@
 ]
 },
 {
-"name": "way/256733829",
+"name": "640 Mason Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32658,7 +32658,7 @@
 ]
 },
 {
-"name": "way/256917327",
+"name": "25 m building (way/256917327)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32692,7 +32692,7 @@
 ]
 },
 {
-"name": "way/256969671",
+"name": "88 1st Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32930,7 +32930,7 @@
 ]
 },
 {
-"name": "way/260181075",
+"name": "795 Pine Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -32976,7 +32976,7 @@
 ]
 },
 {
-"name": "way/260181653",
+"name": "25 m building (way/260181653)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -33030,7 +33030,7 @@
 ]
 },
 {
-"name": "way/260282395",
+"name": "25 m building (way/260282395)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -33064,7 +33064,7 @@
 ]
 },
 {
-"name": "way/288474485",
+"name": "25 m building (way/288474485)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -33294,7 +33294,7 @@
 ]
 },
 {
-"name": "way/288475444",
+"name": "25 m building (way/288475444)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -34060,7 +34060,7 @@
 ]
 },
 {
-"name": "way/288481829",
+"name": "25 m building (way/288481829)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -34126,7 +34126,7 @@
 ]
 },
 {
-"name": "way/288717108",
+"name": "25 m building (way/288717108)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -34834,7 +34834,7 @@
 ]
 },
 {
-"name": "way/288719494",
+"name": "25 m building (way/288719494)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -35242,7 +35242,7 @@
 ]
 },
 {
-"name": "way/333814736",
+"name": "246;248;250 Sutter Street",
 "height_m": 25.0,
 "polygon": [
 [
@@ -35288,7 +35288,7 @@
 ]
 },
 {
-"name": "way/436484312",
+"name": "25 m building (way/436484312)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -35362,7 +35362,7 @@
 ]
 },
 {
-"name": "relation/3492902",
+"name": "25 m building (relation/3492902)",
 "height_m": 25.0,
 "polygon": [
 [
@@ -35564,7 +35564,7 @@
 ]
 },
 {
-"name": "way/114709404",
+"name": "343;345 4th Street",
 "height_m": 24.5,
 "polygon": [
 [
@@ -35622,7 +35622,7 @@
 ]
 },
 {
-"name": "way/159280395",
+"name": "24 m building (way/159280395)",
 "height_m": 24.5,
 "polygon": [
 [
@@ -35714,7 +35714,7 @@
 ]
 },
 {
-"name": "way/193054135",
+"name": "24 m building (way/193054135)",
 "height_m": 24.5,
 "polygon": [
 [
@@ -35782,7 +35782,7 @@
 ]
 },
 {
-"name": "way/264335378",
+"name": "1130 Sacramento Street",
 "height_m": 24.5,
 "polygon": [
 [
@@ -35808,7 +35808,7 @@
 ]
 },
 {
-"name": "way/939460954",
+"name": "24 m building (way/939460954)",
 "height_m": 24.5,
 "polygon": [
 [
@@ -35846,7 +35846,7 @@
 ]
 },
 {
-"name": "way/941560577",
+"name": "24 m building (way/941560577)",
 "height_m": 24.5,
 "polygon": [
 [
@@ -35872,7 +35872,7 @@
 ]
 },
 {
-"name": "way/945194181",
+"name": "24 m building (way/945194181)",
 "height_m": 24.5,
 "polygon": [
 [
@@ -35972,7 +35972,7 @@
 ]
 },
 {
-"name": "relation/3492879",
+"name": "20;26 California Street",
 "height_m": 24.5,
 "polygon": [
 [
@@ -36034,7 +36034,7 @@
 ]
 },
 {
-"name": "way/25759093",
+"name": "795 Folsom Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36080,7 +36080,7 @@
 ]
 },
 {
-"name": "way/35024363",
+"name": "555 Post Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36336,7 +36336,7 @@
 ]
 },
 {
-"name": "way/48995286",
+"name": "24 m building (way/48995286)",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36366,7 +36366,7 @@
 ]
 },
 {
-"name": "way/79377193",
+"name": "118 2nd Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36408,7 +36408,7 @@
 ]
 },
 {
-"name": "way/93817363",
+"name": "600;620 Harrison Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36470,7 +36470,7 @@
 ]
 },
 {
-"name": "way/112775864",
+"name": "274 Brannan Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36508,7 +36508,7 @@
 ]
 },
 {
-"name": "way/112934097",
+"name": "171 2nd Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36538,7 +36538,7 @@
 ]
 },
 {
-"name": "way/114709398",
+"name": "24 m building (way/114709398)",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36564,7 +36564,7 @@
 ]
 },
 {
-"name": "way/135620192",
+"name": "800 Bush Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36746,7 +36746,7 @@
 ]
 },
 {
-"name": "way/192883914",
+"name": "24 m building (way/192883914)",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36826,7 +36826,7 @@
 ]
 },
 {
-"name": "way/256047633",
+"name": "249 Eddy Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -36986,7 +36986,7 @@
 ]
 },
 {
-"name": "way/256062979",
+"name": "88 Guy Place",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37072,7 +37072,7 @@
 ]
 },
 {
-"name": "way/256067718",
+"name": "231 Sansome Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37122,7 +37122,7 @@
 ]
 },
 {
-"name": "way/256087383",
+"name": "24 m building (way/256087383)",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37182,7 +37182,7 @@
 ]
 },
 {
-"name": "way/256917342",
+"name": "1000 Powell Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37212,7 +37212,7 @@
 ]
 },
 {
-"name": "way/260126024",
+"name": "330 Ellis Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37308,7 +37308,7 @@
 ]
 },
 {
-"name": "way/260129390",
+"name": "48;50 Golden Gate Avenue",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37440,7 +37440,7 @@
 ]
 },
 {
-"name": "way/260175871",
+"name": "626 Powell Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37562,7 +37562,7 @@
 ]
 },
 {
-"name": "way/260181661",
+"name": "24 m building (way/260181661)",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37596,7 +37596,7 @@
 ]
 },
 {
-"name": "way/260183838",
+"name": "510 Bush Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37638,7 +37638,7 @@
 ]
 },
 {
-"name": "way/260298023",
+"name": "40 Jessie Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37672,7 +37672,7 @@
 ]
 },
 {
-"name": "way/260519118",
+"name": "770 California Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37706,7 +37706,7 @@
 ]
 },
 {
-"name": "way/260519120",
+"name": "720;758 Stockton Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37748,7 +37748,7 @@
 ]
 },
 {
-"name": "way/262473556",
+"name": "1600 Mason Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37870,7 +37870,7 @@
 ]
 },
 {
-"name": "way/288485996",
+"name": "1040;1042 Grant Avenue",
 "height_m": 24.0,
 "polygon": [
 [
@@ -37928,7 +37928,7 @@
 ]
 },
 {
-"name": "way/425425754",
+"name": "78 1st Street",
 "height_m": 24.0,
 "polygon": [
 [
@@ -38004,7 +38004,7 @@
 ]
 },
 {
-"name": "way/32946761",
+"name": "45;49 Powell Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38076,7 +38076,7 @@
 ]
 },
 {
-"name": "way/35024388",
+"name": "23 m building (way/35024388)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38166,7 +38166,7 @@
 ]
 },
 {
-"name": "way/79377156",
+"name": "23 m building (way/79377156)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38192,7 +38192,7 @@
 ]
 },
 {
-"name": "way/79377212",
+"name": "647;649 Mission Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38230,7 +38230,7 @@
 ]
 },
 {
-"name": "way/79377222",
+"name": "182 2nd Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38256,7 +38256,7 @@
 ]
 },
 {
-"name": "way/80296710",
+"name": "23 m building (way/80296710)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38286,7 +38286,7 @@
 ]
 },
 {
-"name": "way/80296735",
+"name": "23 m building (way/80296735)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38312,7 +38312,7 @@
 ]
 },
 {
-"name": "way/112927451",
+"name": "601;611;615 2nd Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38342,7 +38342,7 @@
 ]
 },
 {
-"name": "way/113094318",
+"name": "301 Brannan Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38426,7 +38426,7 @@
 ]
 },
 {
-"name": "way/135620217",
+"name": "611 Mason Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38468,7 +38468,7 @@
 ]
 },
 {
-"name": "way/135620219",
+"name": "23 m building (way/135620219)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38502,7 +38502,7 @@
 ]
 },
 {
-"name": "way/135620232",
+"name": "700 Taylor Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38590,7 +38590,7 @@
 ]
 },
 {
-"name": "way/147508936",
+"name": "500 3rd Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38616,7 +38616,7 @@
 ]
 },
 {
-"name": "way/147689069",
+"name": "23 m building (way/147689069)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38666,7 +38666,7 @@
 ]
 },
 {
-"name": "way/149332504",
+"name": "30;32;34 3rd Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38708,7 +38708,7 @@
 ]
 },
 {
-"name": "way/172250607",
+"name": "231;233 Grant Avenue",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38738,7 +38738,7 @@
 ]
 },
 {
-"name": "way/206623942",
+"name": "394 Pacific Avenue",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38764,7 +38764,7 @@
 ]
 },
 {
-"name": "way/256030632",
+"name": "23 m building (way/256030632)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38948,7 +38948,7 @@
 ]
 },
 {
-"name": "way/256917329",
+"name": "146 Geary Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -38974,7 +38974,7 @@
 ]
 },
 {
-"name": "way/260181654",
+"name": "600;604;608;610 Bush Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -39032,7 +39032,7 @@
 ]
 },
 {
-"name": "way/260181656",
+"name": "618 Bush Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -39102,7 +39102,7 @@
 ]
 },
 {
-"name": "way/260181658",
+"name": "701 Pine Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -39160,7 +39160,7 @@
 ]
 },
 {
-"name": "way/260181666",
+"name": "535 Stockton Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -39206,7 +39206,7 @@
 ]
 },
 {
-"name": "way/260183837",
+"name": "23 m building (way/260183837)",
 "height_m": 23.0,
 "polygon": [
 [
@@ -39236,7 +39236,7 @@
 ]
 },
 {
-"name": "way/260288447",
+"name": "222 Front Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -39286,7 +39286,7 @@
 ]
 },
 {
-"name": "way/288500660",
+"name": "655 Powell Street",
 "height_m": 23.0,
 "polygon": [
 [
@@ -39328,7 +39328,7 @@
 ]
 },
 {
-"name": "way/32611662",
+"name": "1520 Stockton Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39362,7 +39362,7 @@
 ]
 },
 {
-"name": "way/32946667",
+"name": "650 Market Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39436,7 +39436,7 @@
 ]
 },
 {
-"name": "way/32946758",
+"name": "69 Powell Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39492,7 +39492,7 @@
 ]
 },
 {
-"name": "way/35024340",
+"name": "535 Taylor Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39526,7 +39526,7 @@
 ]
 },
 {
-"name": "way/35024346",
+"name": "516;518;520;524;528 Geary Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39588,7 +39588,7 @@
 ]
 },
 {
-"name": "way/35024349",
+"name": "22 m building (way/35024349)",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39630,7 +39630,7 @@
 ]
 },
 {
-"name": "way/35024361",
+"name": "518;520 Taylor Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39656,7 +39656,7 @@
 ]
 },
 {
-"name": "way/71504436",
+"name": "401;405 Geary Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39720,7 +39720,7 @@
 ]
 },
 {
-"name": "way/113094321",
+"name": "650 2nd Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39758,7 +39758,7 @@
 ]
 },
 {
-"name": "way/113096847",
+"name": "240 2nd Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -39846,7 +39846,7 @@
 ]
 },
 {
-"name": "way/148547439",
+"name": "133;135 Townsend Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40022,7 +40022,7 @@
 ]
 },
 {
-"name": "way/172250599",
+"name": "22 m building (way/172250599)",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40090,7 +40090,7 @@
 ]
 },
 {
-"name": "way/255716896",
+"name": "123;125;127;133 Kearny Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40142,7 +40142,7 @@
 ]
 },
 {
-"name": "way/256066239",
+"name": "333 Pine Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40168,7 +40168,7 @@
 ]
 },
 {
-"name": "way/256499437",
+"name": "637;639 Bush Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40270,7 +40270,7 @@
 ]
 },
 {
-"name": "way/256760294",
+"name": "22 m building (way/256760294)",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40338,7 +40338,7 @@
 ]
 },
 {
-"name": "way/260129392",
+"name": "149;153;155 Turk Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40520,7 +40520,7 @@
 ]
 },
 {
-"name": "way/260162827",
+"name": "144 Eddy Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40546,7 +40546,7 @@
 ]
 },
 {
-"name": "way/260183830",
+"name": "530 Stockton Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40616,7 +40616,7 @@
 ]
 },
 {
-"name": "way/260286446",
+"name": "400;410 California Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40658,7 +40658,7 @@
 ]
 },
 {
-"name": "way/260323196",
+"name": "18 Lansing Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40692,7 +40692,7 @@
 ]
 },
 {
-"name": "way/260517127",
+"name": "707 Stockton Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40734,7 +40734,7 @@
 ]
 },
 {
-"name": "way/288500668",
+"name": "734 Bush Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40796,7 +40796,7 @@
 ]
 },
 {
-"name": "way/288647261",
+"name": "425 2nd Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40826,7 +40826,7 @@
 ]
 },
 {
-"name": "way/337652876",
+"name": "22 m building (way/337652876)",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40864,7 +40864,7 @@
 ]
 },
 {
-"name": "way/474354576",
+"name": "69 Clementina Street",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40890,7 +40890,7 @@
 ]
 },
 {
-"name": "way/1261984858",
+"name": "22 m building (way/1261984858)",
 "height_m": 22.0,
 "polygon": [
 [
@@ -40940,7 +40940,7 @@
 ]
 },
 {
-"name": "way/32947730",
+"name": "1050 Sansome Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -40966,7 +40966,7 @@
 ]
 },
 {
-"name": "way/35176927",
+"name": "21 m building (way/35176927)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41104,7 +41104,7 @@
 ]
 },
 {
-"name": "way/79375236",
+"name": "542 Mason Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41130,7 +41130,7 @@
 ]
 },
 {
-"name": "way/79377153",
+"name": "58 2nd Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41160,7 +41160,7 @@
 ]
 },
 {
-"name": "way/80214914",
+"name": "143 2nd Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41240,7 +41240,7 @@
 ]
 },
 {
-"name": "way/112758589",
+"name": "300 Brannan Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41292,7 +41292,7 @@
 ]
 },
 {
-"name": "way/136694409",
+"name": "19 Clementina Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41366,7 +41366,7 @@
 ]
 },
 {
-"name": "way/148288770",
+"name": "589;591 Howard Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41392,7 +41392,7 @@
 ]
 },
 {
-"name": "way/148288775",
+"name": "580 Howard Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41544,7 +41544,7 @@
 ]
 },
 {
-"name": "way/149840697",
+"name": "21 m building (way/149840697)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41578,7 +41578,7 @@
 ]
 },
 {
-"name": "way/151195270",
+"name": "21 m building (way/151195270)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41678,7 +41678,7 @@
 ]
 },
 {
-"name": "way/173886693",
+"name": "759 Harrison Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41704,7 +41704,7 @@
 ]
 },
 {
-"name": "way/191861045",
+"name": "318 Spear Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41762,7 +41762,7 @@
 ]
 },
 {
-"name": "way/206623943",
+"name": "832 Sansome Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41788,7 +41788,7 @@
 ]
 },
 {
-"name": "way/256037011",
+"name": "51;55 Grant Avenue",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41814,7 +41814,7 @@
 ]
 },
 {
-"name": "way/256037012",
+"name": "21 m building (way/256037012)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41848,7 +41848,7 @@
 ]
 },
 {
-"name": "way/256049911",
+"name": "240;244;248 Taylor Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41882,7 +41882,7 @@
 ]
 },
 {
-"name": "way/256088152",
+"name": "21 m building (way/256088152)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41938,7 +41938,7 @@
 ]
 },
 {
-"name": "way/256499436",
+"name": "21 m building (way/256499436)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -41968,7 +41968,7 @@
 ]
 },
 {
-"name": "way/256914014",
+"name": "29;31;33;35 Waverly Place",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42060,7 +42060,7 @@
 ]
 },
 {
-"name": "way/259266716",
+"name": "21 m building (way/259266716)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42086,7 +42086,7 @@
 ]
 },
 {
-"name": "way/259928406",
+"name": "830 Bush Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42136,7 +42136,7 @@
 ]
 },
 {
-"name": "way/260181664",
+"name": "636 Bush Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42174,7 +42174,7 @@
 ]
 },
 {
-"name": "way/260280327",
+"name": "21 m building (way/260280327)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42224,7 +42224,7 @@
 ]
 },
 {
-"name": "way/260519117",
+"name": "790 California Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42254,7 +42254,7 @@
 ]
 },
 {
-"name": "way/260924234",
+"name": "632;634 Commercial Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42734,7 +42734,7 @@
 ]
 },
 {
-"name": "way/333812662",
+"name": "21 m building (way/333812662)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42768,7 +42768,7 @@
 ]
 },
 {
-"name": "way/474342407",
+"name": "637 Powell Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -42822,7 +42822,7 @@
 ]
 },
 {
-"name": "way/684194101",
+"name": "21 m building (way/684194101)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -43102,7 +43102,7 @@
 ]
 },
 {
-"name": "way/939467975",
+"name": "21 m building (way/939467975)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -43144,7 +43144,7 @@
 ]
 },
 {
-"name": "way/942665598",
+"name": "130 Montgomery Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -43170,7 +43170,7 @@
 ]
 },
 {
-"name": "way/1059928088",
+"name": "21 m building (way/1059928088)",
 "height_m": 21.0,
 "polygon": [
 [
@@ -43264,7 +43264,7 @@
 ]
 },
 {
-"name": "relation/2011984",
+"name": "747 Folsom Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -43306,7 +43306,7 @@
 ]
 },
 {
-"name": "relation/3490650",
+"name": "415;417;419;421 O'Farrell Street",
 "height_m": 21.0,
 "polygon": [
 [
@@ -43414,7 +43414,7 @@
 ]
 },
 {
-"name": "way/35024391",
+"name": "235;237;239;241;243 O'Farrell Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43508,7 +43508,7 @@
 ]
 },
 {
-"name": "way/49429843",
+"name": "621 Taylor Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43596,7 +43596,7 @@
 ]
 },
 {
-"name": "way/80296743",
+"name": "144 2nd Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43660,7 +43660,7 @@
 ]
 },
 {
-"name": "way/105026993",
+"name": "2 Bryant Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43690,7 +43690,7 @@
 ]
 },
 {
-"name": "way/112864755",
+"name": "355 Bryant Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43740,7 +43740,7 @@
 ]
 },
 {
-"name": "way/112926343",
+"name": "512 2nd Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43770,7 +43770,7 @@
 ]
 },
 {
-"name": "way/135620194",
+"name": "825 Bush Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43824,7 +43824,7 @@
 ]
 },
 {
-"name": "way/148710881",
+"name": "32 Battery Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43916,7 +43916,7 @@
 ]
 },
 {
-"name": "way/173725089",
+"name": "20 m building (way/173725089)",
 "height_m": 20.0,
 "polygon": [
 [
@@ -43972,7 +43972,7 @@
 ]
 },
 {
-"name": "way/192883910",
+"name": "20 m building (way/192883910)",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44014,7 +44014,7 @@
 ]
 },
 {
-"name": "way/256049899",
+"name": "20 m building (way/256049899)",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44040,7 +44040,7 @@
 ]
 },
 {
-"name": "way/256729643",
+"name": "125 Waverly Place",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44078,7 +44078,7 @@
 ]
 },
 {
-"name": "way/256733827",
+"name": "737 Bush Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44188,7 +44188,7 @@
 ]
 },
 {
-"name": "way/256917343",
+"name": "645 Bush Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44222,7 +44222,7 @@
 ]
 },
 {
-"name": "way/256981095",
+"name": "20 m building (way/256981095)",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44256,7 +44256,7 @@
 ]
 },
 {
-"name": "way/259928409",
+"name": "890 Bush Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44314,7 +44314,7 @@
 ]
 },
 {
-"name": "way/260129388",
+"name": "175 Turk Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44368,7 +44368,7 @@
 ]
 },
 {
-"name": "way/260129389",
+"name": "161;165 Turk Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44418,7 +44418,7 @@
 ]
 },
 {
-"name": "way/260280333",
+"name": "219;225 Kearny Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44452,7 +44452,7 @@
 ]
 },
 {
-"name": "way/260288458",
+"name": "234;236 Front Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44490,7 +44490,7 @@
 ]
 },
 {
-"name": "way/260323197",
+"name": "346 1st Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44524,7 +44524,7 @@
 ]
 },
 {
-"name": "way/260523198",
+"name": "956 Sacramento Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44550,7 +44550,7 @@
 ]
 },
 {
-"name": "way/260967548",
+"name": "1450 Powell Street",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44600,7 +44600,7 @@
 ]
 },
 {
-"name": "way/262243155",
+"name": "20 m building (way/262243155)",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44682,7 +44682,7 @@
 ]
 },
 {
-"name": "way/288474489",
+"name": "20 m building (way/288474489)",
 "height_m": 20.0,
 "polygon": [
 [
@@ -44972,7 +44972,7 @@
 ]
 },
 {
-"name": "way/288514178",
+"name": "1441 Powell Street",
 "height_m": 20.0,
 "polygon": [
 [
