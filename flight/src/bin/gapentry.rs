@@ -215,6 +215,40 @@ fn main() {
                 println!("rejected by street-horizon-24: y {:.0} dx {:.0} agl {:.0} dh {:.0}", r.0, r.1, r.2, r.3);
             }
         }
+        "ends" => {
+            // How each prototype acceptance ends: the street escape's helix terminal set, never by leaving the map.
+            let (mut helix, mut offmap, mut fail) = (0, 0, 0);
+            for k in 0..=240 {
+                let s = start(&world, -1100.0 + 5.0 * k as f64);
+                let r = rollout_cfg(&world, &JsbPlant::new(&s), Law::new(STREET), usize::MAX, None, &RollCfg { street_horizon: 24.0, ..RollCfg::filter() });
+                let e = r.end;
+                match (r.ok(), r.tail.is_empty()) {
+                    (true, false) => helix += 1,
+                    (true, true) => { offmap += 1; println!("off-map end at y {:.0}: ({:.0}, {:.0})", s[Y], e[X], e[Y]); }
+                    _ => fail += 1,
+                }
+            }
+            println!("street escape, 24 s, 4 m: helix {helix}, off-map {offmap}, not verified {fail}");
+        }
+        "why" => {
+            // gapentry why FILE: for states listed as `rejected by street-horizon-24` lines, the street escape's
+            // needed horizon (4 m margin) and the exact witness.
+            let txt = std::fs::read_to_string(&args[1]).unwrap();
+            let jobs: Vec<[f64; 4]> = txt.lines().filter(|l| l.starts_with("rejected")).map(|l| {
+                let w: Vec<f64> = l.split_whitespace().filter_map(|t| t.parse().ok()).collect();
+                [w[0], w[1], w[2], w[3]]
+            }).collect();
+            let rows = cityflight::harness::par_map(jobs, threads, |&[y, dx, agl, dh]: &[f64; 4]| {
+                let x = -120.0 + dx;
+                let s = trimmed(x, y, world.terrain(x, y) + agl, 45.0, 0.0, FRAC_PI_2 + f64::to_radians(dh), 0.7);
+                let r = rollout_cfg(&world, &JsbPlant::new(&s), Law::new(STREET), usize::MAX, None, &RollCfg { street_horizon: 90.0, ..RollCfg::filter() });
+                let wt = witness(&world, &s, 900.0);
+                format!("y {y:.0} dx {dx:.0} agl {agl:.0} dh {dh:.0} | street 90 s at 4 m: {:?} at {:.1} s min {:.1} | witness {} min {:.2}", r.outcome, r.t, r.min_clear, if wt.ok { "SAFE" } else { "fail" }, wt.min_clear)
+            }, |_, _| {});
+            for r in rows {
+                println!("{r}");
+            }
+        }
         "north" => {
             // Gate verdicts on the rest of the street, north of the gap.
             let ys: Vec<f64> = (0..=50).map(|k| 100.0 + 20.0 * k as f64).collect();
