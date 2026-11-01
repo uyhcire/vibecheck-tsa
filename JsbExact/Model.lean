@@ -607,7 +607,12 @@ def friction (ms : Array (Mult α)) (mass : α) (jinv : M33 α) (uvwdot pqrdot u
 
 /-! ### The step -/
 
-def step (s : State α) (u : Input α) : State α × Diag α :=
+/-- One JSBSim frame from state `s` with input `u`.
+
+`fuelFreeze` is JSBSim's `propulsion/fuel_freeze` (`FGPropulsion::SetFuelFreeze`): when set, `ConsumeFuel` returns
+at once, so the tanks are not drained and the engine's starved flag keeps its value; the engine still computes its
+fuel flow, and everything else is unchanged. Off by default, which is the plain JSBSim run. -/
+def step (s : State α) (u : Input α) (fuelFreeze : Bool := false) : State α × Diag α :=
   let dt : α := lit Gen.dt
   let omega : V3 α := v3 Gen.omega
   -- FGPropagate
@@ -690,15 +695,18 @@ def step (s : State α) (u : Input α) : State α × Diag α :=
   -- FGPropulsion
   let eng := piston atm.p pt atm.t u.thr u.mix (s.rpm * lit Gen.GearRatio) s.tmap s.fuelflow dt s.running s.starved
   let pr := propeller mb.cg s.act aeroUVW aeroPQR pqri atm.rho atm.a eng.power s.rpm dt
-  let unus0 : α := lit Gen.tank0[7]!
-  let unus1 : α := lit Gen.tank1[7]!
-  let has0 := gt s.tank0 unus0
-  let has1 := gt s.tank1 unus1
-  let starved := cnot (cor has0 has1)
-  -- Divided by the number of feeding tanks; unused when none feeds.
-  let perTank := sif cand has0 has1 then eng.fuelflow * dt / lit 2.0 else eng.fuelflow * dt / lit 1.0
-  let tank0 := sif cand (cnot starved) has0 then tankDrain 0 s.tank0 perTank else s.tank0
-  let tank1 := sif cand (cnot starved) has1 then tankDrain 1 s.tank1 perTank else s.tank1
+  -- `FGPropulsion::ConsumeFuel`, which returns at once under fuel freeze.
+  let (tank0, tank1, starved) := if fuelFreeze then (s.tank0, s.tank1, s.starved) else
+    let unus0 : α := lit Gen.tank0[7]!
+    let unus1 : α := lit Gen.tank1[7]!
+    let has0 := gt s.tank0 unus0
+    let has1 := gt s.tank1 unus1
+    let starved := cnot (cor has0 has1)
+    -- Divided by the number of feeding tanks; unused when none feeds.
+    let perTank := sif cand has0 has1 then eng.fuelflow * dt / lit 2.0 else eng.fuelflow * dt / lit 1.0
+    let tank0 := sif cand (cnot starved) has0 then tankDrain 0 s.tank0 perTank else s.tank0
+    let tank1 := sif cand (cnot starved) has1 then tankDrain 1 s.tank1 perTank else s.tank1
+    (tank0, tank1, starved)
   let fb := mT_fb pr.thrust
   let mprop := V3.add pr.vmn (V3.cross (structToBody mb.cg pr.act) fb)
   let fprop := V3.add V3.zero fb
