@@ -27,10 +27,11 @@ run: build
 	.lake/build/bin/vibecheck
 
 verify:
-	lake build $(LAKE_OPTS) Vibecheck Envelope GateSafety
+	lake build $(LAKE_OPTS) Vibecheck Envelope GateSafety CityGate
 	lake env lean Tools/Audit.lean
 	lake env lean Tools/EnvelopeAudit.lean
 	lake env lean Tools/GateSafetyAudit.lean
+	lake env lean Tools/CityGateAudit.lean
 
 proofs:
 	cd proofs && lake exe cache get && lake build && lake env lean Proofs/Audit.lean

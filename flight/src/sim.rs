@@ -64,6 +64,9 @@ pub struct Sim<'w> {
     pub env_pred: Vec<[f64; 3]>,
     #[cfg(feature = "jsb")]
     pub env_gate: Option<crate::envfilter::Gate>,
+    /// The Lean city gate as plant and filter (`--env lean`).
+    #[cfg(feature = "jsb")]
+    pub lean: Option<crate::leangate::LeanGate>,
 }
 
 impl<'w> Sim<'w> {
@@ -113,9 +116,16 @@ impl<'w> Sim<'w> {
             env_pred: Vec::new(),
             #[cfg(feature = "jsb")]
             env_gate: None,
+            #[cfg(feature = "jsb")]
+            lean: None,
         };
         #[cfg(feature = "jsb")]
-        if crate::jsb::enabled() {
+        if crate::leangate::enabled() {
+            let g = crate::leangate::LeanGate::new(&s0);
+            sim.s = g.state();
+            sim.true_clear = world.airframe_clearance(&sim.s, 200.0);
+            sim.lean = Some(g);
+        } else if crate::jsb::enabled() {
             let p = crate::jsb::JsbPlant::new(&s0);
             sim.s = p.state();
             if crate::envfilter::kind() == Some(crate::envfilter::Kind::Gate) {
@@ -130,6 +140,10 @@ impl<'w> Sim<'w> {
         sim.min_true_clear = sim.true_clear;
         let pred = sim.pred();
         sim.started_safe = sim.fs.init(&pred, &s0, 0);
+        #[cfg(feature = "jsb")]
+        if let Some(g) = &sim.lean {
+            sim.started_safe = g.start_ok;
+        }
         sim
     }
 
@@ -147,6 +161,13 @@ impl<'w> Sim<'w> {
     /// Switch the filter on/off mid-flight (re-initialises the plan).
     pub fn set_filter(&mut self, on: bool) {
         self.cfg.filter_on = on;
+        #[cfg(feature = "jsb")]
+        if let Some(g) = self.lean.as_mut() {
+            if on {
+                self.started_safe = g.restart();
+            }
+            return;
+        }
         self.fs = FilterState::new(self.cfg.filter);
         if on {
             let pred = self.pred();
@@ -180,6 +201,11 @@ impl<'w> Sim<'w> {
     /// One filter tick: pilot command in, two physics steps out.
     pub fn tick(&mut self, u_p: Cmd) {
         if self.crashed {
+            return;
+        }
+        #[cfg(feature = "jsb")]
+        if self.lean.is_some() {
+            self.lean_tick(u_p);
             return;
         }
         #[cfg(feature = "jsb")]
@@ -311,9 +337,45 @@ impl<'w> Sim<'w> {
         self.env_after_tick();
     }
 
+    /// One tick on the Lean gate: the pilot's fly-by-wire command held, one gate frame per JSBSim frame.
+    #[cfg(feature = "jsb")]
+    fn lean_tick(&mut self, u_p: Cmd) {
+        let dt = DT * STEPS_PER_TICK as f64;
+        self.ticks += 1;
+        let filter_on = self.cfg.filter_on;
+        let g = self.lean.as_mut().unwrap();
+        g.tick(&crate::jsb::Pilot::Fbw(u_p), dt, filter_on);
+        if !filter_on {
+            self.applied = u_p;
+            self.fs.mode = Mode::Off;
+            self.fs.lam = 0.0;
+        } else if g.escaping {
+            self.applied = [g.obs.nz, 0.0, 1.0];
+            self.fs.mode = Mode::Commit;
+            self.fs.lam = 1.0;
+            self.commit_ticks += 1;
+            self.active_ticks += 1;
+        } else {
+            self.applied = u_p;
+            self.fs.mode = Mode::Free;
+            self.fs.lam = 0.0;
+        }
+        let ms = *g.wall_ms.last().unwrap_or(&0.0) as f64;
+        self.ms_sum += ms;
+        self.ms_max = self.ms_max.max(ms);
+        self.s = g.state();
+        self.env_after_state();
+    }
+
     #[cfg(feature = "jsb")]
     fn env_after_tick(&mut self) {
         self.s = self.jsb.as_ref().unwrap().state();
+        self.env_after_state();
+    }
+
+    /// After a tick on a JSBSim plant: advance the clock and check the true clearance at `self.s`.
+    #[cfg(feature = "jsb")]
+    fn env_after_state(&mut self) {
         self.k += STEPS_PER_TICK;
         // Leaving the map climbing is not a crash for these filters: their escapes climb out straight.
         let off = self.s[X].abs() > crate::world::MAP_HALF || self.s[Y].abs() > crate::world::MAP_HALF;
@@ -469,10 +531,12 @@ impl Drawn {
         #[allow(unused_mut)]
         let mut s = sim.s;
         #[cfg(feature = "jsb")]
-        if let Some(p) = &sim.jsb {
-            let v = [p.obs.vned[1], p.obs.vned[0], -p.obs.vned[2]];
+        let lagged = sim.jsb.as_ref().map(|p| (p.obs, p.lag)).or(sim.lean.as_ref().map(|g| (g.obs, g.lag)));
+        #[cfg(feature = "jsb")]
+        if let Some((o, lag)) = lagged {
+            let v = [o.vned[1], o.vned[0], -o.vned[2]];
             for (i, k) in [X, Y, Z].into_iter().enumerate() {
-                s[k] -= v[i] * p.lag;
+                s[k] -= v[i] * lag;
             }
         }
         s

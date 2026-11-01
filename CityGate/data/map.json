@@ -1,0 +1,23 @@
+{
+  "format": "cityflight-map 1",
+  "seed": 1337,
+  "units": "metres",
+  "axes": "x east, y north, z up. Map (0, 0) is the point gate_config places at origin_lat_deg, origin_lon_deg; x and y are east and north on the tangent plane there (gate_map_to_geodetic converts). z is altitude above sea level minus origin_alt_m.",
+  "extent": {"x_min": -3000, "x_max": 3000, "y_min": -3000, "y_max": 3000, "outside": "no obstacles; an escape that leaves the extent counts as clear"},
+  "terrain": {
+    "file": "terrain.csv",
+    "x0": -3000, "y0": -3000, "spacing": 20, "nx": 301, "ny": 301,
+    "layout": "row j is y = y0 + j * spacing (south to north), column i is x = x0 + i * spacing (west to east); heights are float32 written in shortest round-trip form",
+    "interpolation": "each grid square splits along its south-west to north-east diagonal: with u = (x - x_i) / spacing and v = (y - y_j) / spacing, h = h00 + u (h10 - h00) + v (h11 - h10) if u >= v, else h00 + v (h01 - h00) + u (h11 - h01), where h10 is one step east and h01 one step north; positions outside the grid clamp to its edge"
+  },
+  "buildings": {
+    "file": "buildings.csv",
+    "count": 2145,
+    "shape": "axis-aligned boxes [x_min, x_max] x [y_min, y_max] x [z_min, z_max]; a tower is several stacked boxes with the same lot; z_min is below the terrain"
+  },
+  "streets": {"axes": [{"axis": -1200, "width": 40}, {"axis": -1080, "width": 28}, {"axis": -960, "width": 28}, {"axis": -840, "width": 28}, {"axis": -720, "width": 28}, {"axis": -600, "width": 40}, {"axis": -480, "width": 28}, {"axis": -360, "width": 28}, {"axis": -240, "width": 28}, {"axis": -120, "width": 28}, {"axis": 0, "width": 40}, {"axis": 120, "width": 28}, {"axis": 240, "width": 28}, {"axis": 360, "width": 28}, {"axis": 480, "width": 28}, {"axis": 600, "width": 40}, {"axis": 720, "width": 28}, {"axis": 840, "width": 28}, {"axis": 960, "width": 28}, {"axis": 1080, "width": 28}, {"axis": 1200, "width": 40}], "note": "street centre lines run north-south at x = axis and east-west at y = axis inside the city (|x|, |y| <= 1200); the street escape climbs along them"},
+  "tallest_building": {"x": 63, "y": 63, "z_max": 458.66223177909853},
+  "map_top": 926.6962280273438,
+  "raster": "the filter also checks a 2.5 m max-height raster derived from the above: over each 2400 x 2400 cell starting at (x0, y0), the maximum of the terrain at the cell's four corners and of z_max for every box overlapping the cell",
+  "clearance": {"margin": 4.0, "body_radius": 4.5, "wing_capsule_radius": 0.8, "wingspan": 11.0, "note": "an escape is verified only if the body sphere and the wing capsule keep margin metres from terrain and boxes along it"}
+}
