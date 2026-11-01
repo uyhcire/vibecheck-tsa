@@ -95,6 +95,11 @@ impl Filter {
         self.prev = None;
     }
 
+    /// Latitude, longitude (degrees) and altitude (m) of a map point.
+    pub fn map_to_geodetic(&self, x: f64, y: f64, z: f64) -> [f64; 3] {
+        self.frame.geodetic(x, y, z)
+    }
+
     pub fn import_len(&self) -> usize {
         cityflight::jsb::dump_len()
     }

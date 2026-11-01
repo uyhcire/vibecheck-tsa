@@ -188,3 +188,26 @@ make gate-check       # gatecheck: closed-loop crash check with raw-surface pilo
 `gate/examples/gate_example.c` and `gatecheck` use `cityjsb_step_dump` as the host: `JsbExact` steps the aircraft
 and writes the dump JSBSim would export, so every tick goes through the same import a JSBSim host uses.
 
+
+### The filter's map as files
+
+The filter checks clearance against Luis's procedural city, built from a seed. `Tools/city-export` writes that
+exact geometry as plain files, for building matching scenery or a matching JSBSim ground:
+
+- `map.json`: the seed, units (metres), axes (x east, y north, z up; map (0, 0) is the origin a host gives
+  `gate_config`, z is altitude above sea level minus `origin_alt_m`), the extent (±3,000 m), the terrain grid
+  layout and its interpolation rule, the street axes, the clearance the filter keeps, and how the filter's
+  2.5 m max-height raster is derived.
+- `buildings.csv`: 2,145 axis-aligned boxes for seed 1337 (`id,lot,x_min,y_min,x_max,y_max,z_min,z_max`).
+- `terrain.csv`: 301 × 301 heights on a 20 m grid from (-3000, -3000), row by row from south to north.
+
+`city-export check` rebuilds the filter's geometry from the files alone and compares it with the library's
+`World` bit for bit: the terrain grid, the terrain function at 200,000 random points, the boxes, the raster and
+the map top. Values are written in shortest round-trip form, so the files determine the map exactly; a future
+`gate_config.map_path` can load them instead of a seed. `gate_map_to_geodetic` converts a map point to WGS84
+latitude, longitude and altitude for a given origin.
+
+```
+cargo run --release --manifest-path Tools/city-export/Cargo.toml -- map city-map        # seed 1337
+cargo run --release --manifest-path Tools/city-export/Cargo.toml -- check city-map
+```

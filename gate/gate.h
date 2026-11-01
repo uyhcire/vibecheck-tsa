@@ -74,8 +74,10 @@ void gate_free(gate *g);
 
 size_t gate_dump_len(void);
 const char *gate_escape_name(int32_t escape);
-// Map height of terrain and roofs under (x, y) in map metres: the surface the filter keeps clear of.
+// Map height of terrain and roofs under (x, y) in map metres (the 2.5 m raster of map.json).
 double gate_map_surface(const gate *g, double x, double y);
+// WGS84 latitude, longitude (degrees) and altitude (m) of map point (x, y, z), for placing scenery.
+int gate_map_to_geodetic(const gate *g, double x, double y, double z, double *lat_deg, double *lon_deg, double *alt_m);
 
 #ifdef __cplusplus
 }

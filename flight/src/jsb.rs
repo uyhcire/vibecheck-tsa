@@ -48,15 +48,34 @@ pub struct MapFrame {
     pub alt0: f64,
 }
 
+const WGS84_A: f64 = 6378137.0;
+const WGS84_E2: f64 = 6.69437999014e-3;
+
+fn geodetic_to_ecef(lat: f64, lon: f64, h: f64) -> [f64; 3] {
+    let (sp, cp) = lat.sin_cos();
+    let (sl, cl) = lon.sin_cos();
+    let n = WGS84_A / (1.0 - WGS84_E2 * sp * sp).sqrt();
+    [(n + h) * cp * cl, (n + h) * cp * sl, (n * (1.0 - WGS84_E2) + h) * sp]
+}
+
+/// Latitude and longitude (rad) of an ECEF position (m).
+fn ecef_to_latlon(p: &[f64; 3]) -> (f64, f64) {
+    let r = p[0].hypot(p[1]);
+    let mut lat = p[2].atan2(r * (1.0 - WGS84_E2));
+    for _ in 0..6 {
+        let n = WGS84_A / (1.0 - WGS84_E2 * lat.sin().powi(2)).sqrt();
+        let h = r / lat.cos() - n;
+        lat = p[2].atan2(r * (1.0 - WGS84_E2 * n / (n + h)));
+    }
+    (lat, p[1].atan2(p[0]))
+}
+
 impl MapFrame {
     pub fn new(lat_deg: f64, lon_deg: f64, alt0: f64) -> MapFrame {
-        const A: f64 = 6378137.0;
-        const E2: f64 = 6.69437999014e-3;
         let (sp, cp) = lat_deg.to_radians().sin_cos();
         let (sl, cl) = lon_deg.to_radians().sin_cos();
-        let n = A / (1.0 - E2 * sp * sp).sqrt();
         MapFrame {
-            ecef0: [n * cp * cl, n * cp * sl, n * (1.0 - E2) * sp],
+            ecef0: geodetic_to_ecef(lat_deg.to_radians(), lon_deg.to_radians(), 0.0),
             east: [-sl, cl, 0.0],
             north: [-sp * cl, -sp * sl, cp],
             alt0,
@@ -68,6 +87,21 @@ impl MapFrame {
         let d: [f64; 3] = std::array::from_fn(|i| ecef[i] - self.ecef0[i]);
         let dot = |u: &[f64; 3]| u[0] * d[0] + u[1] * d[1] + u[2] * d[2];
         [dot(&self.east), dot(&self.north)]
+    }
+
+    /// Latitude and longitude (degrees) and altitude above the ellipsoid (m) of map point `(x, y, z)`: the
+    /// inverse of `local` horizontally, and `z + alt0` vertically.
+    pub fn geodetic(&self, x: f64, y: f64, z: f64) -> [f64; 3] {
+        let h = z + self.alt0;
+        let mut p: [f64; 3] = std::array::from_fn(|i| self.ecef0[i] + x * self.east[i] + y * self.north[i]);
+        let (mut lat, mut lon) = ecef_to_latlon(&p);
+        for _ in 0..4 {
+            let q = geodetic_to_ecef(lat, lon, h);
+            let [qx, qy] = self.local(&q);
+            p = std::array::from_fn(|i| q[i] + (x - qx) * self.east[i] + (y - qy) * self.north[i]);
+            (lat, lon) = ecef_to_latlon(&p);
+        }
+        [lat.to_degrees(), lon.to_degrees(), h]
     }
 }
 
@@ -339,3 +373,24 @@ impl Drop for JsbPlant {
         unsafe { cityjsb_free(self.raw) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_frame_round_trip() {
+        for (lat0, lon0, alt0) in [(0.0, 0.0, 0.0), (37.79, -122.40, 15.0), (-33.9, 151.2, 40.0)] {
+            let f = MapFrame::new(lat0, lon0, alt0);
+            for (x, y, z) in [(0.0, 0.0, 0.0), (2999.0, -2999.0, 450.0), (-1234.5, 2100.25, 3.0)] {
+                let [lat, lon, h] = f.geodetic(x, y, z);
+                let [e, n] = f.local(&geodetic_to_ecef(lat.to_radians(), lon.to_radians(), h));
+                assert!((e - x).abs() < 1e-6 && (n - y).abs() < 1e-6, "{lat0} {lon0}: ({x}, {y}) -> ({e}, {n})");
+                assert_eq!(h, z + alt0);
+            }
+        }
+        let f = MapFrame::new(0.0, 0.0, 0.0);
+        assert_eq!(f.local(&[WGS84_A + 100.0, 12.5, -40.25]), [12.5, -40.25]);
+    }
+}
+

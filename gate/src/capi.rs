@@ -212,6 +212,16 @@ pub extern "C" fn gate_escape_name(escape: i32) -> *const c_char {
     name.as_ptr() as *const c_char
 }
 
+/// Safety: `g` from `gate_new`; the outputs point to doubles.
+#[no_mangle]
+pub unsafe extern "C" fn gate_map_to_geodetic(g: *const Gate, x: f64, y: f64, z: f64, lat_deg: *mut f64, lon_deg: *mut f64, alt_m: *mut f64) -> c_int {
+    let (Some(g), Some(lat), Some(lon), Some(alt)) = (g.as_ref(), lat_deg.as_mut(), lon_deg.as_mut(), alt_m.as_mut()) else {
+        return GATE_ERR_BAD_INPUT;
+    };
+    [*lat, *lon, *alt] = g.filter.map_to_geodetic(x, y, z);
+    GATE_OK
+}
+
 /// Safety: `g` from `gate_new`.
 #[no_mangle]
 pub unsafe extern "C" fn gate_map_surface(g: *const Gate, x: f64, y: f64) -> f64 {
