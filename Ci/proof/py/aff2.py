@@ -20,4 +20,5 @@ for name, l in zip(["elev"] + NAMES[:19] + ["eI"], out):
     w = l.split()
     if name == "elev": w = w[1:]
     if len(w) < 3: continue
-    print(f"{name:6s} c {float(w[0]):14.1f}  err {float(w[1]):12.1f}  lin-rad {np.abs(np.array([float(v) for v in w[2:]])).sum():10.1f}")
+    co = np.array([float(v) for v in w[2:]])
+    print(f"{name:6s} c {float(w[0]):14.1f}  err {float(w[1]):10.1f}  input-rad {np.abs(co[:18]).sum():10.1f}  fresh-rad {np.abs(co[18:]).sum():10.1f}  (#fresh {len(co) - 18})")

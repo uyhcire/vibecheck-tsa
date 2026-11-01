@@ -20,23 +20,39 @@ def rad (x : Aff) : Float := x.a.foldl (fun s v => s + v.abs) 0 + x.e
 def lo (x : Aff) : Float := x.c - x.rad
 def hi (x : Aff) : Float := x.c + x.rad
 def const (v : Float) : Aff := ⟨v, zeros, 0⟩
-def zipW (f : Float → Float → Float) (u v : Array Float) : Array Float := (u.zip v).map fun (p, q) => f p q
+def zipW (f : Float → Float → Float) (u v : Array Float) : Array Float :=
+  let n := max u.size v.size
+  (Array.range n).map fun i => f (u.getD i 0) (v.getD i 0)
+
+initialize freshRef : IO.Ref Nat ← IO.mkRef 0
+/-- A fresh noise symbol index (unverified prototype: a global counter, threaded through a data dependency). -/
+@[noinline] unsafe def freshImpl (salt : Float) : Nat :=
+  unsafeBaseIO (freshRef.modifyGet fun n => (n + N + (if salt == salt then 0 else 1), n + 1))
+@[implemented_by freshImpl] opaque fresh (salt : Float) : Nat
+def FRESH : Bool := true
+/-- put `w` on a new noise symbol (or lump it into `e` when FRESH is off) -/
+def withFresh (x : Aff) (w : Float) : Aff :=
+  if !FRESH || w == 0 then { x with e := x.e + w } else
+  let k := fresh (x.c + w)
+  let a := if x.a.size ≤ k then x.a ++ Array.replicate (k + 1 - x.a.size) 0 else x.a
+  { x with a := a.set! k w }
 def add (x y : Aff) : Aff := ⟨x.c + y.c, zipW (· + ·) x.a y.a, x.e + y.e⟩
 def sub (x y : Aff) : Aff := ⟨x.c - y.c, zipW (· - ·) x.a y.a, x.e + y.e⟩
 def scale (s : Float) (x : Aff) : Aff := ⟨s * x.c, x.a.map (s * ·), s.abs * x.e⟩
 def addErr (x : Aff) (r : Float) : Aff := { x with e := x.e + r }
-def hull (x y : Aff) : Aff := let l := min x.lo y.lo; let h := max x.hi y.hi; ⟨(l + h) / 2, zeros, (h - l) / 2⟩
+/-- rounding errors also on fresh symbols (defined after `withFresh`) -/
+def hull (x y : Aff) : Aff := let l := min x.lo y.lo; let h := max x.hi y.hi; withFresh ⟨(l + h) / 2, zeros, 0⟩ ((h - l) / 2)
 /-- raw product `x y / 65536` floored (as `fmul`) -/
 def mulRaw (x y : Aff) : Aff :=
   let rx := x.rad - x.e; let ry := y.rad - y.e
   let c := x.c * y.c
   let a := zipW (fun p q => x.c * q + y.c * p) x.a y.a
-  let e := x.c.abs * y.e + y.c.abs * x.e + (rx + x.e) * (ry + y.e)
-  addErr (scale (1 / 65536) ⟨c, a, e⟩) 1
+  let e := x.c.abs * y.e + y.c.abs * x.e + x.e * (ry + y.e) + y.e * rx
+  withFresh (withFresh (scale (1 / 65536) ⟨c, a, e⟩) (rx * ry / 65536)) 1
 /-- secant linearisation of a unary raw function on the input range, residual by sampling -/
 def unary (f : Int → Int) (x : Aff) : Aff :=
   let l := x.lo; let h := x.hi
-  if h - l < 1 then addErr (const (Float.ofInt (f (Float.round x.c).toInt64.toInt))) (x.rad + 2) else
+  if h - l < 1 then withFresh (const (Float.ofInt (f (Float.round x.c).toInt64.toInt))) (x.rad + 2) else
   let fl := Float.ofInt (f l.ceil.toInt64.toInt); let fh := Float.ofInt (f h.floor.toInt64.toInt)
   let s := (fh - fl) / (h - l)
   let pts := (List.range 65).map fun k => l + (h - l) * k.toFloat / 64
@@ -44,7 +60,7 @@ def unary (f : Int → Int) (x : Aff) : Aff :=
   let rmin := res.foldl min 1e300; let rmax := res.foldl max (-1e300)
   let d := (rmax + rmin) / 2
   -- curvature between samples and rounding: 10 % of the residual band plus 2 raw
-  addErr ⟨s * x.c + d, x.a.map (s * ·), s.abs * x.e⟩ ((rmax - rmin) / 2 * 1.1 + 2 + s.abs * (h - l) / 64)
+  withFresh (withFresh ⟨s * x.c + d, x.a.map (s * ·), s.abs * x.e⟩ ((rmax - rmin) / 2 * 1.1 + s.abs * (h - l) / 64)) 2
 /-- secant linearisation of a real (Float) function, residual by sampling (no grid rounding) -/
 def unaryF (f : Float → Float) (x : Aff) : Aff :=
   let l := x.lo; let h := x.hi
@@ -54,7 +70,7 @@ def unaryF (f : Float → Float) (x : Aff) : Aff :=
   let res := pts.map fun t => f t - s * t
   let rmin := res.foldl min 1e300; let rmax := res.foldl max (-1e300)
   let d := (rmax + rmin) / 2
-  addErr ⟨s * x.c + d, x.a.map (s * ·), s.abs * x.e⟩ ((rmax - rmin) / 2 * 1.1 + 1e-9)
+  withFresh ⟨s * x.c + d, x.a.map (s * ·), s.abs * x.e⟩ ((rmax - rmin) / 2 * 1.1 + 1e-9)
 def decLt (x y : Aff) : Option Bool := if x.hi < y.lo then some true else if y.hi ≤ x.lo then some false else none
 def decLe (x y : Aff) : Option Bool := if x.hi ≤ y.lo then some true else if y.hi < x.lo then some false else none
 end Aff
@@ -65,13 +81,13 @@ instance : Scalar Aff where
   neg x := Aff.scale (-1) x
   mul := Aff.mulRaw
   div x y := -- fdiv: x 65536 / y = x * (2^32 / y) / 65536, floored
-    Aff.addErr (Aff.mulRaw x (Aff.unaryF (fun t => 4294967296 / t) y)) 1
+    Aff.withFresh (Aff.mulRaw x (Aff.unaryF (fun t => 4294967296 / t) y)) 1
   max x y := match Aff.decLe x y with | some true => y | some false => x | none => Aff.hull x y
   min x y := match Aff.decLe x y with | some true => x | some false => y | none => Aff.hull x y
   lit r := Aff.const (Float.ofInt r)
-  mulR x y := Aff.addErr (Aff.mulRaw x y) 1
-  shr x k := Aff.addErr (Aff.scale (1 / (2 ^ k.toFloat)) x) 1
-  ab3 a b c := Aff.addErr (Aff.scale (1 / 12) (Aff.add (Aff.sub (Aff.scale 23 a) (Aff.scale 16 b)) (Aff.scale 5 c))) 1
+  mulR x y := Aff.withFresh (Aff.mulRaw x y) 1
+  shr x k := Aff.withFresh (Aff.scale (1 / (2 ^ k.toFloat)) x) 1
+  ab3 a b c := Aff.withFresh (Aff.scale (1 / 12) (Aff.add (Aff.sub (Aff.scale 23 a) (Aff.scale 16 b)) (Aff.scale 5 c))) 1
   abs x := if 0 ≤ x.lo then x else if x.hi ≤ 0 then Aff.scale (-1) x else Aff.hull x (Aff.scale (-1) x)
   sqrt x := Aff.unary (fun t => (sqrtFx ⟨t⟩).raw) x
   atan2 w u := -- u > 0 on our boxes: atan(w/u)
@@ -83,10 +99,10 @@ instance : Scalar Aff where
   atm tab x := Aff.unary (fun v => (atmLookup tab ⟨v⟩).raw) x
   selLt a b t e := match Aff.decLt a b with | some true => t | some false => e | none => Aff.hull t e
   selLe a b t e := match Aff.decLe a b with | some true => t | some false => e | none => Aff.hull t e
-  rnC c s := Aff.addErr (Aff.mulRaw c (Aff.sub (Aff.const 98304)
-    (Aff.addErr (Aff.scale (1 / 2) (Aff.add (Aff.mulRaw c c) (Aff.mulRaw s s))) 1))) 1
-  rnS c s := Aff.addErr (Aff.mulRaw s (Aff.sub (Aff.const 98304)
-    (Aff.addErr (Aff.scale (1 / 2) (Aff.add (Aff.mulRaw c c) (Aff.mulRaw s s))) 1))) 1
+  rnC c s := Aff.withFresh (Aff.mulRaw c (Aff.sub (Aff.const 98304)
+    (Aff.withFresh (Aff.scale (1 / 2) (Aff.add (Aff.mulRaw c c) (Aff.mulRaw s s))) 1))) 1
+  rnS c s := Aff.withFresh (Aff.mulRaw s (Aff.sub (Aff.const 98304)
+    (Aff.withFresh (Aff.scale (1 / 2) (Aff.add (Aff.mulRaw c c) (Aff.mulRaw s s))) 1))) 1
 
 namespace PfAff
 open Ci.Lawfirst
