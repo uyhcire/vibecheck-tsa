@@ -67,6 +67,8 @@ pub struct Sim<'w> {
     /// The Lean city gate as plant and filter (`--safety-filter exact-rollout-lean`).
     #[cfg(feature = "jsb")]
     pub lean: Option<crate::leangate::LeanGate>,
+    #[cfg(feature = "jsb")]
+    pub env_p1x: Option<crate::p1x::P1x>,
 }
 
 impl<'w> Sim<'w> {
@@ -118,6 +120,7 @@ impl<'w> Sim<'w> {
             env_gate: None,
             #[cfg(feature = "jsb")]
             lean: None,
+            env_p1x: None,
         };
         #[cfg(feature = "jsb")]
         if crate::leangate::enabled() {
@@ -130,6 +133,9 @@ impl<'w> Sim<'w> {
             sim.s = p.state();
             if crate::envfilter::kind() == Some(crate::envfilter::Kind::Gate) {
                 sim.env_gate = Some(crate::envfilter::Gate::new(world, &p));
+            }
+            if crate::envfilter::kind() == Some(crate::envfilter::Kind::P1x) {
+                sim.env_p1x = Some(crate::p1x::P1x::new(world, &p));
             }
             if crate::envfilter::kind().is_some() {
                 sim.true_clear = world.airframe_clearance(&sim.s, 200.0);
@@ -286,6 +292,30 @@ impl<'w> Sim<'w> {
                 self.active_ticks += 1;
             }
             let ms = *gate.cpu_ms.last().unwrap_or(&0.0) as f64;
+            self.ms_sum += ms;
+            self.ms_max = self.ms_max.max(ms);
+            self.env_after_tick();
+            return;
+        }
+        if let Some(x) = self.env_p1x.as_mut() {
+            use crate::p1x::XMode;
+            let m = x.tick(self.world, plant, &u_p, dt, filter_on);
+            self.env_pred = x.shown.clone();
+            self.applied = x.applied;
+            self.fs.lam = x.lam;
+            self.fs.mode = match m {
+                XMode::Free if !filter_on => Mode::Off,
+                XMode::Free => Mode::Free,
+                XMode::Blend => Mode::Blend,
+                XMode::Commit => Mode::Commit,
+            };
+            if m != XMode::Free {
+                self.active_ticks += 1;
+            }
+            if m == XMode::Commit {
+                self.commit_ticks += 1;
+            }
+            let ms = *x.cpu_ms.last().unwrap_or(&0.0) as f64;
             self.ms_sum += ms;
             self.ms_max = self.ms_max.max(ms);
             self.env_after_tick();
@@ -480,6 +510,7 @@ pub fn start_verified(world: &World, s: &State) -> bool {
         let p = crate::jsb::JsbPlant::new(s);
         return match kind() {
             Some(Kind::Gate) => Gate::new(world, &p).witness.is_some(),
+            Some(Kind::P1x) => crate::p1x::P1x::new(world, &p).plan.is_some(),
             Some(k) => check(world, k, &p).0.is_some(),
             None => safe_h(world, s) >= 3.0,
         };

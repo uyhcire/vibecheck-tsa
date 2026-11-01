@@ -45,6 +45,7 @@ impl Fbw {
 }
 
 /// Random stick, biased nose-down, with random throttle.
+#[derive(Clone)]
 pub struct Hostile {
     rng: Rng,
     sp: f64,
@@ -72,6 +73,7 @@ impl Hostile {
 }
 
 /// Picks a building or terrain point and flies straight at it.
+#[derive(Clone)]
 pub struct Kamikaze {
     rng: Rng,
     pub target: [f64; 3],

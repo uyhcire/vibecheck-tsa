@@ -996,6 +996,15 @@ impl App {
                 }
                 return;
             }
+            if let Some(x) = &self.sim.env_p1x {
+                if self.show_paths {
+                    self.paths.push((x.shown.iter().map(v3f).collect(), x.shown_ok));
+                }
+                if let (false, Some(p)) = (x.mode == cityflight::p1x::XMode::Free, &x.plan) {
+                    self.plan_path = p.path.iter().map(v3f).collect();
+                }
+                return;
+            }
             self.plan_path = self.sim.env_pred.iter().map(v3f).collect();
             if self.show_paths {
                 if let Some(p) = &self.sim.jsb {
@@ -1276,6 +1285,11 @@ impl App {
         if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
             let e = g.law.or(g.witness).map(|l| l.esc);
             env = Some((format!("{k:?} exact rollout").to_lowercase(), e.map_or("none verified", |i| cityflight::envfilter::ESCAPES[i].name), *g.cpu_ms.last().unwrap_or(&0.0) as f64, g.witness.is_some() || g.law.is_some()));
+        }
+        #[cfg(feature = "jsb")]
+        if let Some(x) = &self.sim.env_p1x {
+            let e = x.plan.as_ref().map(|p| p.esc);
+            env = Some(("P1-exact blend + commit".into(), e.map_or("none verified", |i| cityflight::envfilter::ESCAPES[i].name), *x.cpu_ms.last().unwrap_or(&0.0) as f64, x.plan.is_some()));
         }
         let (h_txt, esc, ms) = match &env {
             Some((_, e, ms, ok)) => ((if *ok { "verified" } else { "none verified" }).to_string(), *e, *ms),
@@ -1595,6 +1609,8 @@ async fn main() {
     if let Some(n) = arg("--escapes").and_then(|s| s.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
+    #[cfg(feature = "jsb")]
+    cityflight::p1x::parse_args(&args);
     #[cfg(feature = "jsb")]
     if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);

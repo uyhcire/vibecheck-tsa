@@ -1,7 +1,7 @@
 //! Records the crashes of the hostile-pilot harness episodes (P1 filter on) as JSON for plotting.
 //! `cargo run --release --no-default-features --features jsb --bin crashes -- OUT_DIR [episodes] [--pm]
-//!   [--safety-filter exact|fitted|fitted25|exact-rollout|exact-rollout-lean] [--escapes 3|5|6] [--law cegis1|cegis2|lawfirst] [--budget FRAMES] [--time-cap MS] [--threads N] [--only EPISODE]
-//!   [--check-threads N [--verify-seeds]] [--scenario K [--pilot hostile|kamikaze|mixed]]`
+//!   [--safety-filter exact|fitted|fitted25|exact-rollout|exact-rollout-lean|p1-exact] [--escapes 3|5|6] [--law cegis1|cegis2|lawfirst] [--budget FRAMES] [--time-cap MS] [--threads N] [--only EPISODE]
+//!   [--check-threads N [--verify-seeds]] [--scenario K [--pilot hostile|kamikaze|mixed]] [--no-kamikaze] [--lead SECS]`
 //! (`--pm` flies the point-mass model instead of JSBSim.) `--scenario K` starts every episode at scenario K
 //! (1-5) instead of a random start; with K = 5 (Tower gap) the scripted showcase pilot flies one more.
 //! `--check-threads N` (N ≥ 1) has the gate check every escape to its full horizon on N threads
@@ -51,6 +51,20 @@ struct Stats {
     cpu_ms: Vec<f32>,
     wall_ms: Vec<f32>,
     frames: Vec<u32>,
+    /// Thread CPU per `Sim::tick` (ms), measured the same way for every filter.
+    tick_cpu: Vec<f32>,
+    active_ticks: u64,
+    /// Sums of |Δ elevator| and |Δ aileron| between ticks: all ticks, and ticks where the filter acts (this or the previous tick not free).
+    d_surf: [f64; 2],
+    n_surf: u64,
+    d_surf_act: [f64; 2],
+    n_surf_act: u64,
+    /// First tick (s) the filter was not free; -1 if never.
+    first_int: f64,
+    /// Lead times (s) from an intervention onset to the gate's first commit on a shadow run from the same state; onsets the gate did not commit on within `--lead` s.
+    leads: Vec<f32>,
+    no_commit: u64,
+    why: [u64; 3],
     /// Smoothness: switches into or out of a commit, re-commits that reverse the turn direction, flight
     /// time (s), and per tick the total variation and largest single-frame change of the surfaces applied
     /// to JSBSim (elevator, aileron, throttle).
@@ -88,7 +102,29 @@ enum PilotKind {
     Showcase,
 }
 
-fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<Rec>, Vec<(f64, Vec<[f32; 3]>)>, Stats) {
+/// Shadow gate from a snapshot taken just before an intervention onset, with the same pilot: seconds until it commits.
+fn shadow_gate(world: &World, snap: &(cityflight::jsb::JsbPlant, Fbw, Hostile, Kamikaze), pk: PilotKind, secs: f64) -> Option<f64> {
+    use cityflight::envfilter::Gate;
+    let mut q = snap.0.fork();
+    let (mut fbw, mut hostile, mut kami) = (snap.1, snap.2.clone(), snap.3.clone());
+    let mut g = Gate::new(world, &q);
+    let prm = Params::nominal();
+    for k in 0..(secs / DT_F).round() as u64 {
+        let s = q.state();
+        match pk {
+            PilotKind::Kamikaze => kami.update(world, &s, &mut fbw, DT_F),
+            _ => hostile.update(&mut fbw, DT_F),
+        }
+        let up = fbw.cmd(&prm, &s);
+        if !g.tick(world, &mut q, &up, DT_F, true) {
+            return Some(k as f64 * DT_F);
+        }
+        fbw.resync(&q.state(), 0.0, DT_F);
+    }
+    None
+}
+
+fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64, lead: f64) -> (bool, Vec<Rec>, Vec<(f64, Vec<[f32; 3]>)>, Stats) {
     let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed: e };
     let mut sim = Sim::new(world, s0, cfg);
     let mut fbw = Fbw::from_state(&s0);
@@ -100,14 +136,20 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
     let mut last_mode = Mode::Free;
     let (mut switches, mut tvs, mut jumps) = (0u64, Vec::new(), Vec::new());
     let mut tv0 = sim.jsb.as_ref().map(|p| p.tv).or(sim.lean.as_ref().map(|g| g.tv)).unwrap_or([0.0; 4]);
+    let mut st = Stats { first_int: -1.0, ..Default::default() };
+    let mut prev_surf: Option<[f64; 2]> = None;
+    let shadow = lead > 0.0 && pk != PilotKind::Showcase && cityflight::envfilter::kind() != Some(cityflight::envfilter::Kind::Gate);
     for _ in 0..(dur / DT_F).round() as u64 {
+        let snap = (shadow && last_mode == Mode::Free).then(|| (sim.jsb.as_ref().unwrap().fork(), fbw, hostile.clone(), kami.clone()));
         match pk {
             PilotKind::Kamikaze => kami.update(world, &sim.s, &mut fbw, DT_F),
             PilotKind::Hostile => hostile.update(&mut fbw, DT_F),
             PilotKind::Showcase => show.update(&sim.s, &mut fbw, DT_F),
         }
         let up = fbw.cmd(&sim.prm_ctrl, &sim.s);
+        let c0 = cityflight::envfilter::thread_cpu();
         sim.tick(up);
+        st.tick_cpu.push(((cityflight::envfilter::thread_cpu() - c0) * 1e3) as f32);
         let metrics = match (sim.jsb.as_mut(), sim.lean.as_mut()) {
             (Some(p), _) => Some((&mut p.tv, &mut p.jump)),
             (None, Some(g)) => Some((&mut g.tv, &mut g.jump)),
@@ -125,6 +167,32 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
             switches += 1;
         }
         fbw.resync(&sim.s, sim.fs.lam, DT_F);
+        let free = sim.fs.mode == Mode::Free;
+        if !free {
+            st.active_ticks += 1;
+            if st.first_int < 0.0 {
+                st.first_int = sim.time();
+            }
+        }
+        if let Some(p) = sim.jsb.as_ref() {
+            let sf = [p.surf[0], p.surf[1]];
+            if let Some(ps) = prev_surf {
+                let d = [(sf[0] - ps[0]).abs(), (sf[1] - ps[1]).abs()];
+                st.d_surf = [st.d_surf[0] + d[0], st.d_surf[1] + d[1]];
+                st.n_surf += 1;
+                if !free || last_mode != Mode::Free {
+                    st.d_surf_act = [st.d_surf_act[0] + d[0], st.d_surf_act[1] + d[1]];
+                    st.n_surf_act += 1;
+                }
+            }
+            prev_surf = Some(sf);
+        }
+        if let (Some(sn), false) = (snap.as_ref(), free) {
+            match shadow_gate(world, sn, pk, lead) {
+                Some(t) => st.leads.push(t as f32),
+                None => st.no_commit += 1,
+            }
+        }
         let alpha = sim.jsb.as_ref().map(|p| p.obs.alpha).or(sim.lean.as_ref().map(|g| g.obs.alpha)).unwrap_or(f64::NAN);
         let esc = sim.fs.plan.map_or(-1, |p| p.esc as i32);
         recs.push(Rec {
@@ -154,11 +222,19 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
             break;
         }
     }
-    let mut st = Stats { first_accept: sim.started_safe, ticks: sim.ticks, commit_ticks: sim.commit_ticks, ..Default::default() };
+    (st.first_accept, st.ticks, st.commit_ticks) = (sim.started_safe, sim.ticks, sim.commit_ticks);
     (st.switches, st.secs, st.tv, st.jump) = (switches, sim.time(), tvs, jumps);
     if let Some(g) = sim.lean.take() {
         st.first_accept = g.start_ok;
         st.wall_ms = g.wall_ms.clone();
+    }
+    if let Some(x) = sim.env_p1x.take() {
+        st.why = x.why;
+        st.first_accept = x.first_accept.unwrap_or(false);
+        st.blind_ticks = x.blind_ticks;
+        st.outcomes = x.outcomes;
+        (st.runs, st.short_runs) = (x.runs, x.short_runs);
+        (st.cpu_ms, st.wall_ms, st.frames) = (x.cpu_ms, x.wall_ms, x.frames);
     }
     if let Some(g) = sim.env_gate.take() {
         st.first_accept = g.first_accept.unwrap_or(false);
@@ -274,6 +350,7 @@ fn main() {
     if args.iter().any(|a| a == "--verify-seeds") {
         cityflight::envfilter::VERIFY_SEEDS.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    cityflight::p1x::parse_args(&args);
     std::fs::create_dir_all(&out).unwrap();
     let world = World::new(1337);
     let scen: Option<usize> = args.iter().position(|a| a == "--scenario").and_then(|i| args.get(i + 1)?.parse::<usize>().ok()).map(|k| k.clamp(1, SCENARIOS.len()) - 1);
@@ -286,7 +363,7 @@ fn main() {
                 let pk = if e % 4 == 3 { PilotKind::Kamikaze } else { PilotKind::Hostile };
                 jobs.push((format!("ep{e:03}"), e, random_start(&world, &mut rng), pk, secs));
             }
-            for id in 0..SCENARIOS.len() {
+            for id in (0..SCENARIOS.len()).filter(|_| !args.iter().any(|a| a == "--no-kamikaze")) {
                 jobs.push((format!("kamikaze-{}", SCENARIOS[id].replace(' ', "_")), 1000 + id as u64, scenario_start(&world, id), PilotKind::Kamikaze, secs));
             }
         }
@@ -307,6 +384,7 @@ fn main() {
             }
         }
     }
+    let lead: f64 = args.iter().position(|a| a == "--lead").and_then(|i| args.get(i + 1)?.parse().ok()).unwrap_or(0.0);
     let threads = args
         .iter()
         .position(|a| a == "--threads")
@@ -316,7 +394,7 @@ fn main() {
         jobs,
         threads,
         |(name, e, s0, pk, dur)| {
-            let (crashed, recs, plans, st) = run(&world, *e, *s0, *pk, *dur);
+            let (crashed, recs, plans, st) = run(&world, *e, *s0, *pk, *dur, lead);
             if crashed {
                 std::fs::write(format!("{out}/{name}.json"), json(&world, name, *e, *pk == PilotKind::Kamikaze, &recs, &plans)).unwrap();
             }
@@ -325,12 +403,19 @@ fn main() {
         },
         |_, _| {},
     );
-    let mut rows = String::from("name,crashed,t_end,first_accept,ticks,commit_ticks,blind_ticks,digest\n");
+    let mut rows = String::from("name,crashed,t_end,first_accept,ticks,commit_ticks,blind_ticks,digest,active_ticks,first_int,d_elev,d_ail,n_surf,d_elev_act,d_ail_act,n_surf_act,cpu_ms_sum,tv_elev,tv_ail,switches,secs\n");
     for (name, crashed, t, st) in &res {
         if *crashed {
             println!("{name} crashed at t={t:.1} ({} start)", if st.first_accept { "verified" } else { "unverified" });
         }
-        writeln!(rows, "{name},{crashed},{t:.2},{},{},{},{},{:016x}", st.first_accept, st.ticks, st.commit_ticks, st.blind_ticks, st.digest).unwrap();
+        let cpu: f64 = st.tick_cpu.iter().map(|&x| x as f64).sum();
+        let tv = |k: usize| st.tv.iter().map(|v| v[k] as f64).sum::<f64>();
+        writeln!(
+            rows,
+            "{name},{crashed},{t:.2},{},{},{},{},{:016x},{},{:.2},{:.4},{:.4},{},{:.4},{:.4},{},{cpu:.1},{:.4},{:.4},{},{:.2}",
+            st.first_accept, st.ticks, st.commit_ticks, st.blind_ticks, st.digest, st.active_ticks, st.first_int, st.d_surf[0], st.d_surf[1], st.n_surf, st.d_surf_act[0], st.d_surf_act[1], st.n_surf_act, tv(0), tv(1), st.switches, st.secs
+        )
+        .unwrap();
     }
     std::fs::write(format!("{out}/summary.csv"), rows).unwrap();
     let count = |f: &dyn Fn(&(String, bool, f64, Stats)) -> bool| res.iter().filter(|r| f(r)).count();
@@ -379,6 +464,27 @@ fn main() {
             pct(&mut jp, 0.99),
             pct(&mut jp, 1.0)
         );
+    }
+    let why: Vec<u64> = (0..3).map(|k| res.iter().map(|r| r.3.why[k]).sum()).collect();
+    if why.iter().any(|&w| w > 0) {
+        println!("p1-exact commits: blend check cut by budget {}, failed {}, hold too close {}", why[0], why[1], why[2]);
+    }
+    let active: u64 = res.iter().map(|r| r.3.active_ticks).sum();
+    println!("intervention (any): {:.2}% of ticks not free", 100.0 * active as f64 / ticks.max(1) as f64);
+    let sum2 = |f: &dyn Fn(&Stats) -> ([f64; 2], u64)| res.iter().fold(([0.0, 0.0], 0u64), |a, r| { let (d, n) = f(&r.3); ([a.0[0] + d[0], a.0[1] + d[1]], a.1 + n) });
+    let (d, n) = sum2(&|s| (s.d_surf, s.n_surf));
+    let (da, na) = sum2(&|s| (s.d_surf_act, s.n_surf_act));
+    println!("smoothness |d elev|, |d ail| per tick: all ticks {:.4} {:.4} ({n}); filter-acting ticks {:.4} {:.4} ({na})", d[0] / n.max(1) as f64, d[1] / n.max(1) as f64, da[0] / na.max(1) as f64, da[1] / na.max(1) as f64);
+    let mut leads: Vec<f32> = res.iter().flat_map(|r| r.3.leads.iter().copied()).collect();
+    let nc: u64 = res.iter().map(|r| r.3.no_commit).sum();
+    if !leads.is_empty() || nc > 0 {
+        let mean = leads.iter().map(|&x| x as f64).sum::<f64>() / leads.len().max(1) as f64;
+        println!("lead vs shadow gate: {} onsets, gate committed on {} (lead median {:.2} s, mean {mean:.2} s, p90 {:.2} s), not within {lead} s on {nc}", leads.len() as u64 + nc, leads.len(), pct(&mut leads, 0.5), pct(&mut leads, 0.9));
+    }
+    let mut tc: Vec<f32> = res.iter().flat_map(|r| r.3.tick_cpu.iter().copied()).collect();
+    if !tc.is_empty() {
+        let mean = tc.iter().map(|&x| x as f64).sum::<f64>() / tc.len() as f64;
+        println!("tick thread CPU ms: median {:.3}  mean {mean:.3}  p99 {:.3}  p99.9 {:.3}  max {:.3}", pct(&mut tc, 0.5), pct(&mut tc, 0.99), pct(&mut tc, 0.999), pct(&mut tc, 1.0));
     }
     let mut cpu: Vec<f32> = res.iter().flat_map(|r| r.3.cpu_ms.iter().copied()).collect();
     let mut wall: Vec<f32> = res.iter().flat_map(|r| r.3.wall_ms.iter().copied()).collect();

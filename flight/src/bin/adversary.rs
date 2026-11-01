@@ -146,6 +146,7 @@ fn verified_start(world: &World, s: &State) -> bool {
     let p = JsbPlant::new(s);
     match envfilter::kind() {
         Some(Kind::Gate) => envfilter::Gate::new(world, &p).witness.is_some(),
+        Some(Kind::P1x) => cityflight::p1x::P1x::new(world, &p).plan.is_some(),
         Some(k) => check(world, k, &p).0.is_some(),
         None => true,
     }
@@ -163,6 +164,7 @@ fn main() {
     if let Some(n) = args.iter().position(|a| a == "--escapes").and_then(|i| args.get(i + 1)?.parse().ok()) {
         envfilter::N_USED.store(n, Ordering::Relaxed);
     }
+    cityflight::p1x::parse_args(&args);
     let world = World::new(1337);
     let threads = args
         .iter()

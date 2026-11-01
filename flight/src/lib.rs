@@ -9,6 +9,8 @@ pub mod jsb;
 #[cfg(feature = "jsb")]
 pub mod leangate;
 pub mod model;
+#[cfg(feature = "jsb")]
+pub mod p1x;
 pub mod pilot;
 pub mod sim;
 pub mod world;
