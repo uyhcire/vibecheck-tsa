@@ -31,7 +31,7 @@ The richer search finds escapes from 26.6 m up, but not at every height in betwe
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -470.00,120.00,117.20,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest safe call, zero-margin gate, 109.9 m"
 ```
 
-- filter on: no crash; closest pass during the save **13.31 m** at t = 3.5 s; minimum over 25 s 0.10 m (filter takes over at t = 1.2 s, hands back at 1.2 s, 31 takeovers in all)
+- filter on: no crash; closest pass during the save **4.82 m** at t = 10.9 s; minimum over 25 s 0.43 m (filter takes over at t = 2.9 s, hands back at 6.0 s, 4 takeovers in all)
 - filter off (`--off`): no crash; minimum airframe clearance 5.3 m (filter never takes over)
 
 **Just-barely-unsafe twin**: 64.0 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
@@ -48,7 +48,7 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -470.00,120.00,128.34,45.00,0.000,0.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "03-canyon: closest call, deployed gate, 121.1 m"
 ```
 
-- filter on: no crash; closest pass during the save **15.90 m** at t = 8.4 s; minimum over 25 s 3.93 m (filter takes over at t = 1.6 s, hands back at 1.6 s, 48 takeovers in all)
+- filter on: no crash; closest pass during the save **5.30 m** at t = 10.9 s; minimum over 25 s 5.29 m (filter takes over at t = 2.9 s, hands back at 6.0 s, 6 takeovers in all)
 - filter off: no crash; minimum airframe clearance 6.1 m (filter never takes over)
 
 
@@ -58,15 +58,15 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 <!-- WILD -->
 ## In the wild
 
-Of the 22100 commit runs (filter takeovers) in the 200 hostile-pilot harness episodes, 2975 in 199 episodes fall in this regime (classified by the cause of the escape that got farthest, judged as the deployed gate judges it, with its 4 m margin, from the state where it rejected the pilot; `regimes wild`, `wild.csv`): helix blocked 1259, climb not settled 903, ray blocked by a building 813.
+Of the 2996 commit runs (filter takeovers) in the 200 hostile-pilot harness episodes, 1026 in 182 episodes fall in this regime (classified by the cause of the escape that got farthest, judged as the deployed gate judges it, with its 4 m margin, from the state where it rejected the pilot; `regimes wild`, `wild.csv`): helix blocked 512, climb not settled 479, ray blocked by a building 35.
 
 The three closest saves (lowest airframe clearance during the takeover):
 
 | Episode | Takeover at | Cause | Airspeed | Closest pass | Replay (from `flight/`) |
 |---|---|---|---|---|---|
-| 71 | t = 36.5 s | helix blocked | 40 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 71 --paths --cinematic --cam 0` |
-| 5 | t = 59.1 s | climb not settled | 32 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 5 --paths --cinematic --cam 0` |
-| 9 | t = 52.4 s | climb not settled | 30 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 9 --paths --cinematic --cam 0` |
+| 37 | t = 34.2 s | helix blocked | 58 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 37 --check-threads 0 --paths --cinematic --cam 0` |
+| 138 | t = 36.2 s | climb not settled | 32 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 138 --check-threads 0 --paths --cinematic --cam 0` |
+| 176 | t = 37.1 s | helix blocked | 43 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 176 --check-threads 0 --paths --cinematic --cam 0` |
 <!-- /WILD -->
 
 ## State of progress

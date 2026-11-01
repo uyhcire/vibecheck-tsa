@@ -31,16 +31,16 @@ The inner ridge south of the city (crest line `y = −2050`, about 285 m above t
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start 150.00,-1692.19,66.71,45.00,0.000,-90.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "05-ridge: closest safe call, zero-margin gate, 357.8 m"
 ```
 
-- filter on: no crash; closest pass during the save **28.56 m** at t = 8.5 s; minimum over 25 s 26.45 m (filter takes over at t = 0.5 s, hands back at 0.5 s, 12 takeovers in all)
+- filter on: no crash; closest pass during the save **32.24 m** at t = 8.7 s; minimum over 25 s 32.24 m (filter takes over at t = 2.9 s, hands back at 4.1 s, 6 takeovers in all)
 - filter off (`--off`): **crashes** at t = 6.4 s (filter never takes over; start not verified)
 
-**Just-barely-unsafe twin**: 8.0 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
+**Just-barely-unsafe twin**: 4.0 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
 
 ```sh
-cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start 150.00,-1700.19,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --label "05-ridge: unverified twin, 349.8 m"
+cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start 150.00,-1696.19,66.71,45.00,0.000,-90.000,0.000,0.70 --cinematic --cam 0 --paths --label "05-ridge: unverified twin, 353.8 m"
 ```
 
-- filter on: **crashes** at t = 6.0 s (filter takes over at t = 0.0 s; start not verified)
+- filter on: **crashes** at t = 6.7 s (filter takes over at t = 0.0 s; start not verified)
 
 **The deployed gate (4 m margin)** from its own acceptance marker (lead-in 3.00 s):
 
@@ -48,7 +48,7 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start 150.00,-1689.59,66.71,45.00,0.000,-90.000,0.000,0.70 --lead 3 --cinematic --cam 0 --paths --label "05-ridge: closest call, deployed gate, 360.4 m"
 ```
 
-- filter on: no crash; closest pass during the save **32.33 m** at t = 8.5 s; minimum over 25 s 30.46 m (filter takes over at t = 0.5 s, hands back at 0.5 s, 10 takeovers in all)
+- filter on: no crash; closest pass during the save **37.67 m** at t = 8.6 s; minimum over 25 s 37.67 m (filter takes over at t = 2.9 s, hands back at 3.5 s, 6 takeovers in all)
 - filter off: **crashes** at t = 6.5 s (filter never takes over; start not verified)
 
 **Closest proven-unsafe call**:
@@ -69,15 +69,15 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 <!-- WILD -->
 ## In the wild
 
-Of the 22100 commit runs (filter takeovers) in the 200 hostile-pilot harness episodes, 263 in 58 episodes fall in this regime (classified by the cause of the escape that got farthest, judged as the deployed gate judges it, with its 4 m margin, from the state where it rejected the pilot; `regimes wild`, `wild.csv`): terrain ahead 258, ray blocked by terrain 5.
+Of the 2996 commit runs (filter takeovers) in the 200 hostile-pilot harness episodes, 742 in 165 episodes fall in this regime (classified by the cause of the escape that got farthest, judged as the deployed gate judges it, with its 4 m margin, from the state where it rejected the pilot; `regimes wild`, `wild.csv`): ray blocked by terrain 656, terrain ahead 86.
 
 The three closest saves (lowest airframe clearance during the takeover):
 
 | Episode | Takeover at | Cause | Airspeed | Closest pass | Replay (from `flight/`) |
 |---|---|---|---|---|---|
-| 80 | t = 32.0 s | terrain ahead | 50 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 80 --paths --cinematic --cam 0` |
-| 183 | t = 15.6 s | terrain ahead | 45 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 183 --paths --cinematic --cam 0` |
-| 66 | t = 22.4 s | terrain ahead | 46 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 66 --paths --cinematic --cam 0` |
+| 146 | t = 45.6 s | ray blocked by terrain | 49 m/s | 3.9 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 146 --check-threads 0 --paths --cinematic --cam 0` |
+| 41 | t = 55.0 s | ray blocked by terrain | 32 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 41 --check-threads 0 --paths --cinematic --cam 0` |
+| 30 | t = 42.7 s | ray blocked by terrain | 41 m/s | 4.0 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 30 --check-threads 0 --paths --cinematic --cam 0` |
 <!-- /WILD -->
 
 ## State of progress

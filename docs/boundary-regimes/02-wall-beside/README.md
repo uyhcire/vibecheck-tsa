@@ -37,7 +37,7 @@ The west face of the park-side tower: box `x ∈ [−218.1, −186.2]`, `y ∈ [
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths --label "02a-wall-beside-park: closest safe call, zero-margin gate, 12.0 m"
 ```
 
-- filter on: no crash; closest pass during the save **0.00 m** at t = 1.6 s; minimum over 25 s 0.00 m (filter takes over at t = 0.1 s, hands back at 0.1 s, 12 takeovers in all)
+- filter on: no crash; closest pass during the save **0.03 m** at t = 1.6 s; minimum over 25 s 0.02 m (filter takes over at t = 0.1 s, hands back at 1.9 s, 3 takeovers in all)
 - filter off (`--off`): **crashes** at t = 0.7 s (filter never takes over; start not verified)
 
 **Just-barely-unsafe twin**: 0.5 m closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
@@ -54,7 +54,7 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -234.10,265.00,57.00,45.00,0.000,80.000,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02a-wall-beside-park: closest call, deployed gate, 16.0 m"
 ```
 
-- filter on: no crash; closest pass during the save **3.99 m** at t = 3.2 s; minimum over 25 s 3.99 m (filter takes over at t = 1.0 s, hands back at 1.5 s, 7 takeovers in all)
+- filter on: no crash; closest pass during the save **4.01 m** at t = 3.0 s; minimum over 25 s 4.01 m (filter takes over at t = 1.0 s, hands back at 1.4 s, 4 takeovers in all)
 - filter off: **crashes** at t = 2.7 s (filter never takes over; start not verified)
 
 **Closest proven-unsafe call**:
@@ -79,7 +79,7 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --margin 0 --check-every 1 --start -243.10,265.00,57.05,45.00,0.000,69.190,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: closest safe call, zero-margin gate, 20.8 deg"
 ```
 
-- filter on: no crash; closest pass during the save **0.00 m** at t = 3.2 s; minimum over 25 s 0.00 m (filter takes over at t = 0.8 s, hands back at 0.9 s, 10 takeovers in all)
+- filter on: no crash; closest pass during the save **0.08 m** at t = 3.2 s; minimum over 25 s 0.08 m (filter takes over at t = 1.5 s, hands back at 4.8 s, 8 takeovers in all)
 - filter off (`--off`): **crashes** at t = 2.7 s (filter never takes over; start not verified)
 
 **Just-barely-unsafe twin**: 0.5 deg closer than the proven-safe marker, no lead-in, same zero-margin gate. No escape verifies at the start, so the gate commits blind to the escape that got farthest:
@@ -96,7 +96,7 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --start -243.10,265.00,57.05,45.00,0.000,72.280,0.000,0.70 --lead 1.5 --cinematic --cam 0 --paths --label "02b-wall-beside-angle: closest call, deployed gate, 17.7 deg"
 ```
 
-- filter on: no crash; closest pass during the save **3.92 m** at t = 3.3 s; minimum over 25 s 3.92 m (filter takes over at t = 1.1 s, hands back at 1.8 s, 7 takeovers in all)
+- filter on: no crash; closest pass during the save **3.97 m** at t = 3.2 s; minimum over 25 s 3.97 m (filter takes over at t = 1.5 s, hands back at 3.4 s, 6 takeovers in all)
 - filter off: **crashes** at t = 2.8 s (filter never takes over; start not verified)
 
 
@@ -106,15 +106,15 @@ cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0
 <!-- WILD -->
 ## In the wild
 
-Of the 22100 commit runs (filter takeovers) in the 200 hostile-pilot harness episodes, 1892 in 132 episodes fall in this regime (classified by the cause of the escape that got farthest, judged as the deployed gate judges it, with its 4 m margin, from the state where it rejected the pilot; `regimes wild`, `wild.csv`): wall beside 1892.
+Of the 2996 commit runs (filter takeovers) in the 200 hostile-pilot harness episodes, 151 in 81 episodes fall in this regime (classified by the cause of the escape that got farthest, judged as the deployed gate judges it, with its 4 m margin, from the state where it rejected the pilot; `regimes wild`, `wild.csv`): wall beside 151.
 
 The three closest saves (lowest airframe clearance during the takeover):
 
 | Episode | Takeover at | Cause | Airspeed | Closest pass | Replay (from `flight/`) |
 |---|---|---|---|---|---|
-| 50 | t = 11.2 s | wall beside | 77 m/s | 3.5 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 50 --paths --cinematic --cam 0` |
-| 103 | t = 9.3 s | wall beside | 75 m/s | 3.6 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 103 --paths --cinematic --cam 0` |
-| 19 | t = 33.5 s | wall beside | 64 m/s | 3.6 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 19 --paths --cinematic --cam 0` |
+| 67 | t = 34.4 s | wall beside | 54 m/s | 3.8 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 67 --check-threads 0 --paths --cinematic --cam 0` |
+| 143 | t = 55.5 s | wall beside | 60 m/s | 3.9 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 143 --check-threads 0 --paths --cinematic --cam 0` |
+| 23 | t = 11.3 s | wall beside | 72 m/s | 3.9 m | `cargo run --release --features jsb -- --safety-filter exact-rollout --time-cap 0 --episode 23 --check-threads 0 --paths --cinematic --cam 0` |
 <!-- /WILD -->
 
 ## State of progress

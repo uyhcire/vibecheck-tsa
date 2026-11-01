@@ -35,16 +35,16 @@ Gaps are in the slice's unit and read left to right: **gate's own margin** = gat
 **How meaningful the outer bounds are.** Sound, under stated assumptions, but loose. They give a marker on 6 of the 10 slices: within 16 to 18 m of the best found on the dives, 80 m on the ridge (the tightest bracket relative to the distances involved, because the ridge is wide enough for the crossing test), 90 m and 108 m on the tower face (4.5 and 9 times closer than the best found), and on the wall beside only when already touching. They give nothing on the canyon (an open street), the angle slice and the two airspeed slices. With no load-factor cap the bound is looser than in the first pass (it now credits the full stall-limited lift, 9.6 g at 66 m/s), which moved the dive markers from 9 to 11 m down to 5 to 6 m. The looseness sources are named under "The outer bound" below.
 
 <!-- WILD -->
-**In the wild.** `regimes wild 200` flies the 200 hostile-pilot harness episodes under the deployed gate (4 m margin) and classifies each of its 22100 takeovers by the binding cause at the moment it rejected the pilot, judged as the gate judges it (all 200 episodes have takeovers; none crashed). The closest passes dip below 4 m because the gate checks clearance every 8 frames and the flight is sampled every 20 ms:
+**In the wild.** `regimes wild 200` flies the 200 hostile-pilot harness episodes under the deployed gate (4 m margin, with the budgeted sequential check `crashes` uses; replay with `--episode N --check-threads 0`) and classifies each of its 2996 takeovers by the binding cause at the moment it rejected the pilot, judged as the gate judges it (all 200 episodes have takeovers; none crashed). The closest passes dip below 4 m because the gate checks clearance every 8 frames and the flight is sampled every 20 ms:
 
 | Regime | Takeovers | Episodes | Closest pass |
 |---|---|---|---|
-| 01-terrain-roof-below | 16400 | 200 | 3.7 m (episode 91, t = 50.6 s) |
-| 02-wall-beside | 1892 | 132 | 3.5 m (episode 50, t = 11.2 s) |
-| 03-canyon | 2975 | 199 | 4.0 m (episode 71, t = 36.5 s) |
-| 04-wall-ahead | 298 | 91 | 3.9 m (episode 59, t = 47.1 s) |
-| 05-rising-terrain | 263 | 58 | 4.0 m (episode 80, t = 32.0 s) |
-| none (an unbudgeted check from that state verifies an escape; the gate's budgeted, round-robin check did not) | 272 | 116 | – |
+| 01-terrain-roof-below | 774 | 183 | 3.7 m (episode 78, t = 10.2 s) |
+| 02-wall-beside | 151 | 81 | 3.8 m (episode 67, t = 34.4 s) |
+| 03-canyon | 1026 | 182 | 4.0 m (episode 37, t = 34.2 s) |
+| 04-wall-ahead | 66 | 48 | 3.8 m (episode 91, t = 51.4 s) |
+| 05-rising-terrain | 742 | 165 | 3.9 m (episode 146, t = 45.6 s) |
+| none (an unbudgeted check from that state verifies an escape; the gate's budgeted check did not accept the pilot) | 237 | 96 | – |
 <!-- /WILD -->
 
 ## The markers
