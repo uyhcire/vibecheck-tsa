@@ -14,8 +14,11 @@ inductive Reach (F : Filter) : State × F.σ → Prop
   | init : Init s → Reach (s, F.start s)
   | step (u : PilotCmd) : Reach p → Reach (F.frame p u)   -- any pilot command; F decides what is applied
 
-def Safe (F : Filter) : Prop := ∀ p, Reach F p → ¬ Crash map p.1
+def Safe (F : Filter) : Prop := ∀ p u, Reach F p → u.Valid → ¬ SweptCrash map p.1 (F.frame p u).1
 ```
+
+`SweptCrash map s s'` is contact during the frame from `s` to `s'` (see "Contact is checked over each frame's
+sweep" below). `Safe F` also rules out `Crash` (contact at a single state) at every reachable state.
 
 - **The plant** is `JsbExact`, the bit-exact Lean port of JSBSim 1.3.3's c172p, stepped one JSBSim frame
   (1/128 s) at a time. JSBSim is the ground truth for this simulator.
@@ -53,13 +56,31 @@ fixed-point model. They are search aids and proof-route milestones, not safety r
 terminal-set claim (for example an envelope breach after entering T) is not a counterexample to `Safe F` unless it
 leads to a reachable crash.
 
-## Open questions for the Lean version
+## Decisions for the Lean version
 
-- **Airframe shape for contact.** Leading option: the convex hull of the 7 c172p contact points in the JSBSim
-  aircraft file (nose and main gear, nose, tail, both wingtips), which comes from the aircraft data rather than an
-  invented margin. It omits the top of the fin.
-- **Leaving the 6 km map.** Nothing to hit beyond the edge; terrain continuing past the edge; or leaving counts as a
-  crash. The current gate filter treats leaving the map as clear.
-- **When contact is checked.** At every JSBSim frame (as JSBSim itself does) or continuously between frames.
-- **Numbers.** Plant states are `Float`; the contact geometry is to be defined in exact arithmetic on the decoded
-  values.
+`Spec/CitySafety.lean` states these; `Spec/CitySafetyChecks.lean` checks them on a hand-made map.
+
+- **Airframe shape for contact.** The convex hull of the 7 contact points in the stock JSBSim c172p file (nose and
+  main gear, propeller hub, tail skid, both wingtips) and the 13 contact points FlightGear's c172p (FGData 2024.1)
+  has in its default configuration: its gear, tail skid, wingtips, broken-gear points, nose, nose top, cockpit top
+  and fin top. FlightGear decides crashes at exactly these points. They are shifted into the stock file's structural
+  frame by the mean offset of the three gear points both files share (0.56 in RMS residual) and kept separate in
+  the Lean file (`contactPoints ++ flightGearPoints`). FlightGear's wingtips (±232 in) are wider than the stock
+  file's and the published span (35.8 ft, ±214.8 in), and its nose points lie about 2 m ahead of the propeller
+  hub; both make the hull larger, which is conservative.
+- **Beyond the 6 km map, terrain continues the edge profile** (the clamp in `World::terrain`, 731 to 927 m on the
+  demo map). Leaving the map is neither a crash nor an escape. The current gate filter treats leaving the map as
+  clear, which is not sound under this definition.
+- **Contact is checked over each frame's sweep.** A frame crashes if the convex hull of the airframe points at its
+  two ends touches terrain or a building. That hull contains every point's straight-line path between the frames;
+  the plant has no state between frames that would define a curved path. A thin obstacle passed between two frames
+  therefore counts, though neither frame touches it.
+- **A NaN or infinite pose counts as a crash.**
+- **Touching counts as a crash:** terrain and buildings are closed sets.
+- **The map frame is the demo's.** East and north are ECEF y and z (the demo's `MapFrame` axes at latitude and
+  longitude 0) and up is altitude above sea level, computed for each airframe point with the plant's own formula
+  for the aircraft's altitude. Hulls are taken in these map coordinates, which follow the Earth's curvature; for the
+  12 m airframe a straight segment there differs from a straight segment in space by at most L²/8R, about 3 µm.
+- **Numbers.** Plant states are `Float`. Each airframe point's map position is the plant's own `Float` computation
+  (the same placement JSBSim uses for gear contact points), read exactly; hulls, terrain and buildings are exact
+  rational arithmetic from there.
