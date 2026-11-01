@@ -7,6 +7,23 @@
 
 `src/world.rs` embeds it with `include_bytes!`, so the demo and the harness need no network.
 
+## Imagery (rendering only)
+
+- **`sf_naip.jpg`**: the flyable square at 0.73 m per pixel (8192²), from
+  USDA NAIP via the USGS NAIP ImageServer. Fetch it with `fetch_naip.py`.
+  The ground and the roofs of buildings under 25 m show it.
+- **`backdrop.jpg` + `backdrop_dem.f32`**: the Bay Area around the map, drawn
+  beyond the flyable square: an 80 km square of NAIP imagery at 19.5 m per
+  pixel and USGS 3DEP terrain at 100 m (Mt Tam, the Marin Headlands, the
+  East Bay hills, SFO). Fetch it with `fetch_backdrop.py`.
+  - NAIP has no data over open ocean; the renderer paints those pixels as
+    water.
+  - The backdrop is visual only: the flyable square's edge is a wall to the
+    filter.
+
+Both scripts need Pillow and resume where they stopped. The USGS servers time
+out often; they retry. Both images are in the map frame, row 0 north.
+
 ## Regenerate
 
 ```sh
@@ -31,7 +48,8 @@ The map frame is UTM zone 10N (WGS84) easting and northing minus the origin's, i
 |---|---|---|
 | Building footprints and LiDAR heights (2010) | [DataSF Building Footprints](https://data.sfgov.org/Geographic-Locations-and-Boundaries/Building-Footprints/ynuv-fyni) | ODC PDDL |
 | Newer buildings and heights, streets, Bay Bridge | © OpenStreetMap contributors, via Overpass | ODbL |
-| Bare-earth terrain | USGS 3DEP (1 m, resampled to 20 m) | Public domain |
+| Bare-earth terrain | USGS 3DEP (1 m, resampled to 20 m and 100 m) | Public domain |
+| Aerial imagery | USDA NAIP via the USGS National Map | Public domain |
 
 ## How obstacles are built (`build.py`)
 

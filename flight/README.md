@@ -8,7 +8,9 @@ you can fly the same crash attempt with and without it.
 
 Native Rust: the simulation, filter and harness are a GUI-free library; the
 demo renders with macroquad, with terrain and buildings held in static GPU
-buffers through raw miniquad (about 120 fps at 2880×1800 with 4× MSAA on an M3 Max).
+buffers through raw miniquad, with sun shadows, a sky with aerial perspective, and
+sky reflections on glass and water (about 110–150 fps at 2880×1800 with 4× MSAA on
+an M3 Max).
 
 ## Run
 
@@ -44,13 +46,18 @@ Demo flags (handy for screenshots): `--map grid|sf`, `--scenario 1..4`,
   `data/sf/sf_world.bin`, compiled into the binary, so nothing downloads at
   run time. `data/sf/README.md` covers the sources, the frame, and how every
   step only ever enlarges obstacles.
-  - **Aerial photo (optional):** with `data/sf/sf_naip.jpg` present
-    (`python3 data/sf/fetch_naip.py`, USDA NAIP, public domain), the ground
-    and the roofs of low buildings show the real city. Without it, streets
-    are painted from OpenStreetMap.
-  - **Bay Bridge:** drawn as the bridge, with its collision curtain shown as
-    a faint glass envelope, because the filter keeps you outside that
-    envelope.
+  - **Aerial photo:** with `data/sf/sf_naip.jpg` (USDA NAIP, public
+    domain), the ground and the roofs of low buildings show the real city.
+    Without it, streets are painted from OpenStreetMap.
+  - **Bay Area backdrop:** with `data/sf/backdrop.jpg`, the 80 km around the
+    map is drawn with real terrain and imagery (Mt Tam, the Marin Headlands,
+    the East Bay hills). It's visual only; you fly inside the 6 km square.
+  - **Offline:** both load from disk at start, so the demo needs no network.
+    `data/sf/README.md` explains how to re-download them.
+  - **Bay Bridge and freeways:** drawn as the bridge (towers, deck, cables)
+    and as decks on pillars. Their collision curtains are conservative (no
+    flying under them). The bridge's curtain shows as a faint glass envelope
+    together with the escape paths (B).
 
 ## Controls
 

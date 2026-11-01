@@ -3,7 +3,9 @@
 //! Static geometry (terrain, buildings: ~2k boxes in the grid city, ~41k
 //! prisms in San Francisco) lives in immutable GPU buffers drawn through raw
 //! miniquad with one shader: a per-pixel sky, linear lighting with a filmic
-//! tone map, glass and water that reflect the sky, and aerial perspective.
+//! tone map, sun shadows from a shadow map (re-rendered as the camera moves;
+//! the city is static), glass and water that reflect the sky, and aerial
+//! perspective.
 //! Dynamic things (aircraft, escape paths, trail, HUD) go through macroquad.
 //! The simulation and the safety filter come from the library, the same code
 //! the headless harness runs. Tab switches maps; each loads once.
@@ -72,7 +74,22 @@ struct SU {
     dens: f32,
     water_z: f32,
     time: f32,
+    /// 1 when the ground texture is the aerial photo (already sunlit).
+    photo: f32,
+    /// World to shadow-map clip space (the sun's view).
+    svp: [f32; 16],
 }
+
+#[repr(C)]
+struct ShadowU {
+    svp: [f32; 16],
+}
+
+/// Shadow map: texels per side, half-size of the area it covers (m), and
+/// how far the camera moves before it is re-rendered (the city is static).
+const SHADOW_N: u32 = 4096;
+const SHADOW_HALF: f32 = 1600.0;
+const SHADOW_RECENTER: f32 = 300.0;
 
 #[repr(C)]
 struct SkyU {
@@ -91,6 +108,8 @@ const MAT_PLAIN: f32 = 4.0;
 const MAT_GLASS: f32 = 5.0;
 /// See-through safety envelope (drawn last, blended).
 const MAT_ENV: f32 = 6.0;
+/// San Francisco rowhouse facade (pastel, trimmed windows, garages).
+const MAT_ROW: f32 = 7.0;
 
 struct StaticScene {
     pipe: mq::Pipeline,
@@ -103,8 +122,16 @@ struct StaticScene {
     env_pipe: mq::Pipeline,
     env: mq::Bindings,
     env_n: i32,
+    /// San Francisco: the Bay Area beyond the flyable square (visual only).
+    back: Option<(mq::Bindings, i32)>,
     sun: Vec3,
     water_z: f32,
+    dens: f32,
+    photo: f32,
+    shadow_pipe: mq::Pipeline,
+    shadow_pass: mq::RenderPass,
+    shadow_at: std::cell::Cell<Option<Vec2>>,
+    svp: std::cell::Cell<Mat4>,
 }
 
 /// Shared shader code: sky radiance (linear), filmic tone map.
@@ -124,6 +151,20 @@ vec3 tonemap(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
 "#;
+
+/// Shadow pass: depth from the sun, packed into RGBA8 (portable on GL2).
+const VS_SHADOW: &str = r#"#version 100
+attribute vec3 in_pos;
+uniform mat4 svp;
+void main() { gl_Position = svp * vec4(in_pos, 1.0); }"#;
+
+const FS_SHADOW: &str = r#"#version 100
+precision highp float;
+void main() {
+    vec4 e = fract(gl_FragCoord.z * vec4(1.0, 255.0, 65025.0, 16581375.0));
+    e -= e.yzww * vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);
+    gl_FragColor = e;
+}"#;
 
 const VS: &str = r#"#version 100
 attribute vec3 in_pos;
@@ -157,12 +198,36 @@ uniform vec3 fog;
 uniform float dens;
 uniform float water_z;
 uniform float time;
+uniform float photo;
+uniform mat4 svp;
+uniform sampler2D shadow;
 varying highp vec3 v_pos;
 varying mediump vec3 v_nrm;
 varying mediump vec3 v_col;
 varying highp vec2 v_uv;
 varying mediump float v_win;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// Sun visibility from the shadow map: 4 taps, nudged along the normal
+// against acne; outside the map's area everything is lit.
+float sunlit(vec3 p, vec3 n) {
+    vec4 c = svp * vec4(p + n * 0.6, 1.0);
+    vec3 q = c.xyz / c.w * 0.5 + 0.5;
+    if (q.x <= 0.0 || q.x >= 1.0 || q.y <= 0.0 || q.y >= 1.0 || q.z >= 1.0) return 1.0;
+    float lit = 0.0;
+    for (int i = 0; i < 4; i++) {
+        vec2 o = vec2(i == 1 || i == 3 ? 0.6 : -0.6, i >= 2 ? 0.6 : -0.6) / 4096.0;
+        vec4 e = texture2D(shadow, q.xy + o);
+        float z = dot(e, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+        lit += q.z - 0.00025 <= z ? 0.25 : 0.0;
+    }
+    return mix(lit, 1.0, smoothstep(0.42, 0.49, max(abs(q.x - 0.5), abs(q.y - 0.5))));
+}
 // 1 on [a, b] of a period (x in 0..1), edges blurred over `fw` periods.
 float pulse(float x, float a, float b, float fw) {
     fw = max(fw, 1e-3);
@@ -173,61 +238,101 @@ void main() {
     vec3 vd = v_pos - cam;
     float d = length(vd);
     vec3 v = -vd / d;
-    float mat = v_win;
+    int m = int(v_win + 0.5);
     vec3 alb;
-    if (mat < 0.5) alb = lin(texture2D(tex, v_uv).rgb) * lin(v_col);
-    else if (mat < 2.5 && mat > 1.5) alb = lin(texture2D(tex, v_uv).rgb) * 1.05;
+    if (m == 0) alb = lin(texture2D(tex, v_uv).rgb) * lin(v_col);
+    else if (m == 2) alb = lin(texture2D(tex, v_uv).rgb) * 1.05;
     else alb = lin(v_col);
-    bool wall = (mat > 0.5 && mat < 1.5) || mat > 4.5;
+    bool wall = (m == 1 || m == 5 || m == 7) && abs(n.z) < 0.5;
     float ao = 1.0;
-    if (wall || (mat > 3.5 && mat < 4.5)) ao = 0.5 + 0.5 * smoothstep(0.0, 14.0, v_uv.y);
+    if (m == 1 || m == 4 || m == 5 || m == 7) ao = 0.5 + 0.5 * smoothstep(0.0, 14.0, v_uv.y);
+    if (m == 3) {
+        // Plain roofs: gravel and membrane patches, rooftop units, all fading
+        // to their average with distance.
+        vec2 rp = v_pos.xy;
+        float near = 1.0 - smoothstep(300.0, 1200.0, d);
+        float patchy = vnoise(rp / 7.0) * 0.18 + vnoise(rp / 1.7) * 0.08;
+        vec2 cell = floor(rp / 9.0);
+        vec2 f = fract(rp / 9.0);
+        float unit = step(0.72, hash(cell + 3.1)) * step(0.25, f.x) * step(f.x, 0.62) * step(0.3, f.y) * step(f.y, 0.7);
+        alb *= mix(1.0, 0.86 + patchy, near);
+        alb = mix(alb, lin(vec3(0.62, 0.63, 0.64)), unit * near * 0.8);
+    }
     float gloss = 0.0;
     float tint = 1.0;
     // Facades: window stripes filtered over the pixel's footprint on the
     // wall (it grows with distance), fading to their average far away.
-    if (wall && abs(n.z) < 0.5) {
+    // Walls carry (world position along the wall, height above the base),
+    // so coincident walls of overlapping buildings draw the same pattern.
+    if (wall) {
         float s = v_uv.x;
         float hb = v_uv.y;
         float px = d * 0.0007;
-        float fl = fract(hb / 3.6);
-        float ff = px / 3.6;
         float w;
-        float mean;
-        if (mat > 4.5) {
+        if (m == 5) {
+            float fl = fract(hb / 3.6);
+            float ff = px / 3.6;
             float cl = fract(s / 1.55);
             float fc = px / 1.55;
-            w = pulse(cl, 0.05, 0.95, fc) * pulse(fl, 0.24, 1.0, ff);
-            mean = 0.68;
-            w = mix(w, mean, smoothstep(0.12, 0.45, max(fc, ff)));
+            w = mix(pulse(cl, 0.05, 0.95, fc), 0.9, smoothstep(0.12, 0.45, fc))
+              * mix(pulse(fl, 0.24, 1.0, ff), 0.76, smoothstep(0.12, 0.45, ff));
             alb *= 0.55;
+        } else if (m == 7) {
+            float fl = fract(hb / 3.3);
+            float ff = px / 3.3;
+            float cl = fract(s / 2.6);
+            float fc = px / 2.6;
+            float k = smoothstep(0.12, 0.45, max(ff, fc));
+            float win = pulse(fl, 0.30, 0.82, ff) * pulse(cl, 0.24, 0.62, fc);
+            float frame = pulse(fl, 0.24, 0.88, ff) * pulse(cl, 0.18, 0.68, fc) - win;
+            frame = mix(frame, 0.12, k);
+            w = mix(win, 0.2, k);
+            alb = mix(alb, lin(vec3(0.95, 0.94, 0.90)), clamp(frame, 0.0, 1.0) * 0.85);
+            if (hb < 2.9) {
+                // Garage doors and entries at street level.
+                float g = pulse(fract(s / 7.6), 0.12, 0.52, px / 7.6) * step(hb, 2.5);
+                alb = mix(alb, lin(vec3(0.42, 0.40, 0.37)), g * (1.0 - k));
+                w = 0.0;
+            }
         } else {
+            float fl = fract(hb / 3.6);
+            float ff = px / 3.6;
             float cl = fract(s / 3.1);
             float fc = px / 3.1;
             if (hb < 4.2) {
                 w = pulse(hb / 4.2, 0.12, 0.86, px / 4.2) * pulse(cl, 0.06, 0.94, fc);
-                mean = 0.65;
+                w = mix(w, 0.65, smoothstep(0.12, 0.45, fc));
             } else {
-                w = pulse(fl, 0.30, 0.86, ff) * pulse(cl, 0.18, 0.82, fc);
-                mean = 0.36;
+                w = mix(pulse(fl, 0.30, 0.86, ff), 0.56, smoothstep(0.12, 0.45, ff))
+                  * mix(pulse(cl, 0.18, 0.82, fc), 0.64, smoothstep(0.12, 0.45, fc));
             }
-            w = mix(w, mean, smoothstep(0.12, 0.45, max(fc, ff)));
         }
         gloss = w;
         tint = 0.85 + 0.3 * hash(vec2(floor(hb / 3.6), floor(s / 3.1)));
     }
-    float diff = max(dot(n, sun), 0.0);
+    float sh = m == 6 ? 1.0 : sunlit(v_pos, n);
+    float diff = max(dot(n, sun), 0.0) * sh;
     vec3 sunc = vec3(1.0, 0.93, 0.82) * 2.0;
     vec3 amb = mix(vec3(0.09, 0.085, 0.08), vec3(0.17, 0.23, 0.36), 0.5 + 0.5 * n.z);
     vec3 col = alb * (amb * ao + sunc * diff * (0.55 + 0.45 * ao));
+    // The aerial photo already holds the day's light and shadows: keep it,
+    // with only slope shading from our sun.
+    bool photo_px = (m == 0 && photo > 0.5) || m == 2;
+    // (The photo's own shadows are baked in: ours only half-darken it.)
+    if (photo_px) col = pow(alb, vec3(1.2)) * (0.5 + 0.6 * max(dot(n, sun), 0.0) * mix(1.0, sh, 0.55));
     if (gloss > 0.0) {
         vec3 r = reflect(-v, n);
-        float fres = 0.05 + 0.95 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+        float f0 = m == 5 ? 0.12 : 0.16;
+        float fres = f0 + (1.0 - f0) * pow(1.0 - max(dot(n, v), 0.0), 5.0);
         vec3 rc = r.z > 0.0 ? sky(r, sun, fog) : lin(vec3(0.30, 0.30, 0.31)) * (amb + sunc * 0.3);
-        vec3 glass = lin(vec3(0.06, 0.09, 0.12)) * (amb + sunc * diff * 0.3) + rc * fres * tint;
-        glass += sunc * pow(max(dot(r, sun), 0.0), 300.0) * 1.5;
-        col = mix(col, glass, gloss * 0.9);
+        vec3 body = m == 5 ? vec3(0.10, 0.14, 0.18) : vec3(0.16, 0.18, 0.21);
+        // Blinds, curtains and lit rooms: each window a little different.
+        body *= 0.65 + 0.7 * hash(vec2(floor(v_uv.y / 3.6), floor(v_uv.x / 3.1)) + 7.3);
+        vec3 glass = lin(body) * (amb + sunc * diff * 0.3) + rc * fres * tint;
+        glass += sunc * pow(max(dot(r, sun), 0.0), 300.0) * 1.5 * sh;
+        col = mix(col, glass, gloss * (m == 7 ? 0.75 : 0.9));
     }
-    if (mat < 0.5 && v_pos.z <= water_z + 0.05) {
+    if (m == 0 && v_pos.z <= water_z + 0.05) {
         // Sum of a few travelling waves in different directions, calming
         // with distance (no visible repetition far out).
         vec2 p = v_pos.xy;
@@ -241,12 +346,12 @@ void main() {
         vec3 r = reflect(-v, wn);
         float fres = 0.02 + 0.98 * pow(1.0 - max(dot(wn, v), 0.0), 5.0);
         vec3 deep = alb * (amb + sunc * 0.35);
-        col = mix(deep, sky(r, sun, fog), fres) + sunc * pow(max(dot(r, sun), 0.0), 500.0) * 2.5;
+        col = mix(deep, sky(r, sun, fog), fres) + sunc * pow(max(dot(r, sun), 0.0), 500.0) * 2.5 * sh;
     }
     float hz = max(0.5 * (cam.z + v_pos.z), 0.0);
     float f = 1.0 - exp(-d * dens * exp(-hz / 900.0));
     col = mix(col, sky(-v, sun, fog), clamp(f, 0.0, 1.0));
-    float alpha = mat > 5.5 ? 0.07 + 0.25 * pow(1.0 - abs(dot(n, v)), 2.0) : 1.0;
+    float alpha = m == 6 ? 0.05 + 0.18 * pow(1.0 - abs(dot(n, v)), 2.0) : 1.0;
     gl_FragColor = vec4(sqrt(tonemap(col)), alpha);
 }"#;
 
@@ -285,7 +390,7 @@ fn mix3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
 }
 
-/// Albedo of the ground at (x, y), with static sun shadows from buildings.
+/// Albedo of the ground at (x, y) (shadows come from the shadow map).
 fn ground_color(w: &World, x: f64, y: f64) -> [f64; 3] {
     let h = w.terrain(x, y);
     let gx = w.terrain(x + 5.0, y) - w.terrain(x - 5.0, y);
@@ -332,24 +437,6 @@ fn ground_color(w: &World, x: f64, y: f64) -> [f64; 3] {
             } else {
                 c = mix3([0.58, 0.56, 0.52], [0.66, 0.64, 0.60], speck);
             }
-        }
-    }
-    // Sun shadows cast by buildings onto the ground.
-    if x.abs() < 1450.0 && y.abs() < 1450.0 {
-        let s = sun_n();
-        let hl = ((s.x * s.x + s.y * s.y) as f64).sqrt();
-        let (sx, sy, te) = (s.x as f64 / hl, s.y as f64 / hl, s.z as f64 / hl);
-        let mut t = 3.0;
-        while t < 600.0 {
-            let hz = h + t * te;
-            if hz > 470.0 {
-                break;
-            }
-            if w.surface(x + sx * t, y + sy * t) > hz + 0.3 {
-                c = [c[0] * 0.52, c[1] * 0.55, c[2] * 0.62];
-                break;
-            }
-            t += 3.0;
         }
     }
     c
@@ -399,8 +486,8 @@ fn street_mask(w: &World) -> Vec<u8> {
     m
 }
 
-/// San Francisco ground: bay water, paved lots, OSM streets, sun shadows
-/// from the buildings.
+/// San Francisco ground without the aerial photo: bay water, paved lots,
+/// OSM streets (shadows come from the shadow map).
 fn ground_color_sf(w: &World, street: u8, x: f64, y: f64) -> [f64; 3] {
     let h = w.terrain(x, y);
     let speck = hash01((x / 6.0).floor() as i64, (y / 6.0).floor() as i64);
@@ -408,28 +495,12 @@ fn ground_color_sf(w: &World, street: u8, x: f64, y: f64) -> [f64; 3] {
         let ripple = 0.5 + 0.5 * ((x * 0.013 + y * 0.007).sin() * (y * 0.011 - x * 0.005).cos());
         return mix3([0.12, 0.26, 0.35], [0.16, 0.32, 0.41], 0.6 * ripple + 0.4 * speck);
     }
-    let mut c = match street {
+    match street {
         1 => [0.62, 0.61, 0.58],
         2 => mix3([0.21, 0.21, 0.23], [0.26, 0.26, 0.28], speck * 0.5),
         3 => [0.85, 0.85, 0.82],
         _ => mix3([0.54, 0.53, 0.49], [0.62, 0.61, 0.57], speck),
-    };
-    let s = sun_for(MapId::SanFrancisco);
-    let hl = ((s.x * s.x + s.y * s.y) as f64).sqrt();
-    let (sx, sy, te) = (s.x as f64 / hl, s.y as f64 / hl, s.z as f64 / hl);
-    let mut t = 3.0;
-    while t < 600.0 {
-        let hz = h + t * te;
-        if hz > 340.0 {
-            break;
-        }
-        if w.surface(x + sx * t, y + sy * t) > hz + 0.3 {
-            c = [c[0] * 0.52, c[1] * 0.55, c[2] * 0.62];
-            break;
-        }
-        t += 3.0;
     }
-    c
 }
 
 fn terrain_texture(w: &World) -> Vec<u8> {
@@ -459,6 +530,36 @@ fn terrain_texture(w: &World) -> Vec<u8> {
     px
 }
 
+/// San Francisco mid-rise colours: light stucco, concrete, some brick.
+fn sf_midrise_color(t: f32) -> [f32; 3] {
+    const PAL: [[f32; 3]; 7] = [
+        [0.88, 0.86, 0.81],
+        [0.80, 0.78, 0.74],
+        [0.92, 0.90, 0.85],
+        [0.74, 0.70, 0.64],
+        [0.70, 0.50, 0.42],
+        [0.84, 0.82, 0.78],
+        [0.66, 0.68, 0.70],
+    ];
+    PAL[((t * 6.999) as usize).min(6)]
+}
+
+/// San Francisco rowhouse colours (painted wood and stucco).
+fn rowhouse_color(t: f32) -> [f32; 3] {
+    const PAL: [[f32; 3]; 9] = [
+        [0.93, 0.89, 0.80],
+        [0.72, 0.81, 0.88],
+        [0.76, 0.86, 0.79],
+        [0.91, 0.79, 0.76],
+        [0.95, 0.88, 0.64],
+        [0.68, 0.72, 0.77],
+        [0.94, 0.94, 0.91],
+        [0.74, 0.77, 0.67],
+        [0.86, 0.80, 0.70],
+    ];
+    PAL[((t * 8.999) as usize).min(8)]
+}
+
 fn building_color(b: &Building) -> [f32; 3] {
     match b.kind {
         Kind::Bridge => return [0.62, 0.78, 0.95],
@@ -475,6 +576,162 @@ fn building_color(b: &Building) -> [f32; 3] {
     } else {
         pal_low[((t * 4.999) as usize).min(4)]
     }
+}
+
+/// How a building is drawn: base and top (for the window grid and its
+/// class) and colour variation, shared by everything it overlaps.
+#[derive(Clone, Copy)]
+struct Look {
+    base: f64,
+    top: f64,
+    tint: f32,
+}
+
+/// Rendering cleanup; the collision geometry is untouched. DataSF and OSM
+/// overlap, and so do the convex pieces of one footprint, which leaves
+/// coplanar faces that flicker (z-fighting) when they differ in colour.
+///  - Pieces inside another piece that is at least as tall are not drawn.
+///  - Needle-thin slivers (under 0.5 m wide or 1 m^2) are not drawn.
+///  - Overlapping pieces whose roofs are within 1 m share one look, so any
+///    remaining coplanar faces draw identically.
+fn render_looks(w: &World) -> Vec<Option<Look>> {
+    let n = w.boxes.len();
+    let outlines: Vec<Vec<[f64; 2]>> = w.boxes.iter().map(|b| w.outline(b)).collect();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    let mut hidden = vec![false; n];
+    let solid = |b: &Building| b.kind == Kind::Building || b.kind == Kind::BridgeTower;
+    for (k, o) in outlines.iter().enumerate() {
+        let (mut area, mut width) = (0.0, f64::INFINITY);
+        for e in 0..o.len() {
+            let (p, q) = (o[e], o[(e + 1) % o.len()]);
+            area += p[0] * q[1] - q[0] * p[1];
+            let (ex, ey) = (q[0] - p[0], q[1] - p[1]);
+            let l = (ex * ex + ey * ey).sqrt().max(1e-9);
+            let ext = o.iter().map(|r| ((r[0] - p[0]) * ey - (r[1] - p[1]) * ex).abs() / l).fold(0.0, f64::max);
+            width = width.min(ext);
+        }
+        if solid(&w.boxes[k]) && (0.5 * area < 1.0 || width < 0.5) {
+            hidden[k] = true;
+        }
+    }
+    // Candidate pairs from a 40 m grid over the footprints' bounding boxes.
+    const C: f64 = 40.0;
+    let mut grid: std::collections::HashMap<(i32, i32), Vec<usize>> = std::collections::HashMap::new();
+    for (k, b) in w.boxes.iter().enumerate() {
+        if !solid(b) {
+            continue;
+        }
+        for j in (b.y0 / C).floor() as i32..=(b.y1 / C).floor() as i32 {
+            for i in (b.x0 / C).floor() as i32..=(b.x1 / C).floor() as i32 {
+                grid.entry((i, j)).or_default().push(k);
+            }
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for cell in grid.values() {
+        for (ia, &a) in cell.iter().enumerate() {
+            for &b in &cell[ia + 1..] {
+                let (ba, bb) = (&w.boxes[a], &w.boxes[b]);
+                if ba.x1 < bb.x0 || bb.x1 < ba.x0 || ba.y1 < bb.y0 || bb.y1 < ba.y0 || !seen.insert((a.min(b), a.max(b))) {
+                    continue;
+                }
+                if !convex_overlap(&outlines[a], &outlines[b]) {
+                    continue;
+                }
+                let inside = |x: usize, y: usize| outlines[x].iter().all(|q| pt_poly_dist2(*q, &outlines[y]) < 1e-6);
+                if w.boxes[a].z1 <= w.boxes[b].z1 + 0.05 && inside(a, b) {
+                    hidden[a] = true;
+                } else if w.boxes[b].z1 <= w.boxes[a].z1 + 0.05 && inside(b, a) {
+                    hidden[b] = true;
+                }
+                if (w.boxes[a].z1 - w.boxes[b].z1).abs() < 1.0 {
+                    let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+                    parent[ra] = rb;
+                }
+            }
+        }
+    }
+    let mut group: Vec<Option<Look>> = vec![None; n];
+    for k in 0..n {
+        let r = find(&mut parent, k);
+        let b = &w.boxes[k];
+        let g = group[r].get_or_insert(Look { base: f64::INFINITY, top: f64::NEG_INFINITY, tint: w.boxes[r].tint });
+        g.base = g.base.min(b.z0 + 1.5);
+        g.top = g.top.max(b.z1);
+    }
+    (0..n)
+        .map(|k| {
+            if hidden[k] {
+                return None;
+            }
+            let r = find(&mut parent, k);
+            let b = &w.boxes[k];
+            if !solid(b) {
+                return Some(Look { base: b.z0 + 1.5, top: b.z1, tint: b.tint });
+            }
+            group[r]
+        })
+        .collect()
+}
+
+/// Do two convex polygons overlap with positive area (separating axes)?
+fn convex_overlap(a: &[[f64; 2]], b: &[[f64; 2]]) -> bool {
+    for poly in [a, b] {
+        for e in 0..poly.len() {
+            let (p, q) = (poly[e], poly[(e + 1) % poly.len()]);
+            let (nx, ny) = (q[1] - p[1], p[0] - q[0]);
+            let l = (nx * nx + ny * ny).sqrt().max(1e-12);
+            let proj = |s: &[[f64; 2]]| s.iter().map(|r| (r[0] * nx + r[1] * ny) / l).fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| (lo.min(v), hi.max(v)));
+            let ((a0, a1), (b0, b1)) = (proj(a), proj(b));
+            if a1 <= b0 + 0.05 || b1 <= a0 + 0.05 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Elevated freeways as they look: a deck 6 m below the top of their
+/// collision curtain (which reaches 24 m above the ground) on pillars every
+/// slice.
+fn viaduct_meshes(w: &World, bv: &mut Vec<SV>, bi: &mut Vec<u32>, ev: &mut Vec<SV>, ei: &mut Vec<u32>) {
+    let concrete = [0.66, 0.65, 0.62];
+    let env = [0.80, 0.82, 0.85];
+    for b in w.boxes.iter().filter(|b| b.kind == Kind::Viaduct) {
+        let o = w.outline(b);
+        let n = o.len();
+        let ground = b.z0 + 1.5;
+        let top = (b.z1 - 6.0).max(ground + 7.0) as f32;
+        let deck0 = top - 2.2;
+        for e in 0..n {
+            push_quad(bv, bi, o[e], o[(e + 1) % n], [deck0, deck0, top, top], concrete, MAT_PLAIN);
+        }
+        let i0 = bv.len() as u32;
+        for q in &o {
+            bv.push(SV { pos: [q[0] as f32, q[1] as f32, top], nrm: [0.0, 0.0, 1.0], col: [0.30, 0.30, 0.32], uv: [0.5, 0.5], win: MAT_ROOF });
+        }
+        for t in 1..n.saturating_sub(1) as u32 {
+            bi.extend_from_slice(&[i0, i0 + t, i0 + t + 1]);
+        }
+        // One pillar at the slice centre.
+        let c = [o.iter().map(|q| q[0]).sum::<f64>() / n as f64, o.iter().map(|q| q[1]).sum::<f64>() / n as f64];
+        let r = 1.2;
+        let sq = [[c[0] - r, c[1] - r], [c[0] + r, c[1] - r], [c[0] + r, c[1] + r], [c[0] - r, c[1] + r]];
+        let g = b.z0 as f32;
+        for e in 0..4 {
+            push_quad(bv, bi, sq[e], sq[(e + 1) % 4], [g, g, deck0, deck0], concrete, MAT_PLAIN);
+        }
+    }
+    // (Their collision curtains are not drawn: they reach only 6 m above the
+    // deck, and drawn see-through they read as ghost walls across SoMa.)
+    let _ = (ev, ei, env);
 }
 
 /// Push a vertical quad from `p` to `q` (ground track), `z0..z1`.
@@ -597,6 +854,37 @@ fn bridge_meshes(w: &World, bv: &mut Vec<SV>, bi: &mut Vec<u32>) -> (Vec<SV>, Ve
     (ev, ei)
 }
 
+/// Backdrop extent (half-size, m), terrain grid (nodes, spacing).
+const BACK_HALF: f64 = 40000.0;
+const BACK_N: usize = 801;
+const BACK_SP: f64 = 100.0;
+
+/// The Bay Area backdrop (`data/sf/fetch_backdrop.py`): terrain heights
+/// (row 0 south) and RGBA imagery (row 0 south), or `None` if missing.
+/// NAIP has no data over open ocean; those (black) pixels become water.
+fn sf_backdrop() -> Option<(Vec<f32>, Vec<u8>, usize)> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/data/sf/");
+    let raw = std::fs::read(format!("{dir}backdrop_dem.f32")).ok()?;
+    if raw.len() != BACK_N * BACK_N * 4 {
+        return None;
+    }
+    let dem: Vec<f32> = raw.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap()).max(SF_WATER as f32)).collect();
+    let bytes = std::fs::read(format!("{dir}backdrop.jpg")).ok()?;
+    let img = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).ok()?.to_rgba8();
+    let n = img.width() as usize;
+    let raw = img.into_raw();
+    let mut px = vec![0u8; raw.len()];
+    for r in 0..n {
+        px[r * n * 4..(r + 1) * n * 4].copy_from_slice(&raw[(n - 1 - r) * n * 4..(n - r) * n * 4]);
+    }
+    for c in px.chunks_exact_mut(4) {
+        if c[0] < 10 && c[1] < 10 && c[2] < 10 {
+            c[..3].copy_from_slice(&[52, 92, 108]);
+        }
+    }
+    Some((dem, px, n))
+}
+
 /// San Francisco aerial photo (USDA NAIP via USGS, public domain), RGBA with
 /// row 0 at the map's south edge; `None` if the file is missing.
 fn sf_photo() -> Option<(Vec<u8>, usize)> {
@@ -671,27 +959,29 @@ impl StaticScene {
         // aerial photo, which is the real roof.
         let mut bv: Vec<SV> = Vec::with_capacity(w.boxes.len() * 26);
         let mut bi: Vec<u32> = Vec::with_capacity(w.boxes.len() * 42);
-        for b in &w.boxes {
-            let col = building_color(b);
-            let roof = [col[0] * 0.62 + 0.08, col[1] * 0.62 + 0.08, col[2] * 0.62 + 0.09];
-            let base = b.z0 + 1.5;
-            let height = b.z1 - base;
-            if b.kind == Kind::Bridge {
+        let looks = render_looks(w);
+        let sf = w.map == MapId::SanFrancisco;
+        for (k, b) in w.boxes.iter().enumerate() {
+            if b.kind == Kind::Bridge || b.kind == Kind::Viaduct {
                 continue;
             }
-            let (wall_mat, roof_mat) = match b.kind {
-                Kind::Building if has_photo && height < 25.0 => (MAT_WALL, MAT_ROOF_PHOTO),
-                Kind::Building if height > 60.0 => (MAT_GLASS, MAT_ROOF),
-                Kind::Building => (MAT_WALL, MAT_ROOF),
-                _ => (MAT_PLAIN, MAT_ROOF),
+            let Some(look) = looks[k] else { continue };
+            let height = look.top - look.base;
+            let (wall_mat, roof_mat, col) = match b.kind {
+                Kind::Building if sf && height < 20.0 => (MAT_ROW, if has_photo { MAT_ROOF_PHOTO } else { MAT_ROOF }, rowhouse_color(look.tint)),
+                Kind::Building if sf && height <= 60.0 => (MAT_WALL, if has_photo && height < 30.0 { MAT_ROOF_PHOTO } else { MAT_ROOF }, sf_midrise_color(look.tint)),
+                Kind::Building if has_photo && height < 25.0 => (MAT_WALL, MAT_ROOF_PHOTO, building_color(&Building { tint: look.tint, ..*b })),
+                Kind::Building if height > 60.0 => (MAT_GLASS, MAT_ROOF, building_color(&Building { tint: look.tint, z0: look.base - 1.5, z1: look.top, ..*b })),
+                Kind::Building => (MAT_WALL, MAT_ROOF, building_color(&Building { tint: look.tint, ..*b })),
+                _ => (MAT_PLAIN, MAT_ROOF, building_color(b)),
             };
+            let roof = [col[0] * 0.62 + 0.08, col[1] * 0.62 + 0.08, col[2] * 0.62 + 0.09];
             let poly = w.outline(b);
             let n = poly.len();
             let (z0, z1) = (b.z0 as f32, b.z1 as f32);
-            let (h0, h1) = ((b.z0 - base) as f32, height as f32);
-            let mut along = 0.0f32;
-            for k in 0..n {
-                let (p, q) = (poly[k], poly[(k + 1) % n]);
+            let (h0, h1) = ((b.z0 - look.base) as f32, (b.z1 - look.base) as f32);
+            for e in 0..n {
+                let (p, q) = (poly[e], poly[(e + 1) % n]);
                 let (ex, ey) = ((q[0] - p[0]) as f32, (q[1] - p[1]) as f32);
                 let l = (ex * ex + ey * ey).sqrt();
                 if l < 1e-4 {
@@ -699,32 +989,51 @@ impl StaticScene {
                 }
                 let nrm = [ey / l, -ex / l, 0.0];
                 let (px, py, qx, qy) = (p[0] as f32, p[1] as f32, q[0] as f32, q[1] as f32);
+                // Window grid anchored to the world, not to this piece.
+                let s0 = (px * ex + py * ey) / l;
                 let i0 = bv.len() as u32;
                 for (pos, uv) in [
-                    ([px, py, z0], [along, h0]),
-                    ([qx, qy, z0], [along + l, h0]),
-                    ([qx, qy, z1], [along + l, h1]),
-                    ([px, py, z1], [along, h1]),
+                    ([px, py, z0], [s0, h0]),
+                    ([qx, qy, z0], [s0 + l, h0]),
+                    ([qx, qy, z1], [s0 + l, h1]),
+                    ([px, py, z1], [s0, h1]),
                 ] {
                     bv.push(SV { pos, nrm, col, uv, win: wall_mat });
                 }
                 bi.extend_from_slice(&[i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3]);
-                along += l;
             }
             let i0 = bv.len() as u32;
             let rc = if roof_mat == MAT_ROOF_PHOTO { [1.0, 1.0, 1.0] } else { roof };
             for p in &poly {
                 bv.push(SV { pos: [p[0] as f32, p[1] as f32, z1], nrm: [0.0, 0.0, 1.0], col: rc, uv: uv_of(p[0], p[1]), win: roof_mat });
             }
-            for k in 1..n.saturating_sub(1) as u32 {
-                bi.extend_from_slice(&[i0, i0 + k, i0 + k + 1]);
+            for t in 1..n.saturating_sub(1) as u32 {
+                bi.extend_from_slice(&[i0, i0 + t, i0 + t + 1]);
             }
         }
-        let (ev, ei) = bridge_meshes(w, &mut bv, &mut bi);
+        let (mut ev, mut ei) = bridge_meshes(w, &mut bv, &mut bi);
+        viaduct_meshes(w, &mut bv, &mut bi, &mut ev, &mut ei);
+        // Shadow map: packed depth in a colour texture, plus a depth buffer.
+        let shadow_tex = ctx.new_render_texture(mq::TextureParams {
+            format: mq::TextureFormat::RGBA8,
+            wrap: mq::TextureWrap::Clamp,
+            min_filter: mq::FilterMode::Nearest,
+            mag_filter: mq::FilterMode::Nearest,
+            width: SHADOW_N,
+            height: SHADOW_N,
+            ..Default::default()
+        });
+        let shadow_depth = ctx.new_render_texture(mq::TextureParams {
+            format: mq::TextureFormat::Depth,
+            width: SHADOW_N,
+            height: SHADOW_N,
+            ..Default::default()
+        });
+        let shadow_pass = ctx.new_render_pass(shadow_tex, Some(shadow_depth));
         let mk = |ctx: &mut dyn mq::RenderingBackend, v: &[SV], i: &[u32], img: mq::TextureId| mq::Bindings {
             vertex_buffers: vec![ctx.new_buffer(mq::BufferType::VertexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(v))],
             index_buffer: ctx.new_buffer(mq::BufferType::IndexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(i)),
-            images: vec![img],
+            images: vec![img, shadow_tex],
         };
         let terr = mk(ctx, &tv, &ti, tex);
         let bld = mk(ctx, &bv, &bi, tex);
@@ -734,7 +1043,7 @@ impl StaticScene {
             .new_shader(
                 mq::ShaderSource::Glsl { vertex: VS, fragment: &fs },
                 mq::ShaderMeta {
-                    images: vec!["tex".to_string()],
+                    images: vec!["tex".to_string(), "shadow".to_string()],
                     uniforms: mq::UniformBlockLayout {
                         uniforms: vec![
                             mq::UniformDesc::new("mvp", mq::UniformType::Mat4),
@@ -744,6 +1053,8 @@ impl StaticScene {
                             mq::UniformDesc::new("dens", mq::UniformType::Float1),
                             mq::UniformDesc::new("water_z", mq::UniformType::Float1),
                             mq::UniformDesc::new("time", mq::UniformType::Float1),
+                            mq::UniformDesc::new("photo", mq::UniformType::Float1),
+                            mq::UniformDesc::new("svp", mq::UniformType::Mat4),
                         ],
                     },
                 },
@@ -782,6 +1093,24 @@ impl StaticScene {
                 ..Default::default()
             },
         );
+        let shadow_shader = ctx
+            .new_shader(
+                mq::ShaderSource::Glsl { vertex: VS_SHADOW, fragment: FS_SHADOW },
+                mq::ShaderMeta { images: vec![], uniforms: mq::UniformBlockLayout { uniforms: vec![mq::UniformDesc::new("svp", mq::UniformType::Mat4)] } },
+            )
+            .expect("shadow shader");
+        let shadow_pipe = ctx.new_pipeline(
+            &[mq::BufferLayout::default()],
+            &[
+                mq::VertexAttribute::new("in_pos", mq::VertexFormat::Float3),
+                mq::VertexAttribute::new("in_nrm", mq::VertexFormat::Float3),
+                mq::VertexAttribute::new("in_col", mq::VertexFormat::Float3),
+                mq::VertexAttribute::new("in_uv", mq::VertexFormat::Float2),
+                mq::VertexAttribute::new("in_win", mq::VertexFormat::Float1),
+            ],
+            shadow_shader,
+            mq::PipelineParams { depth_test: mq::Comparison::LessOrEqual, depth_write: true, ..Default::default() },
+        );
         // Sky: one screen-covering triangle; each pixel looks up its view ray.
         let sky_fs = frag(FS_SKY);
         let sky_shader = ctx
@@ -812,6 +1141,57 @@ impl StaticScene {
             index_buffer: ctx.new_buffer(mq::BufferType::IndexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(&[0u16, 1, 2])),
             images: vec![],
         };
+        // Bay Area backdrop: an 80 km terrain grid around the flyable square,
+        // drawn first with its own far camera. It reaches 100 m under the
+        // square's edge (and sinks 3 m there), so no crack shows; the square
+        // is drawn over it.
+        let back = if w.map == MapId::SanFrancisco { sf_backdrop() } else { None }.map(|(dem, px, n)| {
+            let h = |i: usize, j: usize| dem[j.min(BACK_N - 1) * BACK_N + i.min(BACK_N - 1)];
+            let inner = MAP_HALF - BACK_SP;
+            let mut v = Vec::with_capacity(BACK_N * BACK_N);
+            for j in 0..BACK_N {
+                for i in 0..BACK_N {
+                    let (x, y) = (-BACK_HALF + i as f64 * BACK_SP, -BACK_HALF + j as f64 * BACK_SP);
+                    let dx = h(i + 1, j) - h(i.saturating_sub(1), j);
+                    let dy = h(i, j + 1) - h(i, j.saturating_sub(1));
+                    let nn = vec3(-dx, -dy, 2.0 * BACK_SP as f32).normalize();
+                    // On and inside the square's edge, follow the map's own
+                    // terrain (2 m below it), so the two meet without a step.
+                    let z = if x.abs() <= MAP_HALF + 1.0 && y.abs() <= MAP_HALF + 1.0 { w.terrain(x, y) as f32 - 2.0 } else { h(i, j) };
+                    let uv = [((x + BACK_HALF) / (2.0 * BACK_HALF)) as f32, ((y + BACK_HALF) / (2.0 * BACK_HALF)) as f32];
+                    v.push(SV { pos: [x as f32, y as f32, z], nrm: [nn.x, nn.y, nn.z], col: [1.0, 1.0, 1.0], uv, win: MAT_GROUND });
+                }
+            }
+            let mut idx: Vec<u32> = Vec::with_capacity(BACK_N * BACK_N * 6);
+            for j in 0..BACK_N - 1 {
+                for i in 0..BACK_N - 1 {
+                    let (x0, y0) = (-BACK_HALF + i as f64 * BACK_SP, -BACK_HALF + j as f64 * BACK_SP);
+                    if x0 >= -inner - 1.0 && x0 + BACK_SP <= inner + 1.0 && y0 >= -inner - 1.0 && y0 + BACK_SP <= inner + 1.0 {
+                        continue;
+                    }
+                    let a = (j * BACK_N + i) as u32;
+                    let (b, c, d) = (a + 1, a + BACK_N as u32 + 1, a + BACK_N as u32);
+                    idx.extend_from_slice(&[a, b, c, a, c, d]);
+                }
+            }
+            let t = ctx.new_texture(
+                mq::TextureAccess::Static,
+                mq::TextureSource::Bytes(&px),
+                mq::TextureParams {
+                    format: mq::TextureFormat::RGBA8,
+                    wrap: mq::TextureWrap::Clamp,
+                    min_filter: mq::FilterMode::Linear,
+                    mag_filter: mq::FilterMode::Linear,
+                    mipmap_filter: mq::MipmapFilterMode::Linear,
+                    width: n as u32,
+                    height: n as u32,
+                    allocate_mipmaps: true,
+                    ..Default::default()
+                },
+            );
+            ctx.texture_generate_mipmaps(t);
+            (mk(ctx, &v, &idx, t), idx.len() as i32)
+        });
         let water_z = if w.map == MapId::SanFrancisco { SF_WATER as f32 } else { -1.0e4 };
         StaticScene {
             pipe,
@@ -824,15 +1204,44 @@ impl StaticScene {
             env_pipe,
             env,
             env_n: ei.len() as i32,
+            back,
             sun: sun_for(w.map),
             water_z,
+            // San Francisco on a clear day: the far hills stay visible.
+            dens: if w.map == MapId::SanFrancisco { 1.0 / 24000.0 } else { 1.0 / 9000.0 },
+            photo: if has_photo { 1.0 } else { 0.0 },
+            shadow_pipe,
+            shadow_pass,
+            shadow_at: std::cell::Cell::new(None),
+            svp: std::cell::Cell::new(Mat4::IDENTITY),
         }
     }
 
-    fn draw(&self, cam: &Camera3D) {
+    /// `show_envelope`: also draw the bridge's collision envelope (with the
+    /// escape paths, B).
+    fn draw(&self, cam: &Camera3D, show_envelope: bool) {
         let mut gl = unsafe { get_internal_gl() };
         gl.flush();
         let ctx = gl.quad_context;
+        // Re-render the sun's depth view around the camera once it has moved
+        // far enough (everything static shares one shadow map).
+        let here = vec2(cam.position.x, cam.position.y);
+        if self.shadow_at.get().map_or(true, |c| c.distance(here) > SHADOW_RECENTER) {
+            let c3 = vec3(here.x, here.y, 0.0);
+            let view = Mat4::look_at_rh(c3 + self.sun * 2500.0, c3, Vec3::Z);
+            let svp = Mat4::orthographic_rh_gl(-SHADOW_HALF, SHADOW_HALF, -SHADOW_HALF, SHADOW_HALF, 1.0, 5000.0) * view;
+            ctx.begin_pass(Some(self.shadow_pass), mq::PassAction::Clear { color: Some((1.0, 1.0, 1.0, 1.0)), depth: Some(1.0), stencil: None });
+            ctx.apply_pipeline(&self.shadow_pipe);
+            let su = ShadowU { svp: svp.to_cols_array() };
+            for b in [&self.terr, &self.bld] {
+                ctx.apply_bindings(b);
+                ctx.apply_uniforms(mq::UniformsSource::table(&su));
+                ctx.draw(0, if std::ptr::eq(b, &self.terr) { self.terr_n } else { self.bld_n }, 1);
+            }
+            ctx.end_render_pass();
+            self.svp.set(svp);
+            self.shadow_at.set(Some(here));
+        }
         let vp = cam.matrix();
         let sky = SkyU { ivp: vp.inverse().to_cols_array(), cam: cam.position.to_array(), sun: self.sun.to_array(), fog: FOG };
         let u = SU {
@@ -840,15 +1249,30 @@ impl StaticScene {
             cam: cam.position.to_array(),
             sun: self.sun.to_array(),
             fog: FOG,
-            dens: 1.0 / 9000.0,
+            dens: self.dens,
             water_z: self.water_z,
             time: get_time() as f32,
+            photo: self.photo,
+            svp: self.svp.get().to_cols_array(),
         };
         ctx.begin_default_pass(mq::PassAction::Nothing);
         ctx.apply_pipeline(&self.sky_pipe);
         ctx.apply_bindings(&self.sky);
         ctx.apply_uniforms(mq::UniformsSource::table(&sky));
         ctx.draw(0, 3, 1);
+        if let Some((b, n)) = &self.back {
+            // Same view, a far projection; then clear depth so the flyable
+            // square (always nearer: it is convex and the camera is inside)
+            // draws over it with full depth precision.
+            let aspect = cam.aspect.unwrap_or(screen_width() / screen_height());
+            let far = Mat4::perspective_rh_gl(cam.fovy, aspect, 20.0, 120_000.0) * Mat4::look_at_rh(cam.position, cam.target, cam.up);
+            let ub = SU { mvp: far.to_cols_array(), ..u };
+            ctx.apply_pipeline(&self.pipe);
+            ctx.apply_bindings(b);
+            ctx.apply_uniforms(mq::UniformsSource::table(&ub));
+            ctx.draw(0, *n, 1);
+            ctx.clear(None, Some(1.0), None);
+        }
         ctx.apply_pipeline(&self.pipe);
         ctx.apply_bindings(&self.terr);
         ctx.apply_uniforms(mq::UniformsSource::table(&u));
@@ -856,7 +1280,7 @@ impl StaticScene {
         ctx.apply_bindings(&self.bld);
         ctx.apply_uniforms(mq::UniformsSource::table(&u));
         ctx.draw(0, self.bld_n, 1);
-        if self.env_n > 0 {
+        if show_envelope && self.env_n > 0 {
             ctx.apply_pipeline(&self.env_pipe);
             ctx.apply_bindings(&self.env);
             ctx.apply_uniforms(mq::UniformsSource::table(&u));
@@ -1314,7 +1738,9 @@ impl App {
                 (cam, p + f * 25.0, Vec3::Z)
             }
         };
-        Camera3D { position: pos, target, up, fovy: 1.0, z_near: 0.5, z_far: 16000.0, ..Default::default() }
+        // A near plane farther out buys depth precision for distant roofs.
+        let z_near = if self.cam_mode == 1 { 0.8 } else { 2.0 };
+        Camera3D { position: pos, target, up, fovy: 1.0, z_near, z_far: 16000.0, ..Default::default() }
     }
 
 
@@ -1695,7 +2121,7 @@ async fn main() {
 
         let cam = app.camera(dt as f32);
         clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
-        scene.draw(&cam);
+        scene.draw(&cam, app.show_paths);
         app.draw_world_dynamic(&cam);
         set_default_camera();
         app.draw_tint();
