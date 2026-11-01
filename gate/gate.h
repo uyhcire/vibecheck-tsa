@@ -61,7 +61,7 @@ typedef struct {
   uint32_t check_frames;        // JsbExact frames simulated this tick
   double cpu_ms, wall_ms;       // this tick's cost: thread CPU and wall clock
   double map_pos[3];            // the aircraft in map coordinates (x east, y north, z above origin_alt_m)
-  double clearance;             // airframe clearance from terrain and buildings now (m); infinite off the map
+  double clearance;             // airframe clearance from terrain and buildings now (m); off the map the terrain continues the edge profile
 } gate_result;
 
 // Returns NULL and sets *err on failure. Builds the map (about a second).
