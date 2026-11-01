@@ -266,6 +266,9 @@ def main():
     ap.add_argument("--toggle-button", type=int, default=4, help="HOTAS button that toggles the filter (the stick button labelled 2 reports as 4; 1 = trigger)")
     ap.add_argument("--kamikaze-button", type=int, default=3, help="HOTAS button that toggles the kamikaze autopilot")
     ap.add_argument("--kamikaze", action="store_true", help="start with the kamikaze autopilot flying (tests)")
+    ap.add_argument("--hostile", action="store_true", help="the crate's random nose-down pilot flies (tests)")
+    ap.add_argument("--predictor", choices=["crate", "c172p"], default="crate",
+                    help="what the filter assumes the aircraft can do: the crate's aircraft with mismatch margins (default) or a Cessna")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -294,7 +297,7 @@ def main():
     if args.filter == "bcbf":
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir
         from bcbf import Bcbf
-        bcbf = Bcbf()
+        bcbf = Bcbf(preset=args.predictor)
         bcbf_on = not args.filter_off
         kamikaze = args.kamikaze
         print(f"backup CBF loaded; button {args.toggle_button} toggles it (starts {'ON' if bcbf_on else 'off'})")
@@ -392,7 +395,7 @@ def main():
                     kamikaze = not kamikaze
                     print(f"\n*** KAMIKAZE AUTOPILOT {'ON' if kamikaze else 'OFF'} ***", flush=True)
                 last_buttons = pressed
-                el, ai, th = bcbf.tick(fdm, pitch, roll, thr, bcbf_on, frame, kamikaze)
+                el, ai, th = bcbf.tick(fdm, pitch, roll, thr, bcbf_on, frame, kamikaze, args.hostile)
                 fdm["fcs/elevator-cmd-norm"], fdm["fcs/aileron-cmd-norm"], fdm["fcs/throttle-cmd-norm"] = el, ai, th
                 fdm["fcs/rudder-cmd-norm"] = -yaw
             else:

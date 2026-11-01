@@ -52,7 +52,19 @@ X-Plane's own downtown is procedural autogen and does not match the footprints, 
 - The stick button labelled 2 (USB button 4) toggles the filter in flight (`--toggle-button`; the filter starts active, `--filter-off` starts it off); USB button 3 toggles the crate's kamikaze autopilot (`--kamikaze-button`), which dives at the nearest tall building.
 - The status line shows `cbf ON/off`, the filter mode (free, BLEND, COMMIT), the barrier `h` (clearance of the best escape) and the true clearance from the crate's world.
 - The obstacle set is the crate's `flight/data/sf/sf_world.bin` (41,000 convex prisms, terrain, Bay Bridge, viaducts). `build_xplane_scenery.py --world flight/data/sf/sf_world.bin` renders exactly that in X-Plane. The flight ends when the crate's true clearance goes negative.
-- The filter predicts with the crate's point-mass model, not JSBSim. Its Phase 3 margins (`robust`, the default; `--nominal` in `filterd` turns them off) exist for that mismatch, but the crate's guarantee does not transfer. Measured here, hands off with the kamikaze autopilot: filter off crashes in 12 s; filter on survived 125 s with a 3 m minimum clearance.
+- The filter predicts with the crate's point-mass model, not JSBSim. Its Phase 3 margins (`robust`, the default; `--nominal` in `filterd` turns them off) exist for that mismatch, but the crate's guarantee does not transfer. `--predictor c172p` makes the predictor assume a Cessna (25 deg/s roll, 2 g, slow lags, less thrust) instead.
+- Measured offline, 150 s runs, hands off (`--hostile` = the crate's random nose-down pilot, `--kamikaze` = dives at buildings):
+
+  | pilot | filter | predictor | result |
+  | --- | --- | --- | --- |
+  | hostile | off | | crashed at 10 s |
+  | hostile | on | crate | survived, 3 m minimum clearance |
+  | hostile | on | c172p | survived, 4 m minimum clearance |
+  | kamikaze | off | | crashed at 12 s |
+  | kamikaze | on | crate | survived 125 s, 3 m minimum clearance |
+  | kamikaze | on | c172p | crashed at 62 s |
+
+  A human diving at 127 kt to 60 ft down a street crashed with the filter on: from there no escape the predictor believes in is flyable by the Cessna. The filter stops you reaching such states only if it is on before you get there, and only as far as the plant follows its model; switching it on late shows `NO ESCAPE`.
 - The downtown scenario starts inside the crate's 6 km map (`x = 2700 m`), 1.1 NM east of downtown.
 
 ## Which JSBSim model

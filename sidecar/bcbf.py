@@ -24,6 +24,14 @@ R_EARTH = 6_371_000.0
 # Inner-loop gains (per g, per g-second, per rad/s). ponytail: hand-tuned on the c172p step test below.
 KN, KI, KQ = 0.8, 0.6, 0.25
 KA, KAI = 2.5, 4.0
+# What the filter's predictor assumes the aircraft can do. "crate" is the branch's own light aircraft with its
+# Phase 3 mismatch margins; "c172p" is what the Cessna behind these inner loops actually delivers
+# (roll ~25 deg/s, 2 g, slow lags, ~1500 N static thrust, ~90 kW to the prop).
+PRESETS = {
+    "crate": [],
+    "c172p": ["--pmax", "25", "--nmax", "2.0", "--tau-n", "0.5", "--tau-p", "0.35", "--tau-thr", "1.0",
+              "--t-static", "1500", "--power", "90000"],
+}
 
 
 def from_local(x, y):
@@ -88,10 +96,10 @@ class InnerLoops:
 
 
 class Bcbf:
-    def __init__(self, robust=True, map_name="sf"):
+    def __init__(self, robust=True, map_name="sf", preset="crate"):
         if not os.path.exists(FILTERD):
             sys.exit(f"{FILTERD} missing: cd flight && cargo build --release --no-default-features --bin filterd")
-        self.proc = subprocess.Popen([FILTERD, "--map", map_name] + ([] if robust else ["--nominal"]),
+        self.proc = subprocess.Popen([FILTERD, "--map", map_name] + ([] if robust else ["--nominal"]) + PRESETS[preset],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         self.loops = InnerLoops()
         self.on = False
@@ -101,12 +109,12 @@ class Bcbf:
 
     MODES = ["off", "free", "BLEND", "COMMIT"]
 
-    def tick(self, fdm, pitch, roll, throttle, on, dt, kamikaze=False):
+    def tick(self, fdm, pitch, roll, throttle, on, dt, kamikaze=False, hostile=False):
         """One filter tick. Sticks in -1..1 (pitch + = back), throttle 0..1. Returns (elevator, aileron, throttle)."""
         self.on = on
         s = model_state(fdm)
         self.kamikaze = kamikaze
-        self.proc.stdin.write(" ".join(f"{v:.6f}" for v in s) + f" {pitch:.4f} {roll:.4f} {throttle:.4f} {int(on)} {int(kamikaze)}\n")
+        self.proc.stdin.write(" ".join(f"{v:.6f}" for v in s) + f" {pitch:.4f} {roll:.4f} {throttle:.4f} {int(on)} {int(kamikaze)} {int(hostile)}\n")
         f = self.proc.stdout.readline().split()
         nc, pc, thrc = float(f[0]), float(f[1]), float(f[2])
         self.mode, self.lam, self.h, self.inv_ok, self.clear = int(f[3]), float(f[4]), float(f[5]), int(f[6]), float(f[7])
