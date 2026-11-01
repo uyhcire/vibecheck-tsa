@@ -368,7 +368,8 @@ fragment MOut fragmentShader(VOut i [[stage_in]], constant FrameU& U [[buffer(0)
     }
     Terms tm = terms0();
     float3 col = shade(U, sky_lut, s, i.pos, v, surf_shadow(U, sm, i.pos, N), tm);
-    if (U.flags.z > 0.0 && abs(i.pos.x) < 1222.0 && abs(i.pos.y) < 1222.0) {
+    // Light pools under the grid city's street lamps (flags.w: a map without them).
+    if (U.flags.z > 0.0 && U.flags.w < 0.5 && abs(i.pos.x) < 1222.0 && abs(i.pos.y) < 1222.0) {
         float E = 0.0;
         for (int ax = 0; ax < 2; ax++) {
             float2 q = ax == 0 ? i.pos.xy : i.pos.yx;

@@ -83,6 +83,7 @@ pub struct Lens {
     pub frame_dt: f32,
 }
 
+#[derive(Clone, Copy)]
 pub struct Settings {
     /// Multiplier on the automatic exposure.
     pub exposure: f32,
@@ -184,6 +185,8 @@ pub struct Photo {
     bld_pipe: mq::Pipeline,
     terr: mq::Bindings,
     terr_n: i32,
+    /// San Francisco's Bay Area backdrop (terrain pipeline).
+    back: Option<(mq::Bindings, i32)>,
     bld: mq::Bindings,
     bld_n: i32,
     sky_pipe: mq::Pipeline,
@@ -293,7 +296,13 @@ fn mk_dyn(ctx: &mut dyn mq::RenderingBackend, cap_v: usize, cap_i: usize) -> Dyn
 
 impl Photo {
     pub fn new(w: &World) -> Photo {
-        let (galb_px, gmask_px) = crate::ground::bake(w);
+        let sf = w.map == MapId::SanFrancisco;
+        let (galb_px, galb_n, gmask_px, gmask_n) = if sf {
+            crate::sfscene::ground(w)
+        } else {
+            let (a, m) = crate::ground::bake(w);
+            (a, crate::ground::TEX, m, crate::ground::TEX)
+        };
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
 
         // Terrain: same vertices and triangle split as the collision truth.
@@ -326,7 +335,7 @@ impl Photo {
                 ti.extend_from_slice(&[a, b, c, a, c, d]);
             }
         }
-        let gtex = |ctx: &mut dyn mq::RenderingBackend, px: &[u8]| {
+        let gtex = |ctx: &mut dyn mq::RenderingBackend, px: &[u8], n: usize| {
             let t = ctx.new_texture(
                 mq::TextureAccess::Static,
                 mq::TextureSource::Bytes(px),
@@ -336,8 +345,8 @@ impl Photo {
                     min_filter: mq::FilterMode::Linear,
                     mag_filter: mq::FilterMode::Linear,
                     mipmap_filter: mq::MipmapFilterMode::Linear,
-                    width: crate::ground::TEX as u32,
-                    height: crate::ground::TEX as u32,
+                    width: n as u32,
+                    height: n as u32,
                     allocate_mipmaps: true,
                     ..Default::default()
                 },
@@ -345,8 +354,8 @@ impl Photo {
             ctx.texture_generate_mipmaps(t);
             t
         };
-        let galb = gtex(ctx, &galb_px);
-        let gmask = gtex(ctx, &gmask_px);
+        let galb = gtex(ctx, &galb_px, galb_n);
+        let gmask = gtex(ctx, &gmask_px, gmask_n);
         drop((galb_px, gmask_px));
         let sets = |ctx: &mut dyn mq::RenderingBackend, names: &[&str]| -> Vec<mq::TextureId> {
             names
@@ -377,7 +386,7 @@ impl Photo {
         });
         let lut_pass = ctx.new_render_pass(sky_lut, None);
 
-        let (bv, bi) = building_mesh(w);
+        let (bv, bi) = if sf { crate::sfscene::building_mesh(w) } else { building_mesh(w) };
         let mk = |ctx: &mut dyn mq::RenderingBackend, v: &[PV], i: &[u32], images: Vec<mq::TextureId>| mq::Bindings {
             vertex_buffers: vec![ctx.new_buffer(mq::BufferType::VertexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(v))],
             index_buffer: ctx.new_buffer(mq::BufferType::IndexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(i)),
@@ -398,6 +407,13 @@ impl Photo {
         timg.extend(&ground_sets);
         timg.extend(&shadow_tex);
         let terr = mk(ctx, &tv, &ti, timg);
+        // San Francisco: the Bay Area beyond the square, drawn with the terrain shader and its own imagery.
+        let back = if sf { crate::sfscene::backdrop(w) } else { None }.map(|b| {
+            let mut img = vec![sky_lut, gtex(ctx, &b.alb, b.n), gtex(ctx, &b.mask, b.mask_n)];
+            img.extend(&ground_sets);
+            img.extend(&shadow_tex);
+            (mk(ctx, &b.v, &b.i, img), b.i.len() as i32)
+        });
         let mut bimg = vec![sky_lut];
         bimg.extend(&fac_sets);
         bimg.extend(&roof_sets);
@@ -506,6 +522,7 @@ impl Photo {
             bld_pipe,
             terr,
             terr_n: ti.len() as i32,
+            back,
             bld,
             bld_n: bi.len() as i32,
             sky_pipe,
@@ -516,7 +533,7 @@ impl Photo {
             final_pipe,
             ssao_pipe,
             vol_pipe,
-            lamps: street_lamps(w),
+            lamps: if sf { Vec::new() } else { street_lamps(w) },
             exposure_auto: 6.0,
             rt: None,
             rt_failed: false,
@@ -675,7 +692,7 @@ impl Photo {
             splits: SPLITS,
             shadow_texel: cascades.map(|c| c.1),
             prop: f.prop,
-            flags: [if f.cockpit { 1.0 } else { 0.0 }, 0.0, night, 0.0],
+            flags: [if f.cockpit { 1.0 } else { 0.0 }, 0.0, night, if self.lamps.is_empty() { 1.0 } else { 0.0 }],
             fog: [fg.density, fg.falloff, fg.anisotropy, fg.valley_top],
             fog2: [fg.valley_density, fg.cloud_cover, fg.cloud_base, fg.cloud_top],
             land_pos: f.land_pos,
@@ -762,6 +779,12 @@ impl Photo {
             ctx.apply_bindings(b);
             ctx.apply_uniforms(mq::UniformsSource::table(&u));
             ctx.draw(0, n, 1);
+        }
+        if let Some((b, n)) = &self.back {
+            ctx.apply_pipeline(&self.terr_pipe);
+            ctx.apply_bindings(b);
+            ctx.apply_uniforms(mq::UniformsSource::table(&u));
+            ctx.draw(0, *n, 1);
         }
         if n_lit > 0 {
             ctx.apply_pipeline(&self.dyn_pipe);

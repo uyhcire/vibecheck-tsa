@@ -11,6 +11,7 @@ mod c172;
 mod ground;
 mod photo;
 mod rt;
+mod sfscene;
 mod shaders;
 
 use cityflight::escape::*;
@@ -27,6 +28,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const SUN: [f32; 3] = [-0.45, -0.55, 0.70];
+/// San Francisco's sun matches the aerial photo's shadows, so the rendered ones fall the same way.
+const SF_SUN: [f32; 3] = [0.40, -0.50, 0.77];
 const FOG: [f32; 3] = [0.74, 0.81, 0.89];
 const SKY_TOP: Color = Color::new(0.30, 0.50, 0.82, 1.0);
 const TEX: usize = 4096;
@@ -54,6 +57,30 @@ fn window_conf() -> Conf {
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+/// Photoreal sun elevation and azimuth (degrees) on a map.
+fn sun_angles(map: MapId) -> (f32, f32) {
+    let s = if map == MapId::SanFrancisco { SF_SUN } else { SUN };
+    let n = (s[0] * s[0] + s[1] * s[1] + s[2] * s[2]).sqrt();
+    ((s[2] / n).asin().to_degrees(), s[1].atan2(s[0]).to_degrees())
+}
+
+/// One map's world and the GPU scenes built for it (once, on first use).
+struct MapScenes {
+    world: &'static World,
+    scene: StaticScene,
+    photo: Option<photo::Photo>,
+}
+
+impl MapScenes {
+    fn new(world: World) -> MapScenes {
+        let world: &'static World = Box::leak(Box::new(world));
+        let terrain_px = terrain_texture(world);
+        let scene = StaticScene::new(world, &terrain_px);
+        let photo = if use_gl() { None } else { Some(photo::Photo::new(world)) };
+        MapScenes { world, scene, photo }
     }
 }
 
@@ -260,6 +287,9 @@ fn ground_color(w: &World, x: f64, y: f64) -> [f64; 3] {
 }
 
 fn terrain_texture(w: &World) -> Vec<u8> {
+    if w.map == MapId::SanFrancisco {
+        return sfscene::painted_ground(w);
+    }
     let mut px = vec![0u8; TEX * TEX * 4];
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     let rows_per = TEX.div_ceil(threads);
@@ -349,23 +379,31 @@ impl StaticScene {
         // Buildings: five faces per box.
         let mut bv: Vec<SV> = Vec::with_capacity(w.boxes.len() * 20);
         let mut bi: Vec<u32> = Vec::with_capacity(w.boxes.len() * 30);
-        for b in &w.boxes {
+        // A wall per footprint edge plus the roof (a box is four walls). Bridge and freeway collision
+        // curtains are not drawn.
+        for b in w.boxes.iter().filter(|b| b.kind == Kind::Building || b.kind == Kind::BridgeTower) {
             let col = building_color(b);
             let roof = [col[0] * 0.62 + 0.08, col[1] * 0.62 + 0.08, col[2] * 0.62 + 0.09];
-            let (x0, x1, y0, y1, z0, z1) = (b.x0 as f32, b.x1 as f32, b.y0 as f32, b.y1 as f32, b.z0 as f32, b.z1 as f32);
-            let faces: [([f32; 3], [[f32; 3]; 4], [f32; 3], f32); 5] = [
-                ([1.0, 0.0, 0.0], [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], col, 1.0),
-                ([-1.0, 0.0, 0.0], [[x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]], col, 1.0),
-                ([0.0, 1.0, 0.0], [[x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]], col, 1.0),
-                ([0.0, -1.0, 0.0], [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], col, 1.0),
-                ([0.0, 0.0, 1.0], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], roof, 0.0),
-            ];
-            for (n, q, c, wflag) in faces {
+            let (z0, z1) = (b.z0 as f32, b.z1 as f32);
+            let wflag = if b.kind == Kind::Building { 1.0 } else { 0.0 };
+            let poly = w.outline(b);
+            for e in 0..poly.len() {
+                let (p, q) = (poly[e], poly[(e + 1) % poly.len()]);
+                let (ex, ey) = ((q[0] - p[0]) as f32, (q[1] - p[1]) as f32);
+                let l = (ex * ex + ey * ey).sqrt().max(1e-4);
+                let (px, py, qx, qy) = (p[0] as f32, p[1] as f32, q[0] as f32, q[1] as f32);
                 let base = bv.len() as u32;
-                for p in q {
-                    bv.push(SV { pos: p, nrm: n, col: c, uv: [0.5, 0.5], win: wflag });
+                for pos in [[px, py, z0], [qx, qy, z0], [qx, qy, z1], [px, py, z1]] {
+                    bv.push(SV { pos, nrm: [ey / l, -ex / l, 0.0], col, uv: [0.5, 0.5], win: wflag });
                 }
                 bi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
+            let base = bv.len() as u32;
+            for p in &poly {
+                bv.push(SV { pos: [p[0] as f32, p[1] as f32, z1], nrm: [0.0, 0.0, 1.0], col: roof, uv: [0.5, 0.5], win: 0.0 });
+            }
+            for t in 1..poly.len().saturating_sub(1) as u32 {
+                bi.extend_from_slice(&[base, base + t, base + t + 1]);
             }
         }
         let mk = |ctx: &mut dyn mq::RenderingBackend, v: &[SV], i: &[u32], img: mq::TextureId| mq::Bindings {
@@ -592,6 +630,8 @@ struct App {
     /// Fly-by camera position, re-placed ahead of the aircraft once it has passed.
     flyby: Option<Vec3>,
     crash_logged: bool,
+    /// Tab pressed: switch to the other map before the next frame.
+    switch_map: bool,
     show_paths: bool,
     show_help: bool,
     cam_mode: usize,
@@ -642,7 +682,7 @@ fn filter_button() -> Rect {
 
 impl App {
     fn cfg(&self, filter_on: bool) -> SimCfg {
-        SimCfg { filter_on, filter: FilterCfg { phase: self.phase, robust: self.robust }, mismatch: self.mismatch, seed: self.seed }
+        SimCfg { filter_on, filter: FilterCfg { phase: self.phase, robust: self.robust }, wind: self.mismatch, model_error: self.mismatch, seed: self.seed }
     }
 
     fn reset(&mut self, scenario: usize) {
@@ -754,12 +794,16 @@ impl App {
         if is_key_pressed(KeyCode::R) {
             self.reset(self.scenario);
         }
+        let scenarios = scenario_names(self.world.map).len();
         for (key, id) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3), (KeyCode::Key5, 4)] {
-            if is_key_pressed(key) {
+            if is_key_pressed(key) && id < scenarios {
                 self.reset(id);
             }
         }
-        if is_key_pressed(KeyCode::Y) {
+        if is_key_pressed(KeyCode::Tab) {
+            self.switch_map = true;
+        }
+        if is_key_pressed(KeyCode::Y) && self.world.map == MapId::Grid {
             self.start_showcase(self.showcase.is_none());
         }
         if is_key_pressed(KeyCode::T) {
@@ -867,7 +911,7 @@ impl App {
         let world = self.world;
         std::thread::spawn(move || {
             let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).saturating_sub(2).max(1);
-            let opts = HarnessOpts { episodes: 200, threads, kamikaze_secs: 300.0, extended: false };
+            let opts = HarnessOpts { only: None, episodes: 200, threads, kamikaze_secs: 300.0, extended: false };
             let t0 = std::time::Instant::now();
             let rep = run_harness(world, &opts, &|n, d, t| *p2.lock().unwrap() = (n.to_string(), d, t));
             let text = format!("{}\n{} threads, {:.0} s", format_report(&rep), threads, t0.elapsed().as_secs_f64());
@@ -972,7 +1016,7 @@ impl App {
             if let Some(pl) = self.sim.fs.plan {
                 let mut p = Vec::new();
                 let (hold, te) = pl.tail(self.sim.k);
-                pred.rollout(&s, hold, pl.esc, te, pl.psi0, f64::NEG_INFINITY, Some(&mut p));
+                pred.rollout(&s, hold, pl.esc, te, pl.eref, f64::NEG_INFINITY, Some(&mut p));
                 self.plan_path = p.iter().map(|q| v3(*q)).collect();
             }
         }
@@ -1318,10 +1362,14 @@ impl App {
         }
         // Bottom bar.
         let hint = format!(
-            "{} · H help · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-5 scenarios · Y showcase · K kamikaze · T harness · R reset",
-            SCENARIOS[self.scenario],
+            "{} · {} · H help · Tab map · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-{} scenarios{} · K kamikaze · T harness · R reset{}",
+            self.world.map.name(),
+            scenario_names(self.world.map)[self.scenario],
             CAM_NAMES[self.cam_mode],
-            RENDERER_NAMES[self.renderer]
+            RENDERER_NAMES[self.renderer],
+            scenario_names(self.world.map).len(),
+            if self.world.map == MapId::Grid { " · Y showcase" } else { "" },
+            if self.world.map == MapId::SanFrancisco { " · map data: DataSF, © OpenStreetMap contributors, USGS" } else { "" }
         );
         draw_rectangle(0.0, h - 30.0, w, 30.0, Color::new(0.04, 0.06, 0.09, 0.55));
         ui.text(&hint, 14.0, h - 10.0, 13.0, dim, false);
@@ -1353,7 +1401,7 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 22] = [
+        let lines: [(&str, &str); 23] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
@@ -1363,8 +1411,9 @@ impl App {
             ("B", "show escape paths (green valid, red not, yellow committed)"),
             ("M", "model mismatch: wind and a weaker, slower aircraft"),
             ("C", "camera: chase · cockpit · orbit · overhead · fly-by"),
-            ("1 2 3 4 5", "tower run · dive · ridge · slow and low · tower gap"),
-            ("Y", "tower gap with the scripted showcase pilot (threads the gap, turns into a tower)"),
+            ("1 2 3 4 5", "tower run (Salesforce run) · dive · ridge (Nob Hill) · slow and low · tower gap (grid only)"),
+            ("Y", "tower gap with the scripted showcase pilot (grid city; threads the gap, turns into a tower)"),
+            ("Tab", "map: grid city · San Francisco"),
             ("K", "kamikaze autopilot (flies at buildings and terrain)"),
             ("T", "run the 200-episode headless harness"),
             ("R", "reset the scenario"),
@@ -1545,16 +1594,21 @@ async fn main() {
 
     clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
     next_frame().await;
-    let world: &'static World = Box::leak(Box::new(World::new(1337)));
-    let terrain_px = terrain_texture(world);
-    let scene = StaticScene::new(world, &terrain_px);
-    let mut photo = if use_gl() { None } else { Some(photo::Photo::new(world)) };
-    drop(terrain_px);
+    let map = match arg("--map") {
+        None => MapId::Grid,
+        Some(m) => MapId::parse(&m).unwrap_or_else(|| {
+            eprintln!("--map takes grid or sf");
+            std::process::exit(2);
+        }),
+    };
+    // The other map's scenes, parked while it is not shown (Tab builds them on first use).
+    let mut parked: [Option<MapScenes>; 2] = [None, None];
+    let MapScenes { world, mut scene, mut photo } = MapScenes::new(World::load(map));
     let ui = Ui {
         mono: load_font(&["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"]),
         sans: load_font(&["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"]),
     };
-    let scenario: usize = arg("--scenario").and_then(|s| s.parse::<usize>().ok()).map(|s| s.clamp(1, SCENARIOS.len()) - 1).unwrap_or(0);
+    let scenario: usize = arg("--scenario").and_then(|s| s.parse::<usize>().ok()).map(|s| s.clamp(1, scenario_names(map).len()) - 1).unwrap_or(0);
     let s0 = scenario_start(world, scenario);
     let mut app = App {
         world,
@@ -1569,6 +1623,7 @@ async fn main() {
         showcase: None,
         flyby: None,
         crash_logged: false,
+        switch_map: false,
         show_paths: args.iter().any(|a| a == "--paths"),
         show_help: shot.is_none(),
         cam_mode: arg("--cam").and_then(|s| s.parse().ok()).unwrap_or(0),
@@ -1590,8 +1645,8 @@ async fn main() {
         lens: 0,
         focal_mm: LENSES[0].1,
         fstop: LENSES[0].2,
-        sun_el: SUN[2].asin().to_degrees(),
-        sun_az: SUN[1].atan2(SUN[0]).to_degrees(),
+        sun_el: sun_angles(map).0,
+        sun_az: sun_angles(map).1,
         renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
             (true, false, true) => 2,
             (true, false, false) => 1,
@@ -1646,7 +1701,7 @@ async fn main() {
     // pilot), 1000 + i is scenario i + 1 with a kamikaze pilot.
     if let Some(e) = arg("--episode").and_then(|s| s.parse::<u64>().ok()) {
         let (s0, kami) = if e >= 1000 {
-            (scenario_start(world, ((e - 1000) as usize).min(SCENARIOS.len() - 1)), true)
+            (scenario_start(world, ((e - 1000) as usize).min(scenario_names(map).len() - 1)), true)
         } else {
             let mut rng = Rng::new(e.wrapping_mul(7919) ^ 0xE915);
             (random_start(world, &mut rng), e % 4 == 3)
@@ -1660,6 +1715,18 @@ async fn main() {
         let (f, _, _) = body_axes(&s0);
         app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
     }
+    // --at x,y,agl,heading_deg: start anywhere (map metres), level at 50 m/s.
+    if let Some(at) = arg("--at") {
+        let v: Vec<f64> = at.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        if v.len() == 4 {
+            let s0 = trimmed(v[0], v[1], world.terrain(v[0], v[1]) + v[2], 50.0, 0.0, v[3].to_radians(), 0.64);
+            app.sim = Sim::new(world, s0, app.cfg(true));
+            app.fbw = Fbw::from_state(&s0);
+            app.trail.clear();
+            let (f, _, _) = body_axes(&s0);
+            app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
+        }
+    }
     if args.iter().any(|a| a == "--off") {
         app.sim.set_filter(false);
     }
@@ -1667,6 +1734,29 @@ async fn main() {
     let mut perf = (0.0f64, 0u32, 0.0f64, 0.0f64);
     let mut perf_t = std::time::Instant::now();
     loop {
+        if std::mem::take(&mut app.switch_map) {
+            let next = app.world.map.next();
+            let settings = photo.as_ref().map(|p| p.settings);
+            let ms = match parked[next as usize].take() {
+                Some(ms) => ms,
+                None => {
+                    clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
+                    let t = format!("Loading {}...", next.name());
+                    ui.text(&t, (screen_width() - ui.width(&t, 28.0, false)) * 0.5, screen_height() * 0.5, 28.0, WHITE, false);
+                    next_frame().await;
+                    MapScenes::new(World::load(next))
+                }
+            };
+            parked[app.world.map as usize] = Some(MapScenes { world: app.world, scene, photo });
+            MapScenes { world: app.world, scene, photo } = ms;
+            if let (Some(ph), Some(st)) = (photo.as_mut(), settings) {
+                ph.settings = st;
+            }
+            (app.sun_el, app.sun_az) = sun_angles(next);
+            app.kamikaze = None;
+            app.showcase = None;
+            app.reset(0);
+        }
         let loop_start = std::time::Instant::now();
         let dt = get_frame_time().min(0.1) as f64;
         if shot.is_none() {
