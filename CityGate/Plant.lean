@@ -21,10 +21,13 @@ structure Plane where
   ox : Float
   oy : Float
 
-/-- One JSBSim frame with input `u` (`CityJsb.stepE`, what `libcityjsb` steps). -/
+/-- One JSBSim frame with input `u` (`CityJsb.stepE`, what `libcityjsb` steps). Destructured so the old state is
+not shared and `JsbExact` updates it in place. -/
 def Plane.step (p : Plane) (u : Surf) : Plane :=
-  let r := CityJsb.stepE p.st u.elev u.ail u.rud u.thr
-  { p with st := r.1, ob := r.2 }
+  match p with
+  | ⟨st, _, ox, oy⟩ =>
+    let r := CityJsb.stepE st u.elev u.ail u.rud u.thr
+    { st := r.1, ob := r.2, ox, oy }
 
 /-- Map position (m): east and north of the map origin, altitude above sea level (as `JsbPlant::state`). -/
 def Plane.pos (p : Plane) : Float × Float × Float :=
