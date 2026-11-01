@@ -19,6 +19,7 @@
 //! cell of a verified one cannot fail on lateral grounds. (Building distance
 //! is continuous, so it only needs a small extra margin for new plans.)
 
+use crate::model::{wing_tips, State, WING_R, WING_TIP, X, Y, Z};
 use std::sync::OnceLock;
 
 pub const MAP_HALF: f64 = 3000.0;
@@ -446,6 +447,33 @@ impl World {
             c = c.min(p[2] - t);
         }
         c.min(self.building_dist(p, 200.0) - R_BODY)
+    }
+
+    /// Clearance of the `R_BODY` sphere and the wing capsule (`wing_tips`, `WING_R`); values above `cap` may read as `cap`.
+    pub fn airframe_clearance(&self, s: &State, cap: f64) -> f64 {
+        let p = [s[X], s[Y], s[Z]];
+        if p[0].abs() > MAP_HALF || p[1].abs() > MAP_HALF {
+            return -1.0;
+        }
+        let mut c = p[2] - R_BODY - self.terrain(p[0], p[1]);
+        for k in 0..8 {
+            let a = k as f64 * std::f64::consts::FRAC_PI_4;
+            let t = self.terrain(p[0] + R_BODY * a.cos(), p[1] + R_BODY * a.sin());
+            c = c.min(p[2] - t);
+        }
+        c = c.min(self.building_dist(p, cap + R_BODY) - R_BODY);
+        let [a, b] = wing_tips(s);
+        let q = c.max(0.0).min(cap) + WING_R;
+        c = c.min(self.seg_building_dist(a, b, q) - WING_R);
+        let m: [f64; 3] = std::array::from_fn(|i| 0.5 * (a[i] + b[i]));
+        for tip in [a, b] {
+            for k in 0..=6 {
+                let t = (4.0 + 0.25 * k as f64) / WING_TIP;
+                let w: [f64; 3] = std::array::from_fn(|i| m[i] + (tip[i] - m[i]) * t);
+                c = c.min(w[2] - WING_R - self.terrain(w[0], w[1]));
+            }
+        }
+        c
     }
 
     /// Ground or roof height directly below `(x, y)` (raw cell max).

@@ -544,6 +544,13 @@ struct App {
     robust: bool,
     mismatch: bool,
     kamikaze: Option<Kamikaze>,
+    /// Replays a harness hostile-pilot episode (`--episode N`).
+    hostile: Option<Hostile>,
+    /// Scripted Tower gap pilot (`Y`, `--showcase`).
+    showcase: Option<Showcase>,
+    /// Fly-by camera position, re-placed ahead of the aircraft once it has passed.
+    flyby: Option<Vec3>,
+    crash_logged: bool,
     show_paths: bool,
     show_help: bool,
     cam_mode: usize,
@@ -562,7 +569,7 @@ struct App {
     seed: u64,
 }
 
-const CAM_NAMES: [&str; 4] = ["chase", "cockpit", "orbit", "overhead"];
+const CAM_NAMES: [&str; 5] = ["chase", "cockpit", "orbit", "overhead", "fly-by"];
 
 /// Clickable filter toggle, just under the instrument panel.
 fn filter_button() -> Rect {
@@ -577,6 +584,10 @@ impl App {
     fn reset(&mut self, scenario: usize) {
         self.scenario = scenario;
         self.seed += 1;
+        self.hostile = None;
+        self.flyby = None;
+        self.showcase = if scenario == 4 && self.showcase.is_some() { Some(Showcase::new(street_x(GAP_STREET))) } else { None };
+        self.crash_logged = false;
         let s0 = scenario_start(self.world, scenario);
         let on = self.sim.cfg.filter_on;
         self.sim = Sim::new(self.world, s0, self.cfg(on));
@@ -655,7 +666,7 @@ impl App {
             self.rebuild();
         }
         if is_key_pressed(KeyCode::C) {
-            self.cam_mode = (self.cam_mode + 1) % 4;
+            self.cam_mode = (self.cam_mode + 1) % CAM_NAMES.len();
         }
         if is_key_pressed(KeyCode::I) {
             self.invert = !self.invert;
@@ -671,6 +682,7 @@ impl App {
         }
         if is_key_pressed(KeyCode::K) {
             self.kamikaze = if self.kamikaze.is_some() { None } else { Some(Kamikaze::new(self.seed)) };
+            self.showcase = None;
             if self.kamikaze.is_none() {
                 self.fbw = Fbw { thr: self.fbw.thr, ..Fbw::from_state(&self.sim.s) };
             }
@@ -678,13 +690,28 @@ impl App {
         if is_key_pressed(KeyCode::R) {
             self.reset(self.scenario);
         }
-        for (key, id) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3)] {
+        for (key, id) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3), (KeyCode::Key5, 4)] {
             if is_key_pressed(key) {
                 self.reset(id);
             }
         }
+        if is_key_pressed(KeyCode::Y) {
+            self.start_showcase(self.showcase.is_none());
+        }
         if is_key_pressed(KeyCode::T) {
             self.toggle_harness();
+        }
+    }
+
+    /// Tower gap with the scripted showcase pilot and the escape paths on (or back to manual flying).
+    fn start_showcase(&mut self, on: bool) {
+        self.kamikaze = None;
+        self.showcase = on.then(|| Showcase::new(street_x(GAP_STREET)));
+        if on {
+            self.show_paths = true;
+            self.reset(4);
+        } else {
+            self.fbw = Fbw { thr: self.fbw.thr, ..Fbw::from_state(&self.sim.s) };
         }
     }
 
@@ -720,8 +747,12 @@ impl App {
         while self.acc >= DT_F && n < 10 {
             self.acc -= DT_F;
             n += 1;
-            if let Some(k) = &mut self.kamikaze {
+            if let Some(sc) = &mut self.showcase {
+                sc.update(&self.sim.s, &mut self.fbw, DT_F);
+            } else if let Some(k) = &mut self.kamikaze {
                 k.update(self.world, &self.sim.s, &mut self.fbw, DT_F);
+            } else if let Some(h) = &mut self.hostile {
+                h.update(&mut self.fbw, DT_F);
             } else {
                 self.fbw.sticks(self.stick.0, self.stick.1, DT_F);
             }
@@ -746,6 +777,10 @@ impl App {
                 }
             }
             if self.sim.crashed {
+                if !self.crash_logged {
+                    self.crash_logged = true;
+                    eprintln!("crashed at t={:.1} s", self.sim.time());
+                }
                 break;
             }
         }
@@ -760,6 +795,30 @@ impl App {
     }
 
     fn update_paths(&mut self) {
+        #[cfg(feature = "jsb")]
+        if cityflight::envfilter::kind().is_some() {
+            let v3f = |q: &[f64; 3]| vec3(q[0] as f32, q[1] as f32, q[2] as f32);
+            self.paths.clear();
+            self.plan_path.clear();
+            if let Some(g) = &self.sim.env_gate {
+                // Green/red: the latest rollout and its verdict; yellow: the committed escape's verified path.
+                if self.show_paths {
+                    self.paths.push((g.shown.iter().map(v3f).collect(), g.shown_ok));
+                }
+                if g.law.is_some() {
+                    self.plan_path = g.committed_path.iter().map(v3f).collect();
+                }
+                return;
+            }
+            self.plan_path = self.sim.env_pred.iter().map(v3f).collect();
+            if self.show_paths {
+                if let Some(p) = &self.sim.jsb {
+                    let r = cityflight::envfilter::rollout(self.world, p, self.sim.env_dir, usize::MAX);
+                    self.paths.push((r.path.iter().chain(r.tail.iter()).map(v3f).collect(), r.ok()));
+                }
+            }
+            return;
+        }
         let pred = Pred { accept: false, ..self.sim.pred() };
         let s = self.sim.s;
         self.paths.clear();
@@ -791,6 +850,26 @@ impl App {
                 (p + vec3(self.orbit.cos() * 70.0, self.orbit.sin() * 70.0, 22.0), p, Vec3::Z)
             }
             3 => (p + vec3(0.0, 0.0, 650.0) - fh * 250.0, p + fh * 60.0, Vec3::Z),
+            4 => {
+                // Fly-by: a fixed spot ahead, a little to the side and below, re-placed once passed.
+                let passed = self.flyby.map_or(true, |c| (p - c).dot(fh) > 70.0 || (p - c).length() > 450.0);
+                if passed && !self.sim.crashed {
+                    let side = vec3(-fh.y, fh.x, 0.0);
+                    let ahead = p + fh * 200.0;
+                    let mut best = ahead;
+                    for off in [10.0f32, -10.0, 6.0, -6.0, 3.0, -3.0, 0.0] {
+                        let q = ahead + side * off - vec3(0.0, 0.0, 9.0);
+                        let ground = self.world.terrain(q.x as f64, q.y as f64) as f32 + 2.0;
+                        let q = vec3(q.x, q.y, q.z.max(ground));
+                        if self.world.building_dist([q.x as f64, q.y as f64, q.z as f64], 3.0) >= 3.0 {
+                            best = q;
+                            break;
+                        }
+                    }
+                    self.flyby = Some(best);
+                }
+                (self.flyby.unwrap_or(p - fh * 30.0), p + f * 4.0, Vec3::Z)
+            }
             _ => {
                 let desired = p - f * 24.0 - fh * 6.0 + vec3(0.0, 0.0, 7.0);
                 let k = 1.0 - (-dt * 5.0).exp();
@@ -904,6 +983,18 @@ impl App {
             (true, Mode::Blend) | (true, Mode::Commit) => fs.act_esc.map(|i| ESC_NAMES[i]).unwrap_or("-"),
             _ => "-",
         };
+        // Exact-rollout filters (`--env`): filter name, escape (committed or verified) and check time.
+        #[allow(unused_mut)]
+        let mut env: Option<(String, &str, f64, bool)> = None;
+        #[cfg(feature = "jsb")]
+        if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
+            let e = g.law.map(|l| l.esc).or(g.witness);
+            env = Some((format!("{k:?} exact rollout").to_lowercase(), e.map_or("none verified", |i| cityflight::envfilter::ESCAPES[i].name), *g.cpu_ms.last().unwrap_or(&0.0) as f64, g.witness.is_some() || g.law.is_some()));
+        }
+        let (h_txt, esc, ms) = match &env {
+            Some((_, e, ms, ok)) => ((if *ok { "verified" } else { "none verified" }).to_string(), *e, *ms),
+            None => (h_txt, esc, fs.ms),
+        };
         let rows: Vec<(&str, String)> = vec![
             ("AIRSPEED", format!("{:.1} m/s  {:.0} kt", s[V], s[V] * 1.94384)),
             ("HEIGHT AGL", format!("{:.0} m", agl)),
@@ -912,7 +1003,7 @@ impl App {
             ("h  BARRIER", h_txt),
             ("BLEND λ", if on { format!("{:.2}", if fs.mode == Mode::Commit { 1.0 } else { fs.lam }) } else { "-".into() }),
             ("ESCAPE", esc.to_string()),
-            ("FILTER TIME", if on { format!("{:.2} ms/tick", fs.ms) } else { "-".into() }),
+            ("FILTER TIME", if on { format!("{:.2} ms/tick", ms) } else { "-".into() }),
             ("TRUE CLEARANCE", format!("{:.1} m", self.sim.true_clear)),
         ];
         let px = 16.0;
@@ -946,11 +1037,15 @@ impl App {
         let mut pills: Vec<(String, Color, Color)> = Vec::new();
         if on {
             let mode = match fs.mode {
+                Mode::Commit if env.is_some() => format!("COMMITTED ESCAPE · {esc}"),
                 Mode::Commit => format!("COMMITTED ESCAPE · {}", fs.act_esc.map(|i| ESC_NAMES[i]).unwrap_or("-")),
                 Mode::Blend => format!("blending {:.0} %", fs.lam * 100.0),
                 _ => "pilot in control".to_string(),
             };
-            let phase = format!("{}{}", self.phase.name(), if self.robust { " + P3 robust" } else { "" });
+            let phase = match &env {
+                Some((name, ..)) => name.clone(),
+                None => format!("{}{}", self.phase.name(), if self.robust { " + P3 robust" } else { "" }),
+            };
             pills.push((format!("SAFETY FILTER ON · {phase}"), Color::new(0.10, 0.55, 0.28, 0.92), WHITE));
             let mc = if fs.mode == Mode::Commit {
                 Color::new(0.85, 0.2, 0.1, 0.92)
@@ -969,6 +1064,10 @@ impl App {
         if self.kamikaze.is_some() {
             pills.push(("KAMIKAZE AUTOPILOT".into(), Color::new(0.6, 0.05, 0.05, 0.92), WHITE));
         }
+        if let Some(sc) = &self.showcase {
+            let what = ["SHOWCASE PILOT · threading the gap", "SHOWCASE PILOT · turning into the tower", "SHOWCASE PILOT · levelled off"];
+            pills.push((what[sc.phase() as usize].into(), Color::new(0.15, 0.3, 0.65, 0.92), WHITE));
+        }
         let widths: Vec<f32> = pills.iter().map(|p| ui.width(&p.0, 15.0, false) + 22.0).collect();
         let total: f32 = widths.iter().sum::<f32>() + 8.0 * (pills.len() as f32 - 1.0);
         let mut x = (w - total) * 0.5;
@@ -984,7 +1083,7 @@ impl App {
         }
         // Bottom bar.
         let hint = format!(
-            "{} · H help · Space filter · B escapes · C camera ({}) · 1-4 scenarios · K kamikaze · T harness · R reset",
+            "{} · H help · Space filter · B escapes · C camera ({}) · 1-5 scenarios · Y showcase · K kamikaze · T harness · R reset",
             SCENARIOS[self.scenario],
             CAM_NAMES[self.cam_mode]
         );
@@ -1018,7 +1117,7 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 15] = [
+        let lines: [(&str, &str); 16] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
@@ -1027,8 +1126,9 @@ impl App {
             ("G", "Phase 3 robust margins on / off"),
             ("B", "show escape paths (green valid, red not, yellow committed)"),
             ("M", "model mismatch: wind and a weaker, slower aircraft"),
-            ("C", "camera: chase · cockpit · orbit · overhead"),
-            ("1 2 3 4", "tower run · dive · ridge · slow and low"),
+            ("C", "camera: chase · cockpit · orbit · overhead · fly-by"),
+            ("1 2 3 4 5", "tower run · dive · ridge · slow and low · tower gap"),
+            ("Y", "tower gap with the scripted showcase pilot (threads the gap, turns into a tower)"),
             ("K", "kamikaze autopilot (flies at buildings and terrain)"),
             ("T", "run the 200-episode headless harness"),
             ("R", "reset the scenario"),
@@ -1109,6 +1209,24 @@ async fn main() {
     if args.iter().any(|a| a == "--jsb") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    #[cfg(feature = "jsb")]
+    cityflight::envfilter::TIME_CAP_MS.store(arg("--time-cap").and_then(|s| s.parse().ok()).unwrap_or(15), std::sync::atomic::Ordering::Relaxed);
+    #[cfg(feature = "jsb")]
+    if let Some(l) = arg("--law") {
+        cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(&l), std::sync::atomic::Ordering::Relaxed);
+    }
+    #[cfg(feature = "jsb")]
+    if let Some(n) = arg("--escapes").and_then(|s| s.parse().ok()) {
+        cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
+    }
+    #[cfg(feature = "jsb")]
+    if let Some(f) = arg("--env") {
+        cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
+        cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse(&f), std::sync::atomic::Ordering::Relaxed);
+        if matches!(cityflight::envfilter::kind(), Some(cityflight::envfilter::Kind::Fitted { .. })) {
+            cityflight::envfilter::table();
+        }
+    }
 
     clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
     next_frame().await;
@@ -1118,7 +1236,7 @@ async fn main() {
         mono: load_font(&["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"]),
         sans: load_font(&["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"]),
     };
-    let scenario: usize = arg("--scenario").and_then(|s| s.parse::<usize>().ok()).map(|s| s.clamp(1, 4) - 1).unwrap_or(0);
+    let scenario: usize = arg("--scenario").and_then(|s| s.parse::<usize>().ok()).map(|s| s.clamp(1, SCENARIOS.len()) - 1).unwrap_or(0);
     let s0 = scenario_start(world, scenario);
     let mut app = App {
         world,
@@ -1129,6 +1247,10 @@ async fn main() {
         robust: false,
         mismatch: false,
         kamikaze: None,
+        hostile: None,
+        showcase: None,
+        flyby: None,
+        crash_logged: false,
         show_paths: args.iter().any(|a| a == "--paths"),
         show_help: shot.is_none(),
         cam_mode: arg("--cam").and_then(|s| s.parse().ok()).unwrap_or(0),
@@ -1149,6 +1271,27 @@ async fn main() {
     app.reset(scenario);
     if args.iter().any(|a| a == "--kamikaze") {
         app.kamikaze = Some(Kamikaze::new(app.seed));
+    }
+    if args.iter().any(|a| a == "--showcase") {
+        app.start_showcase(true);
+    }
+    // Same start, seed and pilot as the harness: episodes 0.. are random starts (every fourth a kamikaze
+    // pilot), 1000 + i is scenario i + 1 with a kamikaze pilot.
+    if let Some(e) = arg("--episode").and_then(|s| s.parse::<u64>().ok()) {
+        let (s0, kami) = if e >= 1000 {
+            (scenario_start(world, ((e - 1000) as usize).min(SCENARIOS.len() - 1)), true)
+        } else {
+            let mut rng = Rng::new(e.wrapping_mul(7919) ^ 0xE915);
+            (random_start(world, &mut rng), e % 4 == 3)
+        };
+        app.seed = e;
+        app.sim = Sim::new(world, s0, app.cfg(true));
+        app.fbw = Fbw::from_state(&s0);
+        app.kamikaze = if kami { Some(Kamikaze::new(e)) } else { None };
+        app.hostile = if kami { None } else { Some(Hostile::new(e)) };
+        app.trail.clear();
+        let (f, _, _) = body_axes(&s0);
+        app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
     }
     if args.iter().any(|a| a == "--off") {
         app.sim.set_filter(false);

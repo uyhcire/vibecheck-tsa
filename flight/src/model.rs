@@ -171,3 +171,39 @@ pub fn lerp_cmd(a: &Cmd, b: &Cmd, t: f64) -> Cmd {
 pub fn trimmed(x: f64, y: f64, z: f64, v: f64, gam: f64, psi: f64, thr: f64) -> State {
     [x, y, z, v, gam, psi, 0.0, 0.0, gam.cos(), thr]
 }
+
+// ---------------------------------------------------------------- airframe geometry
+
+/// Wing line of the drawn Cessna (`c172.rs`), body axes x forward, y left, z up from the CG; the `WING_R`
+/// capsule holds every wing vertex outboard of 4 m span, and inboard of that the `R_BODY` sphere does.
+pub const WING_X: f64 = -0.17;
+pub const WING_Z: f64 = 1.065;
+pub const WING_TIP: f64 = 5.5;
+pub const WING_R: f64 = 0.8;
+
+/// Angle of attack the renderer draws: the point-mass lift curve at this load factor and airspeed.
+pub fn drawn_alpha(p: &Params, s: &State) -> f64 {
+    let q = 0.5 * p.rho * s[V].max(15.0).powi(2);
+    ((s[N] * p.m * G / (q * p.s) - 0.3) / 5.2).clamp(-0.12, 0.28)
+}
+
+/// Body axes (forward, left, up) of the drawn aircraft: flight path rolled by the bank, nose up by `alpha`.
+pub fn airframe_axes(s: &State, alpha: f64) -> [[f64; 3]; 3] {
+    let (sg, cg) = s[GAM].sin_cos();
+    let (sp, cp) = s[PSI].sin_cos();
+    let (sb, cb) = s[PHI].sin_cos();
+    let f = [cg * cp, cg * sp, sg];
+    let l0 = [-sp, cp, 0.0];
+    let u0 = [f[1] * l0[2] - f[2] * l0[1], f[2] * l0[0] - f[0] * l0[2], f[0] * l0[1] - f[1] * l0[0]];
+    let l: [f64; 3] = std::array::from_fn(|i| l0[i] * cb - u0[i] * sb);
+    let u: [f64; 3] = std::array::from_fn(|i| u0[i] * cb + l0[i] * sb);
+    let (sa, ca) = alpha.sin_cos();
+    [std::array::from_fn(|i| f[i] * ca + u[i] * sa), l, std::array::from_fn(|i| u[i] * ca - f[i] * sa)]
+}
+
+/// The wing line's two tips in world coordinates (left tip first), for the nominal aircraft as drawn.
+pub fn wing_tips(s: &State) -> [[f64; 3]; 2] {
+    let [f, l, u] = airframe_axes(s, drawn_alpha(&Params::nominal(), s));
+    let tip = |side: f64| std::array::from_fn(|i| s[i] + f[i] * WING_X + l[i] * side * WING_TIP + u[i] * WING_Z);
+    [tip(1.0), tip(-1.0)]
+}

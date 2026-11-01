@@ -52,6 +52,18 @@ pub struct Sim<'w> {
     /// JSBSim's c172p in place of the point-mass model (`--jsb`).
     #[cfg(feature = "jsb")]
     pub jsb: Option<crate::jsb::JsbPlant>,
+    /// Straight-ahead climb-out filter state (`--env`): the escape being flown, if committed.
+    #[cfg(feature = "jsb")]
+    pub env_law: Option<crate::envfilter::Law>,
+    #[cfg(feature = "jsb")]
+    pub env_hold: f64,
+    #[cfg(feature = "jsb")]
+    pub env_dir: usize,
+    /// The escape the filter predicted at its last check.
+    #[cfg(feature = "jsb")]
+    pub env_pred: Vec<[f64; 3]>,
+    #[cfg(feature = "jsb")]
+    pub env_gate: Option<crate::envfilter::Gate>,
 }
 
 impl<'w> Sim<'w> {
@@ -91,11 +103,27 @@ impl<'w> Sim<'w> {
             du_sum: 0.0,
             #[cfg(feature = "jsb")]
             jsb: None,
+            #[cfg(feature = "jsb")]
+            env_law: None,
+            #[cfg(feature = "jsb")]
+            env_hold: 0.0,
+            #[cfg(feature = "jsb")]
+            env_dir: 0,
+            #[cfg(feature = "jsb")]
+            env_pred: Vec::new(),
+            #[cfg(feature = "jsb")]
+            env_gate: None,
         };
         #[cfg(feature = "jsb")]
         if crate::jsb::enabled() {
             let p = crate::jsb::JsbPlant::new(&s0);
             sim.s = p.state();
+            if crate::envfilter::kind() == Some(crate::envfilter::Kind::Gate) {
+                sim.env_gate = Some(crate::envfilter::Gate::new(world, &p));
+            }
+            if crate::envfilter::kind().is_some() {
+                sim.true_clear = world.airframe_clearance(&sim.s, 200.0);
+            }
             sim.jsb = Some(p);
         }
         let s0 = sim.s;
@@ -154,6 +182,11 @@ impl<'w> Sim<'w> {
         if self.crashed {
             return;
         }
+        #[cfg(feature = "jsb")]
+        if let (Some(kind), true) = (crate::envfilter::kind(), self.jsb.is_some()) {
+            self.env_tick(kind, u_p);
+            return;
+        }
         self.update_wind();
         let src = if self.cfg.filter_on {
             let pred = self.pred();
@@ -201,6 +234,95 @@ impl<'w> Sim<'w> {
             if self.crashed {
                 break;
             }
+        }
+    }
+
+    #[cfg(feature = "jsb")]
+    fn env_tick(&mut self, fk: crate::envfilter::Kind, u_p: Cmd) {
+        use crate::envfilter::{check, Law};
+        use crate::jsb::DT_JSB;
+        let dt = DT * STEPS_PER_TICK as f64;
+        self.ticks += 1;
+        let filter_on = self.cfg.filter_on;
+        let plant = self.jsb.as_mut().unwrap();
+        if let Some(gate) = self.env_gate.as_mut() {
+            let accept = gate.tick(self.world, plant, &u_p, dt, filter_on);
+            self.env_pred = gate.shown.clone();
+            if accept {
+                self.applied = u_p;
+                self.fs.mode = if filter_on { Mode::Free } else { Mode::Off };
+                self.fs.lam = 0.0;
+            } else {
+                self.applied = [plant.obs.nz, 0.0, 1.0];
+                self.fs.mode = Mode::Commit;
+                self.fs.lam = 1.0;
+                self.commit_ticks += 1;
+                self.active_ticks += 1;
+            }
+            let ms = *gate.cpu_ms.last().unwrap_or(&0.0) as f64;
+            self.ms_sum += ms;
+            self.ms_max = self.ms_max.max(ms);
+            self.env_after_tick();
+            return;
+        }
+        // The pilot's command, one tick ahead; adopted as the next state if the filter accepts it.
+        let mut cand = plant.fork();
+        cand.advance(&u_p, dt);
+        let committed = self.env_law.is_some();
+        let accept = if !filter_on {
+            true
+        } else if committed && (self.env_hold < 2.0 || plant.obs.vned[2] > -1.0) {
+            false
+        } else {
+            let (dir, path) = check(self.world, fk, &cand);
+            self.env_pred = path;
+            if let Some(d) = dir {
+                self.env_dir = d;
+            }
+            dir.is_some()
+        };
+        if accept {
+            if committed {
+                cand.reset_fbw();
+            }
+            *plant = cand;
+            self.env_law = None;
+            self.applied = u_p;
+            self.fs.mode = if filter_on { Mode::Free } else { Mode::Off };
+            self.fs.lam = 0.0;
+        } else {
+            let mut law = self.env_law.unwrap_or_else(|| Law::new(self.env_dir));
+            if !committed {
+                self.env_hold = 0.0;
+            }
+            plant.lag -= dt;
+            while plant.lag < -1e-12 {
+                law.step(self.world, plant);
+                plant.lag += DT_JSB;
+            }
+            self.env_law = Some(law);
+            self.env_hold += dt;
+            self.applied = [plant.obs.nz, 0.0, 1.0];
+            self.fs.mode = Mode::Commit;
+            self.fs.lam = 1.0;
+            self.commit_ticks += 1;
+            self.active_ticks += 1;
+        }
+        self.env_after_tick();
+    }
+
+    #[cfg(feature = "jsb")]
+    fn env_after_tick(&mut self) {
+        self.s = self.jsb.as_ref().unwrap().state();
+        self.k += STEPS_PER_TICK;
+        // Leaving the map climbing is not a crash for these filters: their escapes climb out straight.
+        let off = self.s[X].abs() > crate::world::MAP_HALF || self.s[Y].abs() > crate::world::MAP_HALF;
+        let c = if off { f64::INFINITY } else { self.world.airframe_clearance(&self.s, 200.0) };
+        self.true_clear = c;
+        self.min_true_clear = self.min_true_clear.min(c);
+        if c < 0.0 {
+            self.crashed = true;
+            self.crash_clear = c;
         }
     }
 
@@ -280,7 +402,43 @@ fn safe_h(world: &World, s: &State) -> f64 {
     pred.best(s, None, &ESC_ORDER, f64::INFINITY).0
 }
 
-pub const SCENARIOS: [&str; 4] = ["Tower run", "Dive", "Ridge", "Slow and low"];
+pub const SCENARIOS: [&str; 5] = ["Tower run", "Dive", "Ridge", "Slow and low", "Tower gap"];
+
+/// Tower gap: the 28 m street `x = street_x(GAP_STREET)`, flown north. It runs between the 261 m and 292 m
+/// towers of block row 9, crosses the avenue `y = 0`, then passes the 235 m and 352 m towers of row 10
+/// (the 352 m one backs onto the tallest tower), with lower blocks and a park beyond (`esclab gaps`).
+pub const GAP_STREET: usize = 9;
+
+/// Whether the active filter verifies an escape from `s`: the exact-rollout filters on the JSBSim
+/// aircraft, else the point-mass escapes.
+pub fn start_verified(world: &World, s: &State) -> bool {
+    #[cfg(feature = "jsb")]
+    if crate::jsb::enabled() {
+        use crate::envfilter::{check, kind, Gate, Kind};
+        let p = crate::jsb::JsbPlant::new(s);
+        return match kind() {
+            Some(Kind::Gate) => Gate::new(world, &p).witness.is_some(),
+            Some(k) => check(world, k, &p).0.is_some(),
+            None => safe_h(world, s) >= 3.0,
+        };
+    }
+    safe_h(world, s) >= 3.0
+}
+
+/// Lined up on the tower-gap street, below the roofs, at the first spot (searched outward from inside the
+/// row-9 gap) where the active filter verifies an escape.
+fn tower_gap_start(world: &World) -> State {
+    let x = street_x(GAP_STREET);
+    for agl in [88.0, 85.0, 90.0, 80.0, 75.0, 70.0] {
+        for y in [-60.0, -50.0, -70.0, -40.0, -80.0, -30.0] {
+            let s = trimmed(x, y, world.terrain(x, y) + agl, 45.0, 0.0, PI / 2.0, 0.7);
+            if start_verified(world, &s) {
+                return s;
+            }
+        }
+    }
+    trimmed(x, -60.0, world.terrain(x, -60.0) + 88.0, 45.0, 0.0, PI / 2.0, 0.7)
+}
 
 /// Deterministic scenario starts, each searched so that a verified escape
 /// exists at spawn (inside the safe set).
@@ -334,6 +492,7 @@ pub fn scenario_start(world: &World, id: usize) -> State {
             }
             best.unwrap_or_else(|| trimmed(x, -1300.0, 60.0, 50.0, 0.0, -PI / 2.0, 0.64))
         }
+        4 => tower_gap_start(world),
         // 40 m up at 1.3x stall among mid-rises.
         _ => {
             let v = 1.3 * V_STALL;

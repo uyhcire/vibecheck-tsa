@@ -32,3 +32,18 @@ opt-level = 2
 name = "jsbtune"
 path = "src/bin/jsbtune.rs"
 required-features = ["jsb"]
+
+[[bin]]
+name = "crashes"
+path = "src/bin/crashes.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "adversary"
+path = "src/bin/adversary.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "esclab"
+path = "src/bin/esclab.rs"
+required-features = ["jsb"]

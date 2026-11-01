@@ -23,8 +23,8 @@ Harness flags: `[episodes] [--threads N] [--quick] [--extended] [--coverage]`. `
 shortens the kamikaze endurance runs from 300 s to 60 s. The harness exits
 non-zero if any acceptance check fails.
 
-Demo flags (handy for screenshots): `--scenario 1..4`, `--off`, `--kamikaze`,
-`--paths`, `--cam 0..3`, `--shot out.png --frames N`.
+Demo flags (handy for screenshots): `--scenario 1..5`, `--off`, `--kamikaze`, `--showcase`,
+`--paths`, `--cam 0..4`, `--shot out.png --frames N`.
 
 ## JSBSim plant (`--jsb`)
 
@@ -41,6 +41,91 @@ cargo run --release --no-default-features --features jsb --bin harness -- --jsb 
 cargo run --release --no-default-features --features jsb --bin jsbtune             # fly-by-wire tracking
 ```
 
+### Exact-rollout gatekeeper (`--env gate`)
+
+`src/envfilter.rs` predicts with the plant itself: each check forks the JSBSim aircraft and flies an escape
+law on the copy, frame by frame, so a committed escape flies exactly the frames that were checked.
+
+- **Escape law.** A longitudinal law ported from a synthesised one (`Ci/cegis/Law.lean`, not in this
+  repository; full throttle, flight-path loop over a load factor ≤ 3.5 and α ≤ 0.24, trim feedforward,
+  pitch-rate feedforward), plus an α integral, load factor divided by cos φ in a bank, roll PI-D, a
+  sideslip-nulling rudder and a heading hold. `--law lawfirst` flies the α-command law of `Ci/lawfirst`
+  (also not in this repository) instead; `--law cegis1` the earlier cegis law.
+- **Escapes.** A straight climb-out, and climbing turns left and right at 30° and 40° bank, after a pull-up
+  of at least 1.5 s. A street escape captures the nearest street axis when the track is within 25° of one
+  (bank ≤ 20° while capturing), climbs wings level along it, and every 0.25 s looks for a 40° helix whose
+  predicted annulus is clear at its height (10 m margin, left side first); then it rolls in. It never
+  verifies through its ray ending from below the rooftops: a ray along a street axis must clear the
+  ~900 m rim of the map. `--escapes 5` drops the street escape, `3` also the 40° turns.
+- **Airframe.** Path samples and the crash check use `World::airframe_clearance`: the 4.5 m sphere plus the
+  wing, a 0.8 m capsule around the line through both wingtips (11 m span, as `c172.rs` draws it), placed by
+  the bank, heading, flight path and drawn angle of attack. Buildings are exact (segment to box); terrain
+  under the wing is sampled every 0.25 m outboard of 4 m span. The tail trails inside the volume the
+  sphere has just swept, so it is not checked. The point-mass filter and its crash check keep the sphere.
+- **Terminal sets**, checked on the settled rollout (from 6 s on, within 16 s): the straight escape needs a
+  climbing ray (80% of the settled gradient, in a corridor widening 2% of distance) that clears every raw
+  cell until it is above the map's top or off the map. A turn needs a steady helix (radius and centre agree
+  to 10% across two 2 s windows, climbing ≥ 1 m/s) whose ground annulus, widened for that drift, is clear
+  at the current height. Every path sample keeps 4 m of true clearance.
+- **Scheduling.** Each 20 ms tick checks the pilot's next tick followed by the last escape that verified;
+  the pilot keeps control if it verifies. Otherwise the filter commits to the escape verified on the
+  previous tick, and committed ticks try the escapes round robin. A deterministic budget of 2,200 JSBSim
+  frames per tick (15 ms at the measured 6.7 µs per checked frame) caps the work. The GUI also stops checks
+  at a 15 ms wall-clock deadline (`--time-cap MS`, 0 = off): a check cut short fails, so the filter keeps
+  its verified escape. Headless runs stay deterministic unless given `--time-cap`.
+
+```sh
+cargo run --release --features jsb -- --env gate                                    # fly it (B: escapes)
+cargo run --release --features jsb -- --env gate --episode 59                       # replay an episode
+cargo run --release --features jsb -- --env gate --showcase --paths                # Tower gap showcase
+cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/s 100 --env gate --scenario 5
+cargo run --release --no-default-features --features jsb --bin crashes -- /tmp/c 200 --env gate
+cargo run --release --no-default-features --features jsb --bin adversary -- /tmp/a gate 200
+cargo run --release --no-default-features --features jsb --bin esclab -- trace     # escape-law traces
+```
+
+With `B`, the latest rollout is drawn green (verified) or red, and the committed escape yellow; turning
+escapes end in their terminal helix.
+
+`crashes` on the 200 hostile episodes plus the 4 kamikaze scenarios (JSBSim plant). A start is verified when
+the filter accepts the pilot's first tick.
+
+| Filter | Crashes / 200 (verified starts) | Unverified starts | Kamikaze crashes | Ticks committed |
+|---|---|---|---|---|
+| P1 point-mass filter (`--jsb`) | 27 | – | 2 / 4 | – |
+| gate, 3 escapes (`--escapes 3`) | 2 (0 of 195) | 5 | 1 / 4 (Ridge, unverified) | 31.7% |
+| gate, `--law lawfirst` | 1 (0 of 198) | 2 | 0 / 4 | 30.7% |
+| gate, 5 escapes, body sphere only (before the wing check) | 0 (0 of 198) | 2 | 0 / 4 | 29.5% |
+| **gate (default: wing check, 6 escapes)** | **0 (0 of 198)** | 2 | **0 / 5** (incl. Tower gap) | 28.9% |
+
+Every row before the last checks and crashes on the body sphere only; the last checks and crashes on sphere
+plus wing. Single-threaded check cost (`--threads 1`, 20 episodes + 5 kamikaze, thread CPU per 20 ms tick):
+median 6.4 ms, mean 7.6 ms, p99 19.9 ms, at most 2,200 JSBSim frames. That was measured with the machine
+loaded by other jobs (load average about 16 on 14 cores), where a JSBSim frame costs 7-9 µs instead of 6.7;
+an A/B of the old sphere-only and the new airframe clearance inside rollouts showed no measurable
+difference per checked frame.
+
+### Tower gap (`5`, `--scenario 5`, `Y` / `--showcase`)
+
+The 28 m street `x = -120 m`, flown north at 88 m above the street, 45 m/s. The spawn sits between the
+261 m and 292 m towers of block row 9; past the avenue `y = 0` the street runs between the 235 m and 352 m
+towers of row 10 (the 352 m one backs onto the 450 m tallest tower), then lower blocks and a park. The
+street escape verifies along this street from the spawn on (`esclab gaps`, `esclab approach -120 -90 90
+300`); the spawn is searched so the active filter verifies an escape there. The showcase pilot holds the
+centreline through both gaps, banks hard right into the 352 m tower at `y = 45 m` for 5 s, then levels off
+and climbs. The filter lets the threading through untouched, commits to the street escape at 15° of bank
+(yellow path with `B`), rolls wings level and climbs out along the street; the second attempt is caught the
+same way.
+
+| Tower gap run (`crashes --scenario 5`) | Crashes | Verified starts | Ticks committed |
+|---|---|---|---|
+| 50 hostile + 50 kamikaze pilots | 0 / 100 | 100 / 100 | 31.3% |
+| showcase pilot (60 s) | 0 | yes | 208 of 3,000 |
+
+`adversary -- /tmp/a gate 200`: 0 crashes in 2,640 gap-guided flights from 200 verified starts. An
+unlimited budget (`--budget 100000`) commits 29.5% of ticks too: the interventions are what the escapes
+require, not budget starvation.
+
 ## Controls
 
 | Key | Action |
@@ -53,8 +138,9 @@ cargo run --release --no-default-features --features jsb --bin jsbtune          
 | G | Phase 3 robust margins on/off (works with any filter) |
 | B | escape paths (green valid, red invalid, yellow = committed plan) |
 | M | model mismatch: wind + gusts, weaker and slower aircraft |
-| C | camera: chase, cockpit, orbit, overhead |
-| 1–4 | scenarios: tower run, dive, ridge, slow and low |
+| C | camera: chase, cockpit, orbit, overhead, fly-by |
+| 1–5 | scenarios: tower run, dive, ridge, slow and low, tower gap |
+| Y | tower gap with the scripted showcase pilot |
 | K | kamikaze autopilot |
 | T | run the 200-episode harness in the background |
 | R / H | reset / help |

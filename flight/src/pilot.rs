@@ -146,6 +146,56 @@ impl Kamikaze {
     }
 }
 
+/// Scripted pilot for the Tower gap scenario: holds the street centreline north through the gaps, then at
+/// `TURN_Y` banks hard right into the 352 m tower and holds it for `HOLD` s, then levels off and climbs.
+pub struct Showcase {
+    pub x_line: f64,
+    pub turn_t: Option<f64>,
+    pub t: f64,
+}
+
+impl Showcase {
+    pub const TURN_Y: f64 = 45.0;
+    pub const HOLD: f64 = 5.0;
+
+    pub fn new(x_line: f64) -> Self {
+        Showcase { x_line, turn_t: None, t: 0.0 }
+    }
+
+    /// The scripted phase: 0 threading the street, 1 turning into the tower, 2 levelled off.
+    pub fn phase(&self) -> u8 {
+        match self.turn_t {
+            None => 0,
+            Some(t0) if self.t - t0 < Self::HOLD => 1,
+            _ => 2,
+        }
+    }
+
+    pub fn update(&mut self, s: &State, fbw: &mut Fbw, dt: f64) {
+        self.t += dt;
+        if self.turn_t.is_none() && s[Y] >= Self::TURN_Y {
+            self.turn_t = Some(self.t);
+        }
+        fbw.thr = 0.75;
+        match self.phase() {
+            0 => {
+                // Heading back toward the centreline (north is psi = pi/2), bank to hold that heading.
+                let dpsi_cmd = (0.02 * (s[X] - self.x_line)).clamp(-0.2, 0.2);
+                fbw.phi_ref = (2.0 * (dpsi_cmd - wrap(s[PSI] - PI / 2.0))).clamp(-0.3, 0.3);
+                fbw.g_ref = 0.0;
+            }
+            1 => {
+                fbw.phi_ref = -60f64.to_radians();
+                fbw.g_ref = 0.0;
+            }
+            _ => {
+                fbw.phi_ref = 0.0;
+                fbw.g_ref = 4f64.to_radians();
+            }
+        }
+    }
+}
+
 pub enum Pilot {
     Manual,
     Hostile(Hostile),
