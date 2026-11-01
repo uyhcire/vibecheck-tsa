@@ -9,7 +9,7 @@ the escape; `none` is the escape, which adds 1 to the climb rate each frame. The
 def toy : Gate (Int × Int) Int (Option Int) Unit where
   step s u := (s.1 + u, u)
   ctl l s := match l with | some u => (u, none) | none => (s.2 + 1, none)
-  clear s := decide (0 < s.1)
+  clear x := decide (0 < x.2.1)
   term x := decide (x.1 = none ∧ 0 < x.2.1 ∧ 0 ≤ x.2.2)
   horizon := 20
   propose _ _ _ u := [some u]
@@ -31,7 +31,7 @@ theorem toy_term : TermSound toy crash := by
     exact ih _ (by simp [toy, Gate.fly]; omega)
 
 example : Safe toy crash init :=
-  safe toy crash init (fun s h => by simp [toy, crash] at h ⊢; omega) toy_term (fun _ h => by subst h; decide)
+  safe toy crash init (fun x h => by simp [toy, crash] at h ⊢; omega) toy_term (fun _ h => by subst h; decide)
 
 /-- With an end-of-escape test that accepts everything, a pilot diving at 4 per frame crashes on frame 2. -/
 example : ¬ Safe { toy with term := fun _ => true } crash init :=

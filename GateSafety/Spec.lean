@@ -13,8 +13,9 @@ structure Gate (S I L M : Type) where
   step : S → I → S
   /-- A controller's input for this frame, and its next state (`Law::step`). -/
   ctl : L → S → I × L
-  /-- Clearance test at one frame (`airframe_clearance > MARGIN`). -/
-  clear : S → Bool
+  /-- Clearance test at one frame of a rollout of controller `x.1` (`airframe_clearance > MARGIN`). It may
+  depend on the controller, e.g. a larger margin for a hand-back candidate or a cap on its rollout length. -/
+  clear : L × S → Bool
   /-- End-of-escape test: the rollout may stop here (`terminal`). -/
   term : L × S → Bool
   /-- Rollout length cap, in frames. -/
@@ -39,8 +40,8 @@ def Gate.flyN : Nat → L × S → L × S
 
 /-- Rollout check: clear at every frame until the end-of-escape test passes, within `n` more frames. -/
 def Gate.rolloutOK : Nat → L × S → Bool
-  | 0, x => G.clear x.2 && G.term x
-  | n + 1, x => G.clear x.2 && (G.term x || Gate.rolloutOK n (G.fly x))
+  | 0, x => G.clear x && G.term x
+  | n + 1, x => G.clear x && (G.term x || Gate.rolloutOK n (G.fly x))
 
 /-- The first proposed candidate whose rollout checks out from `s`. -/
 def Gate.choose (s : S) (m : M) (w : L) (u : I) : Option L :=
@@ -69,7 +70,7 @@ def SafeForever (Crash : S → Prop) (x : L × S) : Prop :=
   ∀ k, ¬ Crash (G.flyN k x).2
 
 /-- The clearance test means no contact. -/
-def ClearSound (Crash : S → Prop) : Prop := ∀ s, G.clear s = true → ¬ Crash s
+def ClearSound (Crash : S → Prop) : Prop := ∀ x, G.clear x = true → ¬ Crash x.2
 
 /-- The end-of-escape test means safe forever. -/
 def TermSound (Crash : S → Prop) : Prop := ∀ x, G.term x = true → SafeForever G Crash x
