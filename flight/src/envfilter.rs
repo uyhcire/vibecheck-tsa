@@ -1032,9 +1032,9 @@ pub const RESUME_TICKS: u64 = 100;
 /// Frames a resumed escape (one already flying, `Law::t > 0`) may use in a check: past the first terminal
 /// tests (6 s, then every 0.5 s), so a resumed escape that does not settle again leaves budget for fresh ones.
 pub const RESUME_CAP: usize = 1100;
-/// Hysteresis: a commit holds at least this many ticks (1 s) before a hand-back is checked, and hands back
+/// Hysteresis: a commit holds at least this many ticks (0.3 s) before a hand-back is checked, and hands back
 /// only to a candidate whose escape keeps `MARGIN + HANDBACK_EXTRA` (m) at every sample.
-pub const HOLD_TICKS: u64 = 50;
+pub const HOLD_TICKS: u64 = 15;
 pub const HANDBACK_EXTRA: f64 = 3.0;
 
 /// Turn direction of a law's terminal set, or of its escape before the street escape picks a side.
