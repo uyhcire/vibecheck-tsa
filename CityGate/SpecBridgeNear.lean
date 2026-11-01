@@ -63,6 +63,54 @@ def PoseBounded : Prop :=
     ∃ cx cy cz, ratOf s.cg.x = some cx ∧ ratOf s.cg.y = some cy ∧ ratOf s.cg.z = some cz ∧
       cgLo.1 ≤ cx ∧ cx ≤ cgHi.1 ∧ cgLo.2.1 ≤ cy ∧ cy ≤ cgHi.2.1 ∧ cgLo.2.2 ≤ cz ∧ cz ≤ cgHi.2.2
 
+/-- The CG under fuel freeze: the mass balance of the template's tanks, which never drain. -/
+def frozenCg : V3 Float := (massBalance CityJsb.template.cg CityJsb.template.tank0 CityJsb.template.tank1).cg
+
+/-- Tanks never drain, so after the first frame the CG is `frozenCg`. -/
+theorem reach_cg : ∀ p, CitySafety.Reach specFilter p → p.1.tank0 = CityJsb.template.tank0 ∧
+    p.1.tank1 = CityJsb.template.tank1 ∧ (p.2.isSome → p.1.cg = frozenCg) := by
+  intro p hp
+  induction hp with
+  | init h =>
+    obtain ⟨c, _, rfl⟩ := h
+    exact ⟨rfl, rfl, by simp [specFilter]⟩
+  | @step p u _ _ ih =>
+    obtain ⟨h0, h1, _⟩ := ih
+    have e0 : (specFilter.frame p u).1.tank0 = p.1.tank0 := rfl
+    have e1 : (specFilter.frame p u).1.tank1 = p.1.tank1 := rfl
+    have ec : (specFilter.frame p u).1.cg = (massBalance CityJsb.template.cg p.1.tank0 p.1.tank1).cg := rfl
+    refine ⟨e0.trans h0, e1.trans h1, fun _ => ?_⟩
+    rw [ec, h0, h1]; rfl
+
+/-- `frozenCg` is finite and in the CG box. -/
+def cgFits : Bool :=
+  match ratOf frozenCg.x, ratOf frozenCg.y, ratOf frozenCg.z with
+  | some x, some y, some z => decide (cgLo.1 ≤ x ∧ x ≤ cgHi.1 ∧ cgLo.2.1 ≤ y ∧ y ≤ cgHi.2.1 ∧ cgLo.2.2 ≤ z ∧ z ≤ cgHi.2.2)
+  | _, _, _ => false
+
+theorem cgFits_true : cgFits = true := by decide +kernel
+
+/-- **Assumption:** after the first frame, the reported `Tb2l`'s entries are finite and at most `1 + 1/1000` in size
+(it is a rotation matrix computed in `Float`). -/
+def TbBounded : Prop :=
+  ∀ s ob mc, CitySafety.Reach specFilter (s, some (ob, mc)) →
+    ∃ T, (tb2lEntries s).mapM ratOf = some T ∧ ∀ i < 9, Bd (T.getD i 0) tbBound
+
+/-- Under fuel freeze, `PoseBounded`'s CG part is a theorem. -/
+theorem poseBounded_of (hTb : TbBounded) : PoseBounded := by
+  intro s ob mc hp
+  refine ⟨hTb s ob mc hp, ?_⟩
+  have hcg : s.cg = frozenCg := (reach_cg _ hp).2.2 (by simp)
+  have hf := cgFits_true
+  unfold cgFits at hf
+  rw [hcg]
+  generalize ratOf frozenCg.x = ox at hf ⊢
+  generalize ratOf frozenCg.y = oy at hf ⊢
+  generalize ratOf frozenCg.z = oz at hf ⊢
+  cases ox <;> cases oy <;> cases oz <;> simp only [Bool.false_eq_true, decide_eq_true_eq] at hf
+  obtain ⟨h1, h2, h3, h4, h5, h6⟩ := hf
+  exact ⟨_, _, _, rfl, rfl, rfl, h1, h2, h3, h4, h5, h6⟩
+
 def obsGap : Rat := 1 / 100
 
 /-- **Assumption:** after the first frame, `report`'s CG is within 1 cm per axis of the gate's `exactPos`; both are

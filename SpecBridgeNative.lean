@@ -44,7 +44,13 @@ theorem cityGate_spec_safe_pose (hT : TermSoundR cityGate (CrashH 7) GInit) (hP 
     (hR : ReportMatchesObs) : CitySafety.Safe cityMap specFilter :=
   cityGate_spec_safe_native hT (airframeNearGate hP hR)
 
+/-- With fuel frozen the CG is constant, so only the `Tb2l` bound and `ReportMatchesObs` remain of the pose facts. -/
+theorem cityGate_spec_safe_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded)
+    (hR : ReportMatchesObs) : CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_pose hT (poseBounded_of hTb) hR
+
 end CityGate.SpecBridge
 
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_native
+#print axioms CityGate.SpecBridge.cityGate_spec_safe_tb
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_pose

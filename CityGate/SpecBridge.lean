@@ -208,7 +208,7 @@ def Corr (p : JsbExact.State Float × Mem') : Prop :=
   | some (ob, mc) => GateSafety.Reach cityGate GInit (planeOf p.1 ob, mc)
 
 theorem plane_step_st (s : JsbExact.State Float) (ob : FloatArray) (a : Surf) :
-    ((planeOf s ob).step a).st = (JsbExact.step s (ofSurf a).toInput).1 := rfl
+    ((planeOf s ob).step a).st = (CitySafety.specStep s (ofSurf a).toInput).1 := rfl
 
 /-- A gate frame from a plane at the map origin stays at the map origin. -/
 theorem planeOf_eta (s : JsbExact.State Float) (ob : FloatArray) {a : Surf} {g : Plane}
@@ -218,7 +218,7 @@ theorem planeOf_eta (s : JsbExact.State Float) (ob : FloatArray) {a : Surf} {g :
 /-- The plant step of the spec frame, once the clamp is known to change nothing. -/
 theorem frame_fst (p : JsbExact.State Float × Mem') (u : CitySafety.Surfaces)
     (hc : (specFilter.act p.2 p.1 u).1.clamp = (specFilter.act p.2 p.1 u).1) :
-    (specFilter.frame p u).1 = (JsbExact.step p.1 (specFilter.act p.2 p.1 u).1.toInput).1 := by
+    (specFilter.frame p u).1 = (CitySafety.specStep p.1 (specFilter.act p.2 p.1 u).1.toInput).1 := by
   simp only [CitySafety.Filter.frame]
   rw [hc]
 

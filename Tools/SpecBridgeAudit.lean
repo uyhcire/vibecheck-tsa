@@ -8,6 +8,7 @@ import CityGate.SafetyR
 #print axioms CityGate.city_safe_R
 #print axioms CityGate.SpecBridge.outputsInRange
 #print axioms CityGate.SpecBridge.airframeNearGate
+#print axioms CityGate.SpecBridge.poseBounded_of
 #print axioms CityGate.SpecBridge.reach_corr
 #print axioms CityGate.SpecBridge.clear_soundH
 #print axioms CityGate.SpecBridge.cityMap_terrain
