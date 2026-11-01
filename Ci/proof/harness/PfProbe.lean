@@ -1,6 +1,7 @@
 import Ci.proof.T
 import Ci.proof.LawIv
 import Ci.proof.SafeIv
+import PfAff
 import Jsb.Enc
 import Ci.Bench
 open Vibecheck Jsb Ci Ci.Lawfirst
@@ -158,6 +159,7 @@ def main (args : List String) : IO UInt32 := do
       let (okv, n) := countRec dims depth.toNat! B
       IO.println s!"{okv} {n}"
     return 0
+  | ["aff"] => PfAff.run; return 0
   | ["tick", k] => loop (← IO.getStdin) (← IO.getStdout) k.toNat!; return 0
   | ["bench", i, n] =>
     let lines := (← IO.FS.lines "../../../Ci/data/bench.csv").toList.drop 1
