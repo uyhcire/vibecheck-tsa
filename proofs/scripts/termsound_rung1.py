@@ -90,59 +90,133 @@ print(f"   helix: R*(0)={float(Rs(0)):.1f} R*(ZT)={float(Rs(ZT)):.1f} |R-R*|<={f
       f" L_R={float(LR):.4f} kappa={float(kap):.4f}")
 print("all side conditions hold" if ok else "SOME CONDITION FAILS")
 
-# ---------------- simulation ----------------
-def sim(kind_, E0, n_frames, seed, scale=1.0):
-    rnd = random.Random(seed); fl = float
-    u_s = lambda z: fl(ur + E0) - fl(E1) * z
-    vz_s = lambda z: fl(v0) + fl(kV) * (fl(E0) - fl(E1) * z)
-    hh, gg = fl(h), fl(g)
-    z = 300.0; u = u_s(z); vz = vz_s(z); psi = 0.0; x = y = 0.0
-    l = fl(lc) if kind_ == "helix" else 0.0
-    # start on the boundary-ish of the sets
-    u += 0.9 * fl(EU) * rnd.choice([-1, 1]) * 0.5
-    worstQ = worstT = 0.0; worstL = 0.0
-    z0 = z; x0 = x
-    c0 = complex(x, y) + fl(Rs(z)) * 1j * cmath.exp(1j * psi) if kind_ == "helix" else 0
-    maxdev = 0.0; ok_ = True
-    for k in range(n_frames):
-        d = lambda b: fl(b) * scale * rnd.uniform(-1, 1)
-        du, dvz, dz, dl, dpsi = d(dU), d(dVZ), d(dZ), d(dL), d(dPSI)
-        dp = complex(d(dP), d(dP)) / math.sqrt(2)
-        a0 = fl(g / ur) * vz_s(z) + 0  # trim-consistent excess acceleration at z, via the trim identity
-        fu = -fl(kD) * (u - u_s(z)) - fl(g / ur) * (vz - vz_s(z))
-        fvz = fl(kG) * (fl(v0) + fl(kV) * (u - fl(ur)) - vz)
-        if kind_ == "helix":
-            om = gg * l / u; R = u * u / (gg * l)
-            psin = psi + hh * om
-            p = complex(x, y) + R * 1j * (cmath.exp(1j * psi) - cmath.exp(1j * psin)) + dp
-            l = l + hh / fl(tau) * (fl(lc) - l) + dl
-            psi = psin + dpsi
-        else:
-            p = complex(x + hh * u * math.cos(psi), y + hh * u * math.sin(psi)) + dp
-            lnew = l + hh / fl(tau) * (-fl(kchi) * psi - l) + dl
-            psi = psi + hh * gg * l / u + dpsi
-            l = lnew
-        x, y = p.real, p.imag
-        u, vz, z = u + hh * fu + du, vz + hh * fvz + dvz, z + hh * vz + dz
-        eu, ev = u - u_s(z), vz - vz_s(z)
-        Q = fl(PL[0]) * eu * eu + 2 * fl(PL[1]) * eu * ev + fl(PL[2]) * ev * ev
-        worstQ = max(worstQ, Q / fl(r2L))
-        if kind_ == "helix":
-            worstL = max(worstL, abs(l - fl(lc)) / fl(RL))
-            if z < fl(ZT):
-                ct = complex(x, y) + fl(Rs(z)) * 1j * cmath.exp(1j * psi)
-                maxdev = max(maxdev, abs(ct - c0) / max(1e-9, fl(kap) * (z - z0) + 1e-9) if z > z0 else 0)
-        else:
-            QT = fl(PT[0]) * psi * psi + 2 * fl(PT[1]) * psi * l + fl(PT[2]) * l * l
-            worstT = max(worstT, QT / fl(r2T))
-            if z < fl(ZT) and x > x0:
-                maxdev = max(maxdev, abs(y) / (fl(kap_y) * (x - x0) + 1e-9), fl(Gr) * (x - x0) / max(z - z0, 1e-9))
-    return worstQ, worstT, worstL, maxdev
+kapH = Fr(1, 3); kapY = Fr(1, 30); G = Fr(2, 25)        # the constants the Lean statements use
+check("helix: kappa covers the drift", kap >= kap - 0 and kapH >= kap)
+check("ray: kapY, G cover the corridor", kapY >= kap_y and G <= Gr)
 
-if "--sim" in sys.argv or True:
-    for scale in [1.0, 4.0, 16.0]:
-        rs = [sim("ray", Fr(-1, 2), 128 * 120, s, scale) for s in range(4)]
-        hs = [sim("helix", Fr(-3, 2), 128 * 120, s, scale) for s in range(4)]
-        print(f"scale {scale}: ray max Q/r2 long {max(r[0] for r in rs):.3f} lat {max(r[1] for r in rs):.3f}"
-              f" cone usage {max(r[3] for r in rs):.3f} | helix Q/r2 {max(r[0] for r in hs):.3f}"
-              f" bank {max(r[2] for r in hs):.3f} centre/cone {max(r[3] for r in hs):.3f}")
+
+# ---------------- how large can the budget be (proved side conditions, all deltas scaled together) ----------------
+def conditions(scale):
+    """All side conditions of dynH_robust / dynR_robust with every per-frame budget multiplied by `scale`."""
+    sdU, sdVZ, sdZ, sdL, sdPSI, sdP = (x * scale for x in (dU, dVZ, dZ, dL, dPSI, dP))
+    DZ = Fr(44, 1000)
+    res = {}
+    res["long"] = (1 + tL) * c2L * r2L + (1 + 1 / tL) * qbox(PL, sdU + E1 * DZ, sdVZ + K * DZ) <= r2L
+    res["DZ"] = h * Fr(551, 100) + sdZ <= DZ
+    res["bank"] = (1 - h / tau) * RL + sdL <= RL
+    misr = h * g * EL * Fr(17, 1000) / g
+    res["lat"] = (1 + tT) * c2T * r2T + (1 + 1 / tT) * qbox(PT, sdPSI + h * EL * Fr(17, 1000), sdL) <= r2T
+    dzminH = h * (vzsH(ZT) - EVZ) - sdZ
+    res["helix drift"] = Fr(16, 5) * h * Fr(181, 1000) + 201 * sdPSI + 2 * sdP <= (kapH - Fr(21, 1000)) * dzminH
+    dxmin = h * (Fr(324, 10) - EU) * (1 - ECH ** 2 / 2) - sdP
+    res["ray cone"] = h * (Fr(69, 2) + EU) * ECH + sdP <= kapY * dxmin
+    res["ray gradient"] = G * (h * (Fr(69, 2) + EU) + sdP) <= h * (vzsR(ZT) - EVZ) - sdZ
+    return res
+
+lo, hi = Fr(1), Fr(1000)
+for _ in range(40):
+    mid = (lo + hi) / 2
+    if all(conditions(mid).values()): lo = mid
+    else: hi = mid
+binding = [k for k, v in conditions(hi).items() if not v]
+print(f"proved budget can be scaled by {float(lo):.3f} before {binding} fails")
+for k in ["long", "lat", "bank", "helix drift", "ray cone", "ray gradient"]:
+    lo2, hi2 = Fr(0), Fr(1000)
+    for _ in range(40):
+        mid = (lo2 + hi2) / 2
+        if conditions(mid)[k]: lo2 = mid
+        else: hi2 = mid
+    print(f"   {k:13s} alone allows scale {float(lo2):8.3f}")
+
+
+# ---------------- simulation: states in Dyn stay in Dyn under random and adversarial disturbances ----------------
+F = float
+def in_long(E0, u, vz, z):
+    eu, ev = u - F(ur + E0 - E1 * z), vz - F(v0 + kV * (E0 - E1 * z))
+    return F(PL[0]) * eu * eu + 2 * F(PL[1]) * eu * ev + F(PL[2]) * ev * ev
+
+def sample_ellipse(P, r2, rnd, frac):
+    """A point with q = frac * r2."""
+    th = rnd.uniform(0, 2 * math.pi); a, b = math.cos(th), math.sin(th)
+    qq = F(P[0]) * a * a + 2 * F(P[1]) * a * b + F(P[2]) * b * b
+    k = math.sqrt(frac * F(r2) / qq)
+    return k * a, k * b
+
+def run(kind_, seconds, seed, scale, mode):
+    rnd = random.Random(seed)
+    E0 = F(EH if False else (Fr(-3, 2) if kind_ == "helix" else Fr(-1, 2)))
+    hh, gg = F(h), F(g)
+    us_ = lambda z: F(ur) + E0 - F(E1) * z
+    vs_ = lambda z: F(v0) + F(kV) * (E0 - F(E1) * z)
+    z0, ztop = 300.0, 1000.0
+    eu, ev = sample_ellipse(PL, r2L, rnd, rnd.uniform(0.9, 1.0))
+    st = dict(x=0.0, y=0.0, z=z0, psi=0.0, u=us_(z0) + eu, vz=vs_(z0) + ev, l=0.0)
+    m0 = 0.0
+    if kind_ == "helix":
+        st["l"] = F(lc) + F(RL) * rnd.uniform(-1, 1)
+        Rs_ = lambda z: us_(z) ** 2 / (gg * F(lc))
+        c0 = complex(st["x"], st["y"]) + Rs_(z0) * 1j * cmath.exp(1j * st["psi"])
+    else:
+        a, b = sample_ellipse(PT, r2T, rnd, rnd.uniform(0.9, 1.0)); st["psi"], st["l"] = a, b
+    worst = {}
+    def note(k, v): worst[k] = max(worst.get(k, -1e9), v)
+    budget = dict(x=F(dP), y=F(dP), z=F(dZ), psi=F(dPSI), u=F(dU), vz=F(dVZ), l=F(dL))
+    for k in range(int(seconds * 128)):
+        s = st
+        # disturbance: uniform, or adversarial (push the Lyapunov functions and the cone outwards)
+        if mode == "uniform":
+            d = {k_: scale * b * rnd.uniform(-1, 1) for k_, b in budget.items()}
+        else:
+            eu, ev = s["u"] - us_(s["z"]), s["vz"] - vs_(s["z"])
+            gu, gv = F(PL[0]) * eu + F(PL[1]) * ev, F(PL[1]) * eu + F(PL[2]) * ev
+            d = {k_: scale * b for k_, b in budget.items()}
+            d["u"] *= math.copysign(1, gu); d["vz"] *= math.copysign(1, gv); d["z"] = -d["z"]
+            if kind_ == "helix":
+                d["l"] *= math.copysign(1, s["l"] - F(lc))
+                # pump the centre: speed/bank error that makes R - R* change sign with the heading
+                ph = math.cos(s["psi"])
+                d["u"] = scale * budget["u"] * math.copysign(1, ph); d["l"] = -scale * budget["l"] * math.copysign(1, ph)
+                d["x"], d["y"] = scale * budget["x"], 0.0
+            else:
+                gp, gl = F(PT[0]) * s["psi"] + F(PT[1]) * s["l"], F(PT[1]) * s["psi"] + F(PT[2]) * s["l"]
+                d["psi"] *= math.copysign(1, gp); d["l"] *= math.copysign(1, gl)
+                d["y"] = scale * budget["y"]; d["x"] = -scale * budget["x"]
+        if kind_ == "helix":
+            om = gg * s["l"] / s["u"]; R = s["u"] ** 2 / (gg * s["l"])
+            psin = s["psi"] + hh * om
+            p = complex(s["x"], s["y"]) + R * 1j * (cmath.exp(1j * s["psi"]) - cmath.exp(1j * psin))
+            nl = s["l"] + hh / F(tau) * (F(lc) - s["l"])
+        else:
+            psin = s["psi"] + hh * gg * s["l"] / s["u"]
+            p = complex(s["x"] + hh * s["u"] * math.cos(s["psi"]), s["y"] + hh * s["u"] * math.sin(s["psi"]))
+            nl = s["l"] + hh / F(tau) * (-F(kchi) * s["psi"] - s["l"])
+        fu = -F(kD) * (s["u"] - us_(s["z"])) - F(g / ur) * (s["vz"] - vs_(s["z"]))
+        fvz = F(kG) * (F(v0) + F(kV) * (s["u"] - F(ur)) - s["vz"])
+        st = dict(x=p.real + d["x"], y=p.imag + d["y"], z=s["z"] + hh * s["vz"] + d["z"], psi=psin + d["psi"],
+                  u=s["u"] + hh * fu + d["u"], vz=s["vz"] + hh * fvz + d["vz"], l=nl + d["l"])
+        note("long q/r2", in_long(E0, st["u"], st["vz"], st["z"]) / F(r2L))
+        note("z0 - z", z0 - st["z"])
+        if st["z"] < ztop:
+            if kind_ == "helix":
+                note("bank/RL", abs(st["l"] - F(lc)) / F(RL))
+                c = complex(st["x"], st["y"]) + Rs_(st["z"]) * 1j * cmath.exp(1j * st["psi"])
+                note("centre/cone", abs(c - c0) - (m0 + F(kapH) * (st["z"] - z0)))
+            else:
+                qt = F(PT[0]) * st["psi"] ** 2 + 2 * F(PT[1]) * st["psi"] * st["l"] + F(PT[2]) * st["l"] ** 2
+                note("lat q/r2", qt / F(r2T))
+                note("|y|-cone", abs(st["y"]) - (5.0 + F(kapY) * st["x"]))
+                note("grad", z0 + F(G) * st["x"] - st["z"])
+    return worst
+
+def inside(w):
+    return all(v <= 1 for k, v in w.items() if "/" in k) and all(v <= 0 for k, v in w.items() if "/" not in k)
+
+if __name__ == "__main__":
+    print("\nsimulation: 4 seeds x 60 s from states sampled at 90-100% of each Lyapunov level")
+    for scale in [1, 3, 10, 30, 100]:
+        for mode in ["uniform", "adversarial"]:
+            for kind_ in ["helix", "ray"]:
+                ws = [run(kind_, 60, sd, scale, mode) for sd in range(4)]
+                agg = {k: max(w[k] for w in ws) for k in ws[0]}
+                print(f"  scale {scale:4d} {mode:11s} {kind_:5s} {'IN ' if all(inside(w) for w in ws) else 'OUT'} "
+                      + " ".join(f"{k}={v:.3g}" for k, v in agg.items()))

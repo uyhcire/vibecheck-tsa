@@ -1,6 +1,6 @@
 import Proofs.TermSound.Long
 
-/-! The 30° climbing turn: `Dyn_helix` and its robust invariance. -/
+/-! The 30° climbing turn. -/
 
 namespace Proofs.TermSound
 
@@ -9,7 +9,6 @@ open Complex
 noncomputable section
 
 def ZCAPH : ℝ := 4100
-/-- Highest `ztop` (end of the terrain-relevant band) the end sets are stated for. -/
 def ZT : ℝ := 1200
 def RL : ℝ := 1 / 200
 def kappa : ℝ := 1 / 3
@@ -19,13 +18,10 @@ def Rstar (z : ℝ) : ℝ := uStar EH z ^ 2 / (g * lc)
 /-- The turn centre the trim radius at the current altitude would give. -/
 def centre (s : St) : ℂ := pos s + (Rstar s.z : ℂ) * I * cis s.psi
 
-/-- Robust end set of the helix, entered at altitude `z0` with centre `c0` and slack `m0`; terrain matters below
-`ztop`. -/
+/-- Entered at altitude `z0` with centre `c0` and slack `m0`; terrain matters only below `ztop`. -/
 def DynH (c0 : ℂ) (z0 m0 ztop : ℝ) (s : St) : Prop :=
   q PL (eu EH s) (evz EH s) ≤ r2L ∧ z0 ≤ s.z ∧ s.z ≤ ZCAPH ∧
     (s.z < ztop → |s.l - lc| ≤ RL ∧ ‖centre s - c0‖ ≤ m0 + kappa * (s.z - z0))
-
-/-! ### Unit vectors -/
 
 theorem norm_cis (a : ℝ) : ‖cis a‖ = 1 := by
   simp [cis]
@@ -43,8 +39,6 @@ theorem norm_real_I_cis (r a : ℝ) : ‖(r : ℂ) * I * cis a‖ = |r| := by
 theorem norm_real_I_mul (r : ℝ) (w : ℂ) : ‖(r : ℂ) * I * w‖ = |r| * ‖w‖ := by
   rw [norm_mul, norm_mul, norm_I, Complex.norm_real, Real.norm_eq_abs]; ring
 
-/-! ### The frame map in turn-centre terms -/
-
 theorem pos_step (s d : St) :
     pos (stepHelix s + d) = pos s + (radius s : ℂ) * I * (cis s.psi - cis (s.psi + h * omega s))
       + ⟨d.x, d.y⟩ := by
@@ -61,7 +55,6 @@ theorem centre_step (s d : St) :
   simp only [centre, hp, hpsi]
   push_cast; ring
 
-/-- Per-frame drift of the nominal centre. -/
 theorem centre_drift (s d : St) :
     ‖centre (stepHelix s + d) - centre s‖ ≤
       |radius s - Rstar s.z| * |h * omega s| + |Rstar (stepHelix s + d).z| * |d.psi|
@@ -85,8 +78,6 @@ theorem stepHelix_fields (s d : St) :
     (stepHelix s + d).vz = s.vz + h * accVz s + d.vz ∧ (stepHelix s + d).l = s.l + h / tau * (lc - s.l) + d.l ∧
     (stepHelix s + d).psi = s.psi + h * omega s + d.psi := by
   simp [stepHelix]
-
-/-! ### Altitude: the climb below `ZT`, the cap, and never sinking back below `ztop` -/
 
 def DZMIN : ℝ := h * (vzStar EH ZT - EVZ) - dZ
 
@@ -131,8 +122,6 @@ theorem stay_H {s : St} {dz ztop : ℝ} (hQ : q PL (eu EH s) (evz EH s) ≤ r2L)
   rcases le_or_gt s.z 1200 with hz' | hz'
   · nlinarith [hv.1, hdz.1]
   · nlinarith [hv.1, hdz.1]
-
-/-! ### Radius, turn rate and centre drift below `ZT` -/
 
 def DRAD : ℝ := 16 / 5
 def OMAX : ℝ := 181 / 1000

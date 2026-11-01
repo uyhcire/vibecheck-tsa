@@ -96,6 +96,8 @@ end
 #print axioms ray_forever
 #print axioms helix_bounds
 #print axioms ray_bounds
+#print axioms helix_conf
+#print axioms ray_conf
 #print axioms helix_trim_forever
 #print axioms ray_trim_forever
 #print axioms offH_mem

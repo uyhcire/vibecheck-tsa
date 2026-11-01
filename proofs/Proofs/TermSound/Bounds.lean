@@ -86,6 +86,40 @@ theorem ray_bounds {x0 z0 w0 ztop : ℝ} (hz0 : 0 ≤ z0) (hzt : ztop ≤ ZT) {s
   refine ⟨hx, hy, hg, (lat_extent hT).1, ?_⟩
   simp only [vzStar, ER, E1, kV, v0, EVZ, ZT] at *; nlinarith
 
+theorem Rstar_anti {z z' : ℝ} (h0 : 0 ≤ z) (hzz : z ≤ z') (h1 : z' ≤ ZT) : Rstar z' ≤ Rstar z := by
+  obtain ⟨a, b⟩ := uStar_H_band h0 (by linarith)
+  obtain ⟨c, d⟩ := uStar_H_band (h0.trans hzz) (by linarith)
+  have hle : uStar EH z' ≤ uStar EH z := by simp only [uStar, E1]; nlinarith
+  unfold Rstar
+  apply div_le_div_of_nonneg_right _ (by norm_num [g, lc])
+  nlinarith
+
+/-- `helix_bounds` in the fixed-annulus form `Helix.Conf` of `Spec/EndSets.lean`, below `ztop`. -/
+theorem helix_conf {c0 : ℂ} {z0 m0 ztop : ℝ} (hz0 : 0 ≤ z0) (hzt : ztop ≤ ZT) {s : St}
+    (hs : DynH c0 z0 m0 ztop s) (hlt : s.z < ztop) :
+    let r := (Rstar z0 + Rstar ztop) / 2
+    let δ := (Rstar z0 - Rstar ztop) / 2 + m0 + kappa * (ztop - z0)
+    r - δ ≤ ‖pos s - c0‖ ∧ ‖pos s - c0‖ ≤ r + δ ∧ z0 ≤ s.z := by
+  obtain ⟨hz0s, hb⟩ := helix_bounds hz0 hzt hs
+  obtain ⟨lo, hi, -, -, -, -⟩ := hb hlt
+  have hz0' : 0 ≤ s.z := hz0.trans hz0s
+  have a1 := Rstar_anti hz0 hz0s (hlt.le.trans hzt)
+  have a2 := Rstar_anti hz0' hlt.le hzt
+  have hk : kappa * (s.z - z0) ≤ kappa * (ztop - z0) :=
+    mul_le_mul_of_nonneg_left (by linarith) (by norm_num [kappa])
+  refine ⟨by linarith, by linarith, hz0s⟩
+
+/-- `ray_bounds` in the constant-width form `Ray.Conf` of `Spec/EndSets.lean`, below `ztop`: the along-track
+distance below `ztop` is under `(ztop - z0) / G`. -/
+theorem ray_conf {x0 z0 w0 ztop : ℝ} (hz0 : 0 ≤ z0) (hzt : ztop ≤ ZT) {s : St}
+    (hs : DynR x0 z0 w0 ztop s) (hlt : s.z < ztop) :
+    |s.y| ≤ w0 + kapY * ((ztop - z0) / G) ∧ 0 ≤ s.x - x0 ∧ z0 + G * (s.x - x0) ≤ s.z := by
+  obtain ⟨-, hb⟩ := ray_bounds hz0 hzt hs
+  obtain ⟨hx, hy, hg, -, -⟩ := hb hlt
+  have hG : (0 : ℝ) < G := by norm_num [G]
+  have hal : s.x - x0 ≤ (ztop - z0) / G := by rw [le_div_iff₀ hG]; nlinarith
+  refine ⟨hy.trans (by gcongr; norm_num [kapY]), by linarith, hg⟩
+
 end
 
 end Proofs.TermSound

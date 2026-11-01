@@ -1,5 +1,7 @@
 import Proofs.TermSound.Helix
 
+/-! The straight climb, in the frame of the held track (`psiRef = 0`, along-track `x`). -/
+
 namespace Proofs.TermSound
 
 noncomputable section
