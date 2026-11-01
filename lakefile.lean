@@ -102,7 +102,7 @@ lean_exe cityimporttest where
   root := `Tools.CityImportTest
   moreLinkObjs := #[jxmath.o]
 
-/-- `CitySafety.passThrough` flown into the hand-made map until a contact point is in something solid. -/
+/-- `CitySafety.passThrough` flown into the hand-made map until an airframe point is in something solid. -/
 lean_exe citysafetydemo where
   root := `Tools.CitySafetyDemo
   moreLinkObjs := #[jxmath.o]

@@ -9,8 +9,8 @@ import CityJsb.Plant
 Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` lists it):
 * this file: `ratOf`, `InRange`, `Surfaces`, `Surfaces.Valid`, `clampTo`, `Surfaces.clamp`, `Surfaces.toInput`,
   `StartCond`, `StartCond.state`, `startConds`, `Init`, `Filter`, `Filter.frame`, `Reach`, `Pt`, `Box`,
-  `Box.Contains`, `CityMap`, `clampR`, `CityMap.terrain`, `Solid`, `combo`, `InHull`, `contactPoints`, `ft`,
-  `mapPoint`, `airframe`, `HullHits`, `Crash`, `Safe`;
+  `Box.Contains`, `CityMap`, `clampR`, `CityMap.terrain`, `Solid`, `combo`, `InHull`, `contactPoints`,
+  `outlinePoints`, `ft`, `mapPoint`, `airframe`, `HullHits`, `SweptCrash`, `Safe` (`Crash` is not in it);
 * the plant: `JsbExact.step` and what it calls, the generated `JsbExact.Gen` (from `c172p.xml`),
   `CityJsb.template` and `CityJsb.initAt`. These are trusted because they match JSBSim 1.3.3 bit for bit on the
   validation datasets (measured, not proved);
@@ -18,16 +18,16 @@ Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` 
   `Float.pow`, `Float.exp`, `Float.atan`, `Float.asin`, and `Float.sin`, `Float.cos` in `initAt`. Lean's logic knows
   nothing about their values, so a proof of `Safe` needs stated contracts for them (for example error bounds).
 
-Decisions for review:
-1. Airframe: the convex hull of the 7 contact points, so wings and fuselage between the points count; the fin top
-   and the wingtips' chord are outside it.
+Decisions (3 and 6 not yet reviewed):
+1. Airframe: the convex hull of the 7 JSBSim contact points and 5 outline points from FlightGear's c172p visual
+   model (fin top, each wingtip's leading and trailing edge).
 2. Numbers: plant `Float`s are read exactly (`ratOf`); geometry is exact in `Rat`, except that the cosine and sine of
    the Earth angle are the plant's own libm values. A non-finite pose is a crash.
 3. Map frame: the tangent plane at latitude and longitude 0. The demo's `z` is altitude above sea level instead;
    the two differ by d²/2R, up to 0.7 m at the map's edges and 1.4 m at its corners, with the tangent plane lower.
 4. Beyond the ±3000 m grid the terrain continues the edge profile (`World::terrain`'s clamp; 731 to 927 m on the
    demo map); the gate's "off the map is clear" is not sound under this.
-5. Contact is checked at every frame's state (1/128 s), as JSBSim does, not along the path between frames.
+5. Contact is checked over each frame's sweep: the hull of the airframe points at both ends of the frame.
 6. Touching counts as contact (all solids are closed).
 -/
 
@@ -181,6 +181,17 @@ def InHull (ps : List Pt) (q : Pt) : Prop :=
 left and right main gear, propeller hub, tail skid, left and right wingtips. -/
 def contactPoints : List (V3 Float) := Gen.gears.toList.map fun g => ⟨g[1]!, g[2]!, g[3]!⟩
 
+/-- Points of the aircraft's outline that are not contact points, in the frame and units of `contactPoints`: vertices
+of FlightGear's c172p visual model (FGData 2024.1, `Aircraft/c172p/Models/c172-common.ac`, metres, x aft, y up,
+z left), placed as that aircraft's `Models/c172p.xml` places it: pitched 3° nose down about the VRP (34, 0, 35.75) in
+of its `c172p.xml`. Its gear wheels land within 1 in of `contactPoints`' gear. -/
+def outlinePoints : List (V3 Float) :=
+  [⟨246.6, 0, 88.7⟩,       -- fin top: highest vertex of object `vstab.001`, (5.463, 1.061, 0) m
+   ⟨32.2, -221.5, 58.0⟩,   -- left wingtip leading edge: `wing_left` tip rib, (-0.015, 0.567, 5.626) m
+   ⟨75.2, -221.5, 52.5⟩,   -- left wingtip trailing edge: `wing_left` tip rib, (1.067, 0.370, 5.626) m
+   ⟨32.2, 221.5, 58.0⟩,    -- right wingtip leading edge: mirror of the left
+   ⟨75.2, 221.5, 52.5⟩]    -- right wingtip trailing edge: mirror of the left
+
 /-- One foot in metres, exactly. -/
 def ft : Rat := 3048 / 10000
 
@@ -208,20 +219,32 @@ def mapPoint (s : State Float) (r : V3 Float) : Option Pt := do
   let (ex, ey, ez) := (ce * ix + se * iy, -se * ix + ce * iy, iz)
   return ⟨ey * ft, ez * ft, (ex - a) * ft⟩
 
-/-- Map positions of the contact points in state `s`, or `none` if any is undefined. -/
-def airframe (s : State Float) : Option (List Pt) := contactPoints.mapM (mapPoint s)
+/-- Map positions of the airframe points in state `s`, or `none` if any is undefined. -/
+def airframe (s : State Float) : Option (List Pt) := (contactPoints ++ outlinePoints).mapM (mapPoint s)
 
 /-- Some point of the convex hull of `ps` is in something solid. -/
 def HullHits (M : CityMap) (ps : List Pt) : Prop := ∃ q, InHull ps q ∧ Solid M q
 
-/-- The aircraft in state `s` touches the city: some point of the convex hull of its contact points is in
-something solid. A state with a non-finite pose counts as a crash (the simulation has broken down). -/
+/-- The aircraft in state `s` touches the city: some point of the convex hull of its airframe points is in
+something solid. A state with a non-finite pose counts as a crash (the simulation has broken down). `Safe` rules out
+`Crash` at every reachable state (`safe_no_crash` in `Spec/CitySafetyChecks.lean`). -/
 def Crash (M : CityMap) (s : State Float) : Prop :=
   match airframe s with
   | none => True
   | some ps => HullHits M ps
 
-/-- The filter `F` keeps the aircraft from crashing into the city `M`, whatever the pilot does. -/
-def Safe (M : CityMap) (F : Filter) : Prop := ∀ p, Reach F p → ¬ Crash M p.1
+/-- The frame from `s` to `s'` touches the city: some point of the convex hull of the airframe points at both
+states is in something solid. This hull contains each point's straight-line path from `s` to `s'`
+(`segment_in_sweep`); the plant has no state between frames that would define a curved path. A non-finite pose at
+either end counts as a crash. -/
+def SweptCrash (M : CityMap) (s s' : State Float) : Prop :=
+  match airframe s, airframe s' with
+  | some ps, some ps' => HullHits M (ps ++ ps')
+  | _, _ => True
+
+/-- The filter `F` keeps the aircraft from touching the city `M`, whatever the pilot does: no frame the closed loop
+can take from a reachable state touches it. -/
+def Safe (M : CityMap) (F : Filter) : Prop :=
+  ∀ p u, Reach F p → u.Valid → ¬ SweptCrash M p.1 (F.frame p u).1
 
 end CitySafety
