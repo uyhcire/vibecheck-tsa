@@ -1,4 +1,4 @@
-//! The Lean city gate (`CityGate/Ffi.lean`, `c/citygate.h`) as the demo's plant and filter (`--env lean`). Every
+//! The Lean city gate (`CityGate/Ffi.lean`, `c/citygate.h`) as the demo's plant and filter (`--safety-filter exact-rollout-lean`). Every
 //! JSBSim frame goes through `citygate_frame`, which runs `cityGate.frame`, the frame `CityGate.city_safe` is
 //! about (`frameOut_fst`); the gate's candidate checks run in parallel on Lean's task manager. The pilot stays in
 //! Rust: fly-by-wire demands become surfaces each frame from the gate's own observation (`jsb::fbw_law`), or
@@ -8,7 +8,7 @@ use crate::jsb::{fbw_bumpless, fbw_law, Gains, Obs, Pilot, DT_JSB, GAINS, NOBS};
 use crate::model::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Set once at startup (`--env lean`); every new `Sim` then flies the Lean gate.
+/// Set once at startup (`--safety-filter exact-rollout-lean`); every new `Sim` then flies the Lean gate.
 pub static LEAN_GATE: AtomicBool = AtomicBool::new(false);
 
 pub fn enabled() -> bool {

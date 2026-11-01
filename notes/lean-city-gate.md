@@ -24,7 +24,7 @@ From an allowed start, whatever surfaces and throttle the pilot gives each JSBSi
 | `CityGate/Safety.lean` | `city_safe` | No |
 
 **Running it.**
-- `--env lean` in the demo and in `crashes` flies the Lean gate. `--env gate` is still the Rust gate.
+- `--safety-filter exact-rollout-lean` in the demo and in `crashes` flies the Lean gate. `--safety-filter exact-rollout` is still the Rust gate.
 - `lake build CityGate libcityjsb`, then `cargo build --release --features jsb`.
 - `crashes OUT N --secs S` shortens episodes.
 - `lake exe citygatespot` is the spot check: the street escape for 8 s is bit-identical to Rust.

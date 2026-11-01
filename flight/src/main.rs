@@ -1264,7 +1264,7 @@ impl App {
             (true, Mode::Blend) | (true, Mode::Commit) => fs.act_esc.map(|i| ESC_NAMES[i]).unwrap_or("-"),
             _ => "-",
         };
-        // Exact-rollout filters (`--env`): filter name, escape (committed or verified) and check time.
+        // Exact-rollout filters (`--safety-filter`): filter name, escape (committed or verified) and check time.
         #[allow(unused_mut)]
         let mut env: Option<(String, &str, f64, bool)> = None;
         #[cfg(feature = "jsb")]
@@ -1596,9 +1596,9 @@ async fn main() {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
-    if let Some(f) = arg("--env") {
+    if let Some(f) = arg("--safety-filter") {
         cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
-        if f == "lean" {
+        if f == "exact-rollout-lean" {
             cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse(&f), std::sync::atomic::Ordering::Relaxed);

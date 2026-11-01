@@ -52,7 +52,7 @@ pub struct Sim<'w> {
     /// JSBSim's c172p in place of the point-mass model (`--jsb`).
     #[cfg(feature = "jsb")]
     pub jsb: Option<crate::jsb::JsbPlant>,
-    /// Straight-ahead climb-out filter state (`--env`): the escape being flown, if committed.
+    /// Straight-ahead climb-out filter state (`--safety-filter`): the escape being flown, if committed.
     #[cfg(feature = "jsb")]
     pub env_law: Option<crate::envfilter::Law>,
     #[cfg(feature = "jsb")]
@@ -64,7 +64,7 @@ pub struct Sim<'w> {
     pub env_pred: Vec<[f64; 3]>,
     #[cfg(feature = "jsb")]
     pub env_gate: Option<crate::envfilter::Gate>,
-    /// The Lean city gate as plant and filter (`--env lean`).
+    /// The Lean city gate as plant and filter (`--safety-filter exact-rollout-lean`).
     #[cfg(feature = "jsb")]
     pub lean: Option<crate::leangate::LeanGate>,
 }

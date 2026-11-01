@@ -1,6 +1,6 @@
 //! Records the crashes of the hostile-pilot harness episodes (P1 filter on) as JSON for plotting.
 //! `cargo run --release --no-default-features --features jsb --bin crashes -- OUT_DIR [episodes] [--pm]
-//!   [--env exact|fitted|fitted25|gate] [--escapes 3|5|6] [--law cegis1|cegis2|lawfirst] [--budget FRAMES] [--time-cap MS] [--threads N] [--only EPISODE]
+//!   [--safety-filter exact|fitted|fitted25|exact-rollout|exact-rollout-lean] [--escapes 3|5|6] [--law cegis1|cegis2|lawfirst] [--budget FRAMES] [--time-cap MS] [--threads N] [--only EPISODE]
 //!   [--check-threads N [--verify-seeds]] [--scenario K [--pilot hostile|kamikaze|mixed]]`
 //! (`--pm` flies the point-mass model instead of JSBSim.) `--scenario K` starts every episode at scenario K
 //! (1-5) instead of a random start; with K = 5 (Tower gap) the scripted showcase pilot flies one more.
@@ -258,8 +258,8 @@ fn main() {
     if let Some(n) = args.iter().position(|a| a == "--escapes").and_then(|i| args.get(i + 1)?.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
     }
-    if let Some(i) = args.iter().position(|a| a == "--env") {
-        if args.get(i + 1).is_some_and(|s| s == "lean") {
+    if let Some(i) = args.iter().position(|a| a == "--safety-filter") {
+        if args.get(i + 1).is_some_and(|s| s == "exact-rollout-lean") {
             cityflight::leangate::LEAN_GATE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let k = cityflight::envfilter::parse(args.get(i + 1).map_or("", |s| s.as_str()));
