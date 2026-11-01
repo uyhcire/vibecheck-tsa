@@ -8,8 +8,9 @@ bounded, so that a terminal set around it can be proved:
 2. the steady-pull pitch-rate reference uses lawfirst's kinematic load-factor estimate `nEst` (density, speed,
    α) instead of the state's stored acceleration fields, so that inside the terminal set the law reads only the
    slow state and its memory;
-3. the throttle comes back by 0.002 per metre above 2500 m, so the climb ends at a stable level-flight altitude
-   (about 2620 m) instead of creeping up to the model's service ceiling.
+3. the throttle comes back quadratically above 2500 m (0.1 at 2600 m), so the climb ends at a stable level-flight
+   altitude instead of creeping up to the model's service ceiling; the schedule is C¹ (a kink at 2500 m left no
+   contraction margin just above it).
 
 All arithmetic is on raw `Fx` integers. -/
 
@@ -22,8 +23,12 @@ def vBand : Int := 2 * 65536
 /-- Altitude (raw) where the throttle starts to come back. -/
 def hThr : Int := 2500 * 65536
 
-/-- Throttle (raw): full up to `hThr`, then 0.002 per metre less, floored at idle. -/
-def thrH (h : Int) : Int := clampI 0 65536 (65536 - max 0 (h - hThr) / 500)
+/-- Curvature of the throttle schedule: 0.1 less throttle 100 m above `hThr` (raw² per raw). -/
+def thrK : Int := 6553200024
+
+/-- Throttle (raw): full up to `hThr`, then reduced by `δ²/thrK` at `δ` above it (C¹, no kink at `hThr`), floored
+at idle. -/
+def thrH (h : Int) : Int := clampI 0 65536 (65536 - max 0 (h - hThr) * max 0 (h - hThr) / thrK)
 
 /-- lawfirst's `alphaCmd` with the continuous speed term. -/
 def alphaCmd (p : P) (s : State) : Int :=

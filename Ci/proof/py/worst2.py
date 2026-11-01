@@ -35,16 +35,16 @@ for _ in range(3000):
     params.append(proj(h, y, lam, perp))
 s = score(params); o = np.argsort(-s)[:60]; pop = [params[i] for i in o]; ps = s[o]
 print("init", ps[:3].round(4))
-for it in range(15):
+for it in range(int(os.environ.get("WIT", "15"))):
     cand = []
     for (h, y, lam, perp) in pop:
         for _ in range(5):
-            h2 = float(np.clip(h + rng2.normal() * 3, 10, 2689.9))
+            h2 = float(np.clip(h + rng2.normal() * 3, 10, 2679.9))
             cand.append(proj(h2, y + rng2.normal(size=7) * 0.2, lam + rng2.normal() * 0.1 * tkat(h2), perp + rng2.normal(size=11) * 0.1 * tpat(h2)))
     cs = score(cand)
     allp = pop + cand; alls = np.concatenate([ps, cs]); o = np.argsort(-alls)[:60]
     pop = [allp[i] for i in o]; ps = alls[o]
-    print(f"iter {it}: best {ps[:3].round(4)} at h {[round(p[0]) for p in pop[:3]]}", flush=True)
+    print(f"iter {14 if it == int(os.environ.get("WIT", "15")) - 1 else it}: best {ps[:3].round(4)} at h {[round(p[0]) for p in pop[:3]]}", flush=True)
 X = np.array([build(*p) for p in pop[:4]])
 img, safe, cl, t0, t1 = ticks_T(X)
 for p, x, xi, a, b in zip(pop[:4], X, img, t0, t1):

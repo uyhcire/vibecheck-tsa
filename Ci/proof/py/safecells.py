@@ -1,7 +1,7 @@
 import numpy as np, sys, subprocess, boxes3
 from boxes3 import *
 w = float(sys.argv[1]); depth = sys.argv[2]
-cells = [(a, min(a + w, 2690)) for a in np.arange(10, 2690, w)]
+cells = [(a, min(a + w, 2680)) for a in np.arange(10, 2680, w)]
 lines = []
 for ha, hb in cells:
     lo, hi, d = cellbox(ha, hb)

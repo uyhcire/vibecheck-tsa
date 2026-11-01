@@ -11,16 +11,24 @@ for it in range(5):
     k = np.argmin(abs(t[:, 1] / 65536 - 60)); x = t[k].copy(); x[0] = 0
 x[1] = 5 * 65536 + 32768
 up = traj(x, 16000)
-above = F[200].copy(); above[0] = 0; above[1] = 2800 * 65536
+above = F[200].copy(); above[0] = 0; above[1] = 2950 * 65536
 dn = traj(above, 14000)
 hf = up[-1, 1]
-dn_ok = dn[700:]; dn_ok = dn_ok[dn_ok[:, 1] > hf + 1]
+dn_ok = dn[500:]; dn_ok = dn_ok[dn_ok[:, 1] > hf + 1]
 M = np.concatenate([up, dn_ok]); M = M[np.argsort(M[:, 1], kind="stable")]
 hs = M[:, 1] / 65536
 print("fixed point", hf / 65536, "range", hs.min(), hs.max(), "down part starts at", dn_ok[0, 1] / 65536 if len(dn_ok) else None)
-HT = np.arange(0, 2710, 10)
+HT = np.arange(0, 2702, 2)
+def smooth(h, w=6.0):
+    """local linear fit of every field over trajectory samples within h ± w m (removes the Fx limit-cycle jitter)"""
+    m = np.abs(hs - h) <= w
+    if m.sum() < 8: return np.array([np.interp(h, hs, M[:, j]) for j in range(21)])
+    X = np.stack([np.ones(m.sum()), hs[m] - h], axis=1)
+    coef, *_ = np.linalg.lstsq(X, M[m].astype(float), rcond=None)
+    return coef[0]
 tab = np.array([[np.interp(h, hs, M[:, j]) for j in range(21)] for h in HT])
 tab[:, 1] = HT * 65536
 np.save("man2.npy", np.round(tab).astype(np.int64))
 for h in [10, 500, 1000, 2000, 2400, 2500, 2540, 2600, 2640]:
-    i = h // 10; print(h, "climb vs frozen: vz", round(tab[i, 3] / 65536, 3), round(F[min(i, len(F)-1), 3] / 65536, 3), " tmap", round(tab[i, 8] / 65536, 2), round(F[min(i, len(F)-1), 8] / 65536, 2))
+    i = h // 2; print(h, "climb vs frozen: vz", round(tab[i, 3] / 65536, 3), round(F[min(i, len(F)-1), 3] / 65536, 3), " tmap", round(tab[i, 8] / 65536, 2), round(F[min(i, len(F)-1), 8] / 65536, 2))
+np.save("man_raw.npy", M)

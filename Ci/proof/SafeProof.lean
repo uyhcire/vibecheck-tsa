@@ -18,7 +18,16 @@ theorem clampI_idem (lo hi x : Int) (h : lo ≤ hi) : clampI lo hi (clampI lo hi
   unfold clampI; omega
 
 theorem thrH_anti {a b : Int} (h : a ≤ b) : thrH b ≤ thrH a := by
-  unfold thrH clampI hThr; omega
+  have hx : max 0 (a - hThr) ≤ max 0 (b - hThr) := by omega
+  have h0 : 0 ≤ max 0 (a - hThr) := by omega
+  have hsq : max 0 (a - hThr) * max 0 (a - hThr) ≤ max 0 (b - hThr) * max 0 (b - hThr) :=
+    Int.mul_le_mul hx hx h0 (by omega)
+  have hd : max 0 (a - hThr) * max 0 (a - hThr) / thrK ≤ max 0 (b - hThr) * max 0 (b - hThr) / thrK :=
+    Int.ediv_le_ediv (by decide) hsq
+  unfold thrH clampI
+  generalize max 0 (a - hThr) * max 0 (a - hThr) / thrK = ta at hd ⊢
+  generalize max 0 (b - hThr) * max 0 (b - hThr) / thrK = tb at hd ⊢
+  omega
 
 theorem ok_sound (B : CLOf Iv) (c : CLOf Fx) (hB : B.Mem c) (hok : ok B = true) : Pt c := by
   intro m hm hac
@@ -58,7 +67,10 @@ theorem ok_sound (B : CLOf Iv) (c : CLOf Fx) (hB : B.Mem c) (hok : ok B = true) 
           have t1 := thrH_anti hh.1
           have t2 := thrH_anti hh.2
           unfold thrI
-          have r : max 0 (min 65536 (thrH c.s.h.raw)) = thrH c.s.h.raw := by unfold thrH clampI; omega
+          have r : max 0 (min 65536 (thrH c.s.h.raw)) = thrH c.s.h.raw := by
+            unfold thrH clampI
+            generalize max 0 (c.s.h.raw - hThr) * max 0 (c.s.h.raw - hThr) / thrK = t
+            omega
           rw [r]; exact ⟨t2, t1⟩
         · show (0 : Int) ≤ 0 ∧ (0 : Int) ≤ 0; omega
         · show (0 : Int) ≤ 0 ∧ (0 : Int) ≤ 0; omega

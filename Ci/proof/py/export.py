@@ -10,7 +10,7 @@ S = np.array([STEP[i] for i in ZI], dtype=float); Sy = S[YI]; Sg = S[GI]
 yidx = [ZI[i] for i in YI]; gidx = [ZI[i] for i in GI]
 gidx_noac = [g for g in gidx if g != 20]
 fields = yidx + gidx_noac                         # raw state indices stored in the centre table (eI = 19 is memory)
-HT = np.arange(0, 2710, 10)
+HT = np.arange(0, 2702, 2)
 ctab = [[int(round(np.interp(h, hs, Mall[:,j]))) for j in fields] for h in HT]
 K = 40
 Pint = [[[int(round(PN[n][i][j] / (Sy[i]*Sy[j]) * 2**K)) for j in range(7)] for i in range(7)] for n in range(len(HN))]
@@ -31,7 +31,7 @@ out.append("set_option maxRecDepth 100000\n\nnamespace Ci.Proof.TData\n")
 out.append(f"/-- State fields (raw indices into the 19-field state, 19 = law memory `eI`) of the centre table. -/\ndef fields : Array Nat := {arr(fields)}\n")
 out.append(f"/-- Slow coordinates are the first 7 fields; the rest are fast (slaved) coordinates. -/\ndef nSlow : Nat := 7\n")
 for n, r in enumerate(ctab): out.append(f"def c{n} : Array Int := {arr(r)}")
-out.append("/-- Climb manifold: centre values (raw) at h = 0, 10, ..., 2700 m. -/\ndef centre : Array (Array Int) := #[" + ", ".join(f"c{n}" for n in range(len(ctab))) + "]\n")
+out.append("/-- Climb manifold: centre values (raw) at h = 0, 2, ..., 2700 m. -/\ndef centre : Array (Array Int) := #[" + ", ".join(f"c{n}" for n in range(len(ctab))) + "]\n")
 out.append(f"/-- Quadratic form at h = 0, 100, ..., 2700 m, raw slow deviations, scaled by 2^{K}. -/\ndef pK : Nat := {K}\n")
 for n, P in enumerate(Pint): out.append(f"def p{n} : Array (Array Int) := #[" + ", ".join(arr(r) for r in P) + "]")
 out.append("def pTab : Array (Array (Array Int)) := #[" + ", ".join(f"p{n}" for n in range(len(Pint))) + "]\n")

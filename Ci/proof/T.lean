@@ -3,7 +3,7 @@ import Ci.proof.TData
 import Jsb.Conformance
 
 /-! ci-proof terminal set: a neighbourhood of the law's climb manifold. At altitude h the centre `c(h)` is the
-manifold state (table at 10 m spacing, linear interpolation). With `d` the deviation of the 7 slow coordinates
+manifold state (table at 2 m spacing, linear interpolation). With `d` the deviation of the 7 slow coordinates
 (vx, vz, dz, q, rpm, tmap, integrator eI) from `c(h)`, the set requires
 
 * `dᵀ P(h) d ≤ r(h)²` (r = 4.5 up to 2200 m, 3.6 from 2400 m), where `P(h)` interpolates per-altitude Lyapunov matrices of the linearised one-tick map;
@@ -11,7 +11,7 @@ manifold state (table at 10 m spacing, linear interpolation). With `d` the devia
   `e` from `c(h) + G(h) d` has a component along a kink direction `k(h)` bounded by `τk(h)` (this covers the
   breakpoints of the piecewise-linear lift and drag tables, which the linear slaving cannot follow), and the rest of
   `e` bounded componentwise by `τ⊥(h)`;
-* 10 m ≤ h < 2690 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
+* 10 m ≤ h < 2680 m, stall bit 0, and the stored α command within ±900000 raw (so its slew clamp is inactive);
 * the state and `eI` inside the bounding box of the above over the state's 50 m altitude cell (`boxOk`); redundant
   by construction, it lets the one-tick safety proof work on boxes.
 
@@ -22,7 +22,7 @@ open Vibecheck Jsb Ci.Lawfirst
 
 -- centre table: frozen-altitude equilibria of the climb (h held fixed), see `Ci/proof/py/frozen_tab.py`
 def hLoT : Int := 10 * 65536
-def hHiT : Int := 2690 * 65536
+def hHiT : Int := 2680 * 65536
 
 /-- Raw value of coordinate `i` (state field index, 19 = integrator memory). -/
 def coord (s : State) (m : Mem) (i : Nat) : Int :=
@@ -48,33 +48,46 @@ def gmul (G : Array (Array Int)) (d : Array Int) (k : Nat) : Int := Id.run do
     acc := acc + G[k]![j]! * d[j]!
   return acc
 
+/-- Altitude band, stall bit, stored α command. -/
+def bandOk (p : State × Mem) : Bool :=
+  hLoT ≤ p.1.h.raw && p.1.h.raw < hHiT && p.1.stall.raw == 0 && -900000 ≤ p.2.ac && p.2.ac ≤ 900000
+
 open TData in
-/-- The conditions above other than the cell box. -/
-def restOk (p : State × Mem) : Bool := Id.run do
-  let s := p.1
-  let m := p.2
-  let h := s.h.raw
-  if !(hLoT ≤ h && h < hHiT && s.stall.raw == 0 && -900000 ≤ m.ac && m.ac ≤ 900000) then return false
-  -- centre at h
-  let span : Int := 10 * 65536
+/-- Deviation (raw) of coordinate `k` of `TData.fields` from the climb manifold at the state's altitude. -/
+def dev (p : State × Mem) (k : Nat) : Int :=
+  let h := p.1.h.raw
+  let span : Int := 2 * 65536
   let i := (h / span).toNat
-  let f := h - i * span
-  let c0 := centre[i]!
-  let c1 := centre[i + 1]!
-  let dev := fun (k : Nat) => coord s m fields[k]! - lerp c0[k]! c1[k]! f span
-  let d : Array Int := (List.range nSlow).toArray.map dev
-  -- slow ellipsoid, P interpolated at 100 m nodes
+  coord p.1 p.2 fields[k]! - lerp (centre[i]!)[k]! (centre[i + 1]!)[k]! (h - i * span) span
+
+/-- The slow deviations `d`. -/
+def dSlow (p : State × Mem) : Array Int := (List.range TData.nSlow).toArray.map (dev p)
+
+/-- Node index and offset of the 100 m interpolation of the form and the fast-coordinate data. -/
+def nodeJ (h : Int) : Nat := (h / (100 * 65536)).toNat
+def nodeF (h : Int) : Int := h - nodeJ h * (100 * 65536)
+
+open TData in
+/-- The slow ellipsoid: `dᵀ P(h) d ≤ r(h)²`, both interpolated at 100 m nodes. -/
+def quadOk (p : State × Mem) : Bool :=
+  let h := p.1.h.raw
+  let j := nodeJ h
+  let fP := nodeF h
+  let d := dSlow p
+  lerp (quad pTab[j]! d) (quad pTab[j + 1]! d) fP (100 * 65536) ≤ lerp r2Tab[j]! r2Tab[j + 1]! fP (100 * 65536)
+
+open TData in
+/-- The fast coordinates slaved to the slow ones: residual e = (fast − c(h) − G(h) d); its component along the kink
+direction k(h) (from the breakpoints of the lift and drag tables) is bounded loosely, the rest tightly. -/
+def fastOk (p : State × Mem) : Bool := Id.run do
+  let h := p.1.h.raw
+  let j := nodeJ h
+  let fP := nodeF h
   let spanP : Int := 100 * 65536
-  let j := (h / spanP).toNat
-  let fP := h - j * spanP
-  let q0 := quad pTab[j]! d
-  let q1 := quad pTab[j + 1]! d
-  if lerp q0 q1 fP spanP > lerp r2Tab[j]! r2Tab[j + 1]! fP spanP then return false
-  -- fast coordinates slaved to the slow ones: residual e = (fast − c(h) − G(h) d); its component along the
-  -- kink direction k(h) (from the breakpoints of the lift and drag tables) is bounded loosely, the rest tightly
+  let d := dSlow p
   let nf := fields.size - nSlow
   let es : Array Int := (List.range nf).toArray.map fun k =>
-    dev (nSlow + k) - lerp (gmul gTab[j]! d k) (gmul gTab[j + 1]! d k) fP spanP / (2 ^ gK : Int)
+    dev p (nSlow + k) - lerp (gmul gTab[j]! d k) (gmul gTab[j + 1]! d k) fP spanP / (2 ^ gK : Int)
   let dotK := fun (kv : Array Int) => Id.run do
     let mut acc : Int := 0
     for k in [0:nf] do
@@ -89,6 +102,9 @@ def restOk (p : State × Mem) : Bool := Id.run do
     let t := lerp (tpTab[j]!)[k]! (tpTab[j + 1]!)[k]! fP spanP
     if !(-t ≤ perp && perp ≤ t) then ok := false
   return ok
+
+/-- The conditions above other than the cell box (the band is checked first, so no table is read out of range). -/
+def restOk (p : State × Mem) : Bool := bandOk p && quadOk p && fastOk p
 
 instance (I : Iv) (x : Fx) : Decidable (I.Mem x) := by cases I <;> unfold Iv.Mem <;> infer_instance
 instance (S : StateOf Iv) (s : StateOf Fx) : Decidable (S.Mem s) := by unfold StateOf.Mem; infer_instance
