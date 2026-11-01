@@ -65,15 +65,12 @@ def Ctl.ctl (c : Ctl) (p : Plane) : Surf × Ctl :=
 def Ctl.streetOK (c : Ctl) (p : Plane) : Bool :=
   c.pf > 0 || c.law.esc != STREET || !(c.law.capture p.ob).axis.isNaN
 
-/-- End-of-escape test on the schedule of `rollout_law`: at path samples, off the map, or from `T_TERM` every
-`TERM_EVERY` frames while turning, `terminal` on the samples including this one. -/
+/-- End-of-escape test on the schedule of `rollout_law`: from `T_TERM` every `TERM_EVERY` frames while turning,
+`terminal` on the samples including this one. Leaving the map is not an end: the terrain continues past its edge. -/
 def Ctl.term (c : Ctl) (p : Plane) : Bool :=
   if c.pf > 0 || c.lk % SAMPLE != 0 then false
-  else
-    let (x, y, _) := p.pos
-    if !onMap x y then true
-    else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir (c.record p).hist
-    else false
+  else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir (c.record p).hist
+  else false
 
 /-- The proposal layer's memory: frame counter, whether the held controller is a committed escape, frames since
 the commit, frames since the last hand-back, the round-robin start while committed, the last turn direction. -/
