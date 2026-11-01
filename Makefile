@@ -70,4 +70,4 @@ TSVENV ?= .lake/tsvenv
 certify:
 	lake build tsmap
 	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy)
-	cd tools/termsound && for s in ref cert nstep probe; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
+	cd Tools/termsound && for s in ref cert nstep probe; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done

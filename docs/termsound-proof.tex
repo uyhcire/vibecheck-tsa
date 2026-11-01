@@ -117,7 +117,7 @@ For a held track $\psi_r$ (clockwise from north), the chart maps a closed-loop s
 The chart drops the horizontal position and the Earth-rotation angle. Rotations of all inertial vectors about the polar axis are an exact symmetry of the equations (gravity is axisymmetric, the plant's ground is a sphere-relative constant, the atmosphere depends on altitude only), so the east position and the Earth angle are exactly neutral. North position (latitude) and heading are not exact symmetries (Coriolis, $J_2$); their effect is a disturbance (Certificate~\ref{cert:dist}). The quaternion's normalisation, \texttt{JsbExact}'s renormalisation only when $|\,\|q\| - 1| \ge 10^{-10}$, and the stored $\dot q$ (a function of $q$ and \texttt{pqri}) are covered there too. The remaining state fields are constant in flight with fuel frozen (mass, CG, tanks, engine flags, gear states with no ground contact) or recomputed every frame (the propeller's \texttt{act}); the law's clock and held track are constant after the pull-up. The law reads only the observation, and the observation is a function of the state (Certificate~\ref{cert:obs}).
 
 \begin{definition}[reference climb, error, settled set]
-The \emph{reference climb} $c(h) \in \R^{32}$ is the chart of the settled straight escape as it passes altitude $h$ (Section~\ref{sec:ref}). The error is $\xi(x) = \Sigma^{-1}(y(x) - c(h(x)))$, with $\Sigma$ the fixed diagonal scaling of \texttt{tools/termsound/trim.py} (\texttt{SCALE}). For $Q \succ 0$ and $r > 0$, $D_r = \{x : \xi(x)^\top Q\, \xi(x) \le r^2,\ h(x) \in [h_{\mathrm{lo}}, h_{\mathrm{hi}}]\}$.
+The \emph{reference climb} $c(h) \in \R^{32}$ is the chart of the settled straight escape as it passes altitude $h$ (Section~\ref{sec:ref}). The error is $\xi(x) = \Sigma^{-1}(y(x) - c(h(x)))$, with $\Sigma$ the fixed diagonal scaling of \texttt{Tools/termsound/trim.py} (\texttt{SCALE}). For $Q \succ 0$ and $r > 0$, $D_r = \{x : \xi(x)^\top Q\, \xi(x) \le r^2,\ h(x) \in [h_{\mathrm{lo}}, h_{\mathrm{hi}}]\}$.
 \end{definition}
 
 Centring on the reference climb rather than on the frozen trim $y^\star(h)$ removes the altitude drift of the trim from the disturbance budget to first order: the climb lags the trim by a fixed offset (rung 1, finding 4), and $c$ includes it.
@@ -181,7 +181,7 @@ At entry $\mathrm{lat} = \mathrm{along} = 0$ and $p_z = z_0$, so $\Conf_R$ holds
 
 \section{The straight climb on the real model}\label{sec:straight}
 
-All computations use the real plant and law: \texttt{tools/termsound/TsMap.lean} (the \texttt{tsmap} executable) runs \texttt{CityGate.Esc.Law.step} and \texttt{CityGate.Plane.step} unchanged and only adds the chart, its inverse and a pipe protocol; Python (\texttt{tools/termsound/*.py}, numpy and scipy) does the linear algebra. \textbf{Reproduction: \texttt{make certify}} prints every number in this section (about 10 minutes on 3 cores).
+All computations use the real plant and law: \texttt{Tools/termsound/TsMap.lean} (the \texttt{tsmap} executable) runs \texttt{CityGate.Esc.Law.step} and \texttt{CityGate.Plane.step} unchanged and only adds the chart, its inverse and a pipe protocol; Python (\texttt{Tools/termsound/*.py}, numpy and scipy) does the linear algebra. \textbf{Reproduction: \texttt{make certify}} prints every number in this section (about 10 minutes on 3 cores).
 
 \subsection{The law in its settled regime}
 
@@ -289,7 +289,7 @@ Certificate & Code & Margin or status\\
 \bottomrule
 \end{tabular}
 \end{center}
-Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py} in \texttt{tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
+Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
 
 \section{Gaps}\label{sec:gaps}
 
