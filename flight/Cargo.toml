@@ -7,6 +7,7 @@ default-run = "cityflight"
 [features]
 default = ["gui"]
 gui = ["dep:macroquad"]
+jsb = []
 
 [dependencies]
 macroquad = { version = "0.4", optional = true, default-features = false }
@@ -26,3 +27,8 @@ debug = false
 
 [profile.dev]
 opt-level = 2
+
+[[bin]]
+name = "jsbtune"
+path = "src/bin/jsbtune.rs"
+required-features = ["jsb"]

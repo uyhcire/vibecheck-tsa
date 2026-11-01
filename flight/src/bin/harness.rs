@@ -7,6 +7,10 @@ use std::time::Instant;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(feature = "jsb")]
+    if args.iter().any(|a| a == "--jsb") {
+        cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let episodes = args
         .iter()
         .enumerate()

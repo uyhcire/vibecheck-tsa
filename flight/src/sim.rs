@@ -49,6 +49,9 @@ pub struct Sim<'w> {
     pub ms_sum: f64,
     pub ms_max: f64,
     pub du_sum: f64,
+    /// JSBSim's c172p in place of the point-mass model (`--jsb`).
+    #[cfg(feature = "jsb")]
+    pub jsb: Option<crate::jsb::JsbPlant>,
 }
 
 impl<'w> Sim<'w> {
@@ -86,7 +89,16 @@ impl<'w> Sim<'w> {
             ms_sum: 0.0,
             ms_max: 0.0,
             du_sum: 0.0,
+            #[cfg(feature = "jsb")]
+            jsb: None,
         };
+        #[cfg(feature = "jsb")]
+        if crate::jsb::enabled() {
+            let p = crate::jsb::JsbPlant::new(&s0);
+            sim.s = p.state();
+            sim.jsb = Some(p);
+        }
+        let s0 = sim.s;
         sim.min_true_clear = sim.true_clear;
         let pred = sim.pred();
         sim.started_safe = sim.fs.init(&pred, &s0, 0);
@@ -195,6 +207,31 @@ impl<'w> Sim<'w> {
     fn physics_step(&mut self, src: CmdSrc, u_p: Cmd) {
         let wind = self.wind;
         let prm = self.prm_true;
+        #[cfg(feature = "jsb")]
+        if self.jsb.is_some() {
+            let u = match src {
+                CmdSrc::Const(u) => u,
+                CmdSrc::FollowPlan => match self.fs.plan {
+                    Some(mut pl) => {
+                        pl.begin_step(self.k, &self.s);
+                        self.fs.plan = Some(pl);
+                        if self.k < pl.hold_end {
+                            pl.hold
+                        } else {
+                            let te = (self.k - pl.hold_end) as f64 * DT;
+                            let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
+                            esc_law(&self.prm_ctrl, &self.s, pl.esc, te, psi0).cmd
+                        }
+                    }
+                    None => u_p,
+                },
+            };
+            let p = self.jsb.as_mut().unwrap();
+            p.advance(&u, DT);
+            self.s = p.state();
+            self.after_step();
+            return;
+        }
         match src {
             CmdSrc::Const(u) => rk4(&prm, &mut self.s, DT, &wind, |_, _| u),
             CmdSrc::FollowPlan => {
@@ -215,6 +252,10 @@ impl<'w> Sim<'w> {
                 }
             }
         }
+        self.after_step();
+    }
+
+    fn after_step(&mut self) {
         self.k += 1;
         // Keep the plan's escape heading reference once the hold elapses
         // even while flying the pilot's command (so a later commit is exact).

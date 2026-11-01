@@ -1105,6 +1105,10 @@ async fn main() {
     let arg = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
     let shot = arg("--shot");
     let shot_frames: u32 = arg("--frames").and_then(|s| s.parse().ok()).unwrap_or(90);
+    #[cfg(feature = "jsb")]
+    if args.iter().any(|a| a == "--jsb") {
+        cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 
     clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
     next_frame().await;

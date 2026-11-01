@@ -26,6 +26,21 @@ non-zero if any acceptance check fails.
 Demo flags (handy for screenshots): `--scenario 1..4`, `--off`, `--kamikaze`,
 `--paths`, `--cam 0..3`, `--shot out.png --frames N`.
 
+## JSBSim plant (`--jsb`)
+
+With the `jsb` feature, `--jsb` flies JSBSim's c172p instead of the point-mass model, through the bit-exact
+Lean port `JsbExact` (`libcityjsb`, built from the repo root). A fly-by-wire loop in `src/jsb.rs` turns the
+load-factor / roll-rate / throttle commands into elevator, aileron, rudder and throttle at 128 Hz, with
+angle-of-attack protection. The filter still predicts with the point-mass model, so this measures it under
+model mismatch; wind and the `M` mismatch toggle do not affect the JSBSim aircraft.
+
+```sh
+(cd .. && lake build libcityjsb)
+cargo run --release --features jsb -- --jsb                                        # the demo
+cargo run --release --no-default-features --features jsb --bin harness -- --jsb    # harness
+cargo run --release --no-default-features --features jsb --bin jsbtune             # fly-by-wire tracking
+```
+
 ## Controls
 
 | Key | Action |

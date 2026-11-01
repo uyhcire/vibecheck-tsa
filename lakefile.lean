@@ -10,6 +10,7 @@ lean_lib Jsb
 lean_lib Envelope
 lean_lib JsbExact
 lean_lib VcFilter
+lean_lib CityJsb
 
 /-- SDL3 install prefix; `make` passes `-K sdl=$(brew --prefix sdl3)`. -/
 def sdlPrefix : String := (get_config? sdl).getD "/opt/homebrew/opt/sdl3"
@@ -54,8 +55,9 @@ target filter_abi.o pkg : FilePath := do
   let oFile := pkg.buildDir / "c" / "filter_abi.o"
   let srcJob ← inputTextFile <| pkg.dir / "c" / "filter_abi.c"
   let hdr ← inputTextFile <| pkg.dir / "c" / "vcfilter.h"
+  let rt ← inputTextFile <| pkg.dir / "c" / "lean_runtime.h"
   let args := #["-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "c").toString, "-O2", "-fPIC"]
-  buildO oFile srcJob args #[] "cc" (do let _ ← hdr.await; return hdr.getTrace)
+  buildO oFile srcJob args #[] "cc" (do let _ ← hdr.await; let _ ← rt.await; return hdr.getTrace.mix rt.getTrace)
 
 /-- Lean modules of the filter library and the C shim, as static archives. -/
 def vcfilterArchives : FetchM (Job (Array FilePath)) := do
@@ -86,4 +88,37 @@ target libvcfilter pkg : FilePath := do
         ++ (files.extract 1).map (·.toString) ++ #["-L", leanLib, "-L", sysLib, "-lInit", "-lStd", "-lleanrt",
         "-lgmp", "-luv", "-lc++", "-Wl,-dead_strip", "-Wl,-exported_symbol,_vc_*",
         "-Wl,-install_name,@rpath/libvcfilter.dylib"]}
+    return lib
+
+lean_exe citytemplate where
+  root := `Tools.CityTemplate
+
+lean_exe cityplanttest where
+  root := `Tools.CityPlantTest
+  moreLinkObjs := #[jxmath.o]
+
+target cityjsb_abi.o pkg : FilePath := do
+  let oFile := pkg.buildDir / "c" / "cityjsb_abi.o"
+  let srcJob ← inputTextFile <| pkg.dir / "c" / "cityjsb_abi.c"
+  let hdr ← inputTextFile <| pkg.dir / "c" / "cityjsb.h"
+  let rt ← inputTextFile <| pkg.dir / "c" / "lean_runtime.h"
+  let args := #["-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "c").toString, "-O2", "-fPIC"]
+  buildO oFile srcJob args #[] "cc" (do let _ ← hdr.await; let _ ← rt.await; return hdr.getTrace.mix rt.getTrace)
+
+/-- `libcityjsb.dylib`: `JsbExact` as a flight-sim plant, Lean runtime linked in; exports only `cityjsb_*`. -/
+target libcityjsb pkg : FilePath := do
+  let lib := pkg.buildDir / "lib" / "libcityjsb.dylib"
+  let leanLib := (← getLeanLibDir).toString
+  let sysLib := ((← getLeanSysroot) / "lib").toString
+  let abi ← cityjsb_abi.o.fetch
+  let jx ← jxmath.o.fetch
+  let city ← (← CityJsb.get).static.fetch
+  let exact ← (← JsbExact.get).static.fetch
+  (Job.collectArray #[abi, jx, city, exact]).mapM fun files => do
+    buildFileUnlessUpToDate' lib do
+      IO.FS.createDirAll (pkg.buildDir / "lib")
+      proc {cmd := "cc", args := #["-shared", "-o", lib.toString, "-Wl,-force_load," ++ files[0]!.toString]
+        ++ (files.extract 1).map (·.toString) ++ #["-L", leanLib, "-L", sysLib, "-lInit", "-lStd", "-lleanrt",
+        "-lgmp", "-luv", "-lc++", "-Wl,-dead_strip", "-Wl,-exported_symbol,_cityjsb_*",
+        "-Wl,-install_name,@rpath/libcityjsb.dylib"]}
     return lib

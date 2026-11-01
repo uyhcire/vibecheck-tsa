@@ -2,6 +2,8 @@
 pub mod escape;
 pub mod filter;
 pub mod harness;
+#[cfg(feature = "jsb")]
+pub mod jsb;
 pub mod model;
 pub mod pilot;
 pub mod sim;
