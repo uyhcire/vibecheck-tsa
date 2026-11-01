@@ -29,7 +29,17 @@ Ctrl-C (or SIGTERM) clears `sim/operation/override/override_planepath[0]` and `o
 | `final-kpao31` | 3 NM final to Palo Alto runway 31 | 1000 ft MSL, 75 kt, flaps 10, 3° slope |
 | `sf-downtown` | over the Bay 2 NM east of downtown San Francisco, heading west | 600 ft, 100 kt, level |
 
-JSBSim knows nothing about buildings: X-Plane draws them, the physics flies through them. `--at LAT,LON,HDG[,ELEV_M]` starts on the ground somewhere else.
+`--at LAT,LON,HDG[,ELEV_M]` starts on the ground somewhere else.
+
+## Crashes
+
+JSBSim has a flat world, so the sidecar checks three things every frame and ends the flight on the first hit:
+
+- the Salesforce Tower, Transamerica Pyramid and Coit Tower, as cylinders at the positions decoded from the landmarks pack's DSF (`OBSTACLES`);
+- X-Plane's terrain under the aircraft (`sim/flightmodel/position/y_agl`), so hills JSBSim cannot see still count;
+- a touchdown faster than 600 ft/min.
+
+On a crash it prints why, writes the aircraft's velocity into X-Plane with a hard downward component, and hands X-Plane its physics back at that spot, so X-Plane's own damage model breaks the airplane and shows its crash. The autogen office blocks are not collidable, in X-Plane itself either. The downtown scenario is aimed at the Salesforce Tower: hands off, you hit it.
 
 ## Which JSBSim model
 

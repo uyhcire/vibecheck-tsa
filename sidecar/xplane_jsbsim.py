@@ -76,13 +76,33 @@ GAUGES = {
 }
 RATED_HP = {"c172p": 160, "c172r": 160, "c172x": 160, "c182": 230, "pa28": 160}
 
+# Towers from "X-Plane Landmarks - San Francisco" (placements decoded from its DSF, sizes from the .obj files):
+# name, lat, lon, radius m (half-diagonal of the footprint), height m above its base.
+OBSTACLES = [
+    ("Salesforce Tower", 37.789774, -122.396925, 38.0, 327.5),
+    ("Transamerica Pyramid", 37.795166, -122.402785, 38.0, 260.0),
+    ("Coit Tower", 37.802469, -122.405934, 20.0, 66.0),
+]
+# ponytail: three landmarks only; the autogen blocks around them are not collidable in X-Plane either.
+
+
+def hit_obstacle(lat, lon, agl_m):
+    """Name of the tower whose footprint and height contain this point, else None."""
+    for name, olat, olon, r, h in OBSTACLES:
+        dn = (lat - olat) * 111_200.0
+        de = (lon - olon) * 111_200.0 * 0.791   # cos(37.8 deg)
+        if dn * dn + de * de <= r * r and agl_m <= h:
+            return name
+    return None
+
+
 # Airborne start states: lat, lon, true heading, altitude ft MSL, knots, flight-path angle deg, flaps 0..1.
 # KPAO runway 31 threshold is ~37.4583,-122.1123 (heading 322 true); 3 NM out on the 142 radial, 3 deg slope.
 SCENARIOS = {
     "final-kpao31": dict(lat=37.4189, lon=-122.0735, hdg=322.0, alt_ft=1000.0, kts=75.0, gamma=-3.0, flaps=0.33,
                          terrain_ft=7.0, note="3 NM final to Palo Alto runway 31, flaps 10, on a 3 deg slope"),
-    "sf-downtown": dict(lat=37.7920, lon=-122.3650, hdg=270.0, alt_ft=600.0, kts=100.0, gamma=0.0, flaps=0.0,
-                        terrain_ft=0.0, note="over the Bay 2 NM east of downtown San Francisco, heading west at 600 ft"),
+    "sf-downtown": dict(lat=37.7920, lon=-122.3650, hdg=265.0, alt_ft=600.0, kts=100.0, gamma=0.0, flaps=0.0,
+                        terrain_ft=0.0, note="over the Bay 2 NM east of downtown San Francisco, pointed at the Salesforce Tower at 600 ft"),
 }
 
 
@@ -107,6 +127,9 @@ def deadzone(v, dz):
 
 def selftest():
     assert deadzone(0.1, 0.15) == 0 and deadzone(1.0, 0.15) == 1 and abs(deadzone(-0.575, 0.15) + 0.5) < 1e-9
+    assert hit_obstacle(37.789774, -122.396925, 100) == "Salesforce Tower"
+    assert hit_obstacle(37.789774, -122.396925, 400) is None          # above the roof
+    assert hit_obstacle(37.7920, -122.3650, 100) is None              # over the Bay
     p = vehx(47.79, 13.0, 430.5, 150.0, 2.5, -1.0)
     assert len(p) == 5 + 4 + 24 + 12
     assert struct.unpack_from("<idddfff", p, 5)[:4] == (0, 47.79, 13.0, 430.5)
@@ -124,6 +147,36 @@ def selftest():
     assert abs(by["sim/flightmodel/engine/ENGN_tacrad[0]"] - 251.3) < 0.1   # 2400 rpm in rad/s
     assert abs(by["sim/flightmodel/engine/ENGN_power[0]"] - 745.7) < 0.1    # 1 hp
     print("selftest ok")
+
+
+def crashed(fdm, vals, AGL, ELE, have_xplane):
+    """Why the flight just ended, or None: a tower, X-Plane's terrain, or a touchdown that is too hard."""
+    lat, lon = fdm["position/lat-geod-deg"], fdm["position/long-gc-deg"]
+    if have_xplane and AGL in vals and ELE in vals:
+        agl_m = fdm["position/h-sl-meters"] - (vals[ELE] - vals[AGL])   # our altitude over X-Plane's ground
+    else:
+        agl_m = fdm["position/h-agl-ft"] / M2FT
+    name = hit_obstacle(lat, lon, agl_m)
+    if name:
+        return f"hit the {name}"
+    vdown_fps = fdm["velocities/v-down-fps"]
+    if have_xplane and agl_m < 0.0 and fdm["velocities/vc-kts"] > 20:
+        return "flew into the terrain"
+    if fdm["gear/unit/WOW"] and vdown_fps > 10.0:
+        return f"hit the ground at {vdown_fps * 60:.0f} ft/min"
+    return None
+
+
+def hand_back_crashing(sock, xp, fdm):
+    """Give X-Plane its physics back right here, moving fast and nose down, so its damage model breaks the plane."""
+    vn, ve, vd = (fdm[f"velocities/v-{d}-fps"] / M2FT for d in ("north", "east", "down"))
+    for _ in range(3):
+        sock.sendto(dref_set("sim/flightmodel/position/local_vx", ve), xp)     # OpenGL: x east
+        sock.sendto(dref_set("sim/flightmodel/position/local_vz", -vn), xp)    # z south
+        sock.sendto(dref_set("sim/flightmodel/position/local_vy", -max(30.0, vd)), xp)  # y up: slam it down
+        time.sleep(0.02)
+    sock.sendto(dref_set("sim/operation/override/override_planepath[0]", 0.0), xp)
+    sock.sendto(dref_set("sim/operation/override/override_engines", 0.0), xp)
 
 
 def wait_for_pose(sock, xp, vals, timeout=5.0):
@@ -179,6 +232,7 @@ def main():
     else:
         lat, lon, ele, psi, agl = 37.46358, -122.11749, 2.0, 142.0, 0.0   # KPAO runway 13
     hotas = None
+    trim_thr = 0.0
     if args.pilot == "hid":
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I drops the script dir
         from hotas_hid import Hotas
@@ -210,6 +264,7 @@ def main():
         for _ in range(int(1 / dt)):
             fdm.run()
         print(f"scenario {args.scenario}: {sc['note']}")
+        trim_thr = fdm["fcs/throttle-cmd-norm"]
         print(f"trimmed: throttle {100 * fdm['fcs/throttle-cmd-norm']:.0f}% (set your lever near this), "
               f"pitch trim {fdm['fcs/pitch-trim-cmd-norm']:+.2f}")
     fdm["fcs/mixture-cmd-norm"] = 0.9
@@ -233,6 +288,10 @@ def main():
     if args.pilot == "xplane":
         for i, n in enumerate(PILOT):
             sock.sendto(rref_request(pilot_base + i, n, args.hz), xp)
+    AGL, ELE = 20, 21   # X-Plane's terrain under the plane, used for crashes (hills JSBSim does not know)
+    if args.viewer == "xplane":
+        sock.sendto(rref_request(AGL, "sim/flightmodel/position/y_agl", 20), xp)
+        sock.sendto(rref_request(ELE, "sim/flightmodel/position/elevation", 20), xp)
     print(f"flying {args.model} under JSBSim at {args.hz} Hz; Ctrl-C hands X-Plane its physics back")
 
     if args.viewer == "xplane":
@@ -247,7 +306,8 @@ def main():
             if hotas:
                 pitch, roll, yaw, thr = hotas.poll()
             else:
-                pitch, roll, yaw, thr = (vals.get(pilot_base + i, 0.0) for i in range(4))
+                pitch, roll, yaw = (vals.get(pilot_base + i, 0.0) for i in range(3))
+                thr = vals.get(pilot_base + 3, trim_thr)
             pitch, roll, yaw = deadzone(pitch, 0.1), deadzone(roll, 0.1), deadzone(yaw, 0.15)
             if fdm["gear/unit/WOW"]:
                 yaw *= 0.5   # ponytail: nosewheel gain; a twist grip at taxi speed loops the plane otherwise
@@ -264,6 +324,12 @@ def main():
                 for pk in gauge_packets(fdm):
                     sock.sendto(pk, xp)
                 sock.sendto(dref_set("sim/cockpit2/engine/actuators/throttle_ratio[0]", thr), xp)  # cockpit lever
+            why = crashed(fdm, vals, AGL, ELE, args.viewer == "xplane")
+            if why:
+                print(f"\nCRASHED: {why} at {fdm['velocities/vc-kts']:.0f} kt")
+                if args.viewer == "xplane":
+                    hand_back_crashing(sock, xp, fdm)
+                return
             now = time.monotonic()
             if now - last_print >= 1.0:
                 last_print = now
