@@ -4,6 +4,12 @@ Every polygon in sf_buildings.json becomes a facade extruded to its height, and 
 buildings, autogen and forests are excluded inside the obstacle box, so what X-Plane renders
 there is the JSON and nothing else. Writes the DSF tile directly (no DSFTool needed).
 
+Buildings are dressed like the photoreal renderer on main (flight/src/photo.rs): the same six CC0
+facade textures and two roof textures from flight/assets/textures, picked per building by the same
+height rule and the same seed, so the two views agree. Textures are read from the working tree or,
+when this branch lacks them, from origin/main with git show. Per-building tint is not reproduced
+(X-Plane facades cannot be tinted per instance).
+
 usage: python3 -I sidecar/build_xplane_scenery.py [--xplane ~/X-Plane-12] [--buildings sidecar/sf_buildings.json]
        python3 -I sidecar/build_xplane_scenery.py --world flight/data/sf/sf_world.bin   # the bcbf filter's own city
 """
@@ -12,12 +18,83 @@ import hashlib
 import sys
 import json
 import os
+import math
 import struct
-import zlib
 
 PACK = "OSM Obstacles - SF Downtown"
 TILE = "+37-123"
-FACADE = "facades/osm_building.fac"
+# (name, columns, floors, glass) exactly as flight/src/assets.rs FACADES; floor height 3.6 m for the first three, 3.2 after.
+FACADES = [("facade_glass", 16.0, 10.0), ("facade_grid", 14.0, 8.0), ("facade_office", 32.0, 32.0),
+           ("facade_brick", 6.0, 6.0), ("facade_stone", 6.0, 6.0), ("facade_brown", 6.0, 6.0)]
+ROOFS = ["gravel", "concrete"]
+ROOF_TILE_M = 12.0
+TEXTURE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "flight", "assets", "textures")
+
+
+def building_seed(x0, y0, lot):
+    """photo.rs building_seed: fract(sin(x0*7.31 + y0*3.17 + lot*0.618) * 43758.5453)."""
+    import math
+    return abs(math.modf(math.sin(x0 * 7.31 + y0 * 3.17 + lot * 0.618) * 43758.5453)[0])
+
+
+def facade_index(h, seed):
+    """photo.rs building_mesh: wall set by height class and seed, roof by seed; returns index into the 12 .fac files."""
+    pick = lambda opts: opts[int(seed * 977.0) % len(opts)]
+    ft = pick([0, 1, 2, 0, 1]) if h > 70.0 else pick([1, 2, 3, 4, 5]) if h > 30.0 else pick([3, 4, 5])
+    roof = 0 if math.modf(seed * 53.0)[0] < 0.55 else 1
+    return ft * len(ROOFS) + roof
+
+
+def facade_path(i):
+    return f"facades/{FACADES[i // len(ROOFS)][0]}_{ROOFS[i % len(ROOFS)]}.fac"
+
+
+def fac_text(ft, roof):
+    name, cols, rows = FACADES[ft]
+    tile = rows * (3.6 if ft < 3 else 3.2)       # the texture spans `rows` floors; it is square
+    return f"""A
+800
+FACADE
+SHADER_WALL
+TEXTURE {name}.png
+TWO_SIDED 0
+SHADER_ROOF
+TEXTURE {ROOFS[roof]}.png
+TWO_SIDED 0
+LOD 0 30000
+TEX_SIZE 1024 1024
+ROOF_SCALE 0 0 512 512 1024 1024 {ROOF_TILE_M} {ROOF_TILE_M}
+TEX_SIZE 1024 1024
+WALL 0 100000
+ROOF_SLOPE 0
+SCALE {tile:.3f} {tile:.3f}
+LEFT 0 512
+CENTER 512 1024
+CENTER 0 512
+RIGHT 512 1024
+BOTTOM 0 512
+MIDDLE 512 1024
+MIDDLE 0 512
+TOP 512 1024
+"""
+
+
+def texture_bytes(name):
+    """albedo.jpg of a texture set, from the working tree or from origin/main."""
+    import subprocess
+    path = os.path.join(TEXTURE_DIR, name, "albedo.jpg")
+    if os.path.exists(path):
+        return open(path, "rb").read()
+    return subprocess.check_output(["git", "show", f"origin/main:flight/assets/textures/{name}/albedo.jpg"],
+                                   cwd=os.path.dirname(os.path.dirname(os.path.dirname(TEXTURE_DIR))))
+
+
+def write_textures(fac_dir):
+    from PIL import Image
+    import io
+    for name in [f[0] for f in FACADES] + ROOFS:
+        img = Image.open(io.BytesIO(texture_bytes(name))).convert("RGB").resize((1024, 1024))
+        img.save(os.path.join(fac_dir, name + ".png"), optimize=True)
 
 
 def atom(aid, payload):
@@ -48,12 +125,16 @@ def build_dsf(buildings, bbox):
         props.append((key, box))
     props.append(("sim/require_facade", "1/0"))
     head = atom("HEAD", atom("PROP", strings(k for kv in props for k in kv)))
-    defn = atom("DEFN", atom("TERT", b"") + atom("OBJT", b"") + atom("POLY", strings([FACADE]))
+    defn = atom("DEFN", atom("TERT", b"") + atom("OBJT", b"")
+                + atom("POLY", strings(facade_path(i) for i in range(len(FACADES) * len(ROOFS))))
                 + atom("NETW", b"") + atom("DEMN", b""))
     pools, scals, cmds = b"", b"", b""
-    cmds += struct.pack("<BB", 3, 0)                        # SET_DEFINITION8: facade 0
     kept = 0
-    for i, b in enumerate(buildings):
+    current = None
+    for b in sorted(buildings, key=lambda b: b.get("facade", 0)):
+        if b.get("facade", 0) != current:
+            current = b.get("facade", 0)
+            cmds += struct.pack("<BB", 3, current)          # SET_DEFINITION8: this facade
         ring = ccw([(p[1], p[0]) for p in b["polygon"]])     # (lon, lat)
         if not 3 <= len(ring) <= 255:
             continue
@@ -75,49 +156,6 @@ def build_dsf(buildings, bbox):
         kept += 1
     body = b"XPLNEDSF" + struct.pack("<I", 1) + head + defn + atom("GEOD", pools + scals) + atom("CMDS", cmds)
     return body + hashlib.md5(body).digest(), kept
-
-
-def png_rgba(w, h, pixel):
-    raw = b"".join(b"\0" + b"".join(bytes(pixel(x, y)) for x in range(w)) for y in range(h))
-    def chunk(t, d):
-        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
-
-
-def wall_pixel(x, y):
-    if x >= 192:                                   # roof strip: flat grey
-        return (92, 92, 96, 255)
-    bay, floor = x % 32, y % 32
-    window = 6 <= bay <= 25 and 8 <= floor <= 24
-    return (70, 110, 150, 255) if window else (150, 148, 142, 255)
-
-
-FAC = """A
-800
-FACADE
-
-TEXTURE osm_building.png
-RING 1
-TWO_SIDED 1
-LOD 0.000000 30000.000000
-  ROOF 0.750000 0.000000
-  ROOF 1.000000 0.000000
-  ROOF 1.000000 0.250000
-  ROOF 0.750000 0.250000
-  WALL 0.000000 100000.000000
-    SCALE 24.000000 24.000000
-    ROOF_SLOPE 0.000000
-    LEFT 0.000000 0.125000
-    CENTER 0.125000 0.250000
-    CENTER 0.250000 0.375000
-    CENTER 0.375000 0.500000
-    RIGHT 0.500000 0.625000
-    BOTTOM 0.000000 0.125000
-    MIDDLE 0.125000 0.250000
-    MIDDLE 0.250000 0.375000
-    TOP 0.375000 0.500000
-"""
 
 
 def read_sf_world(path):
@@ -157,8 +195,9 @@ def read_sf_world(path):
         for x, y in xy:
             lon, lat = from_local(x, y)
             poly.append([lat, lon])
+        seed = building_seed(min(q[0] for q in xy), min(q[1] for q in xy), group)
         out.append({"name": f"{('building', 'bridge', 'viaduct', 'bridge tower')[kind] if kind < 4 else kind} {group}",
-                    "height_m": h, "polygon": poly})
+                    "height_m": h, "polygon": poly, "facade": facade_index(h, seed)})
     s, w = from_local(-half, -half)[1], from_local(-half, -half)[0]
     nn, e = from_local(half, half)[1], from_local(half, half)[0]
     return out, [s, w, nn, e]
@@ -176,13 +215,24 @@ def main():
     else:
         data = json.load(open(args.buildings))
         bbox = [float(x) for x in data["bbox"].split(",")]
+        for i, b in enumerate(data["buildings"]):
+            lat0, lon0 = min(p[0] for p in b["polygon"]), min(p[1] for p in b["polygon"])
+            b["facade"] = facade_index(b["height_m"], building_seed(lon0 * 1e4, lat0 * 1e4, i))
     root = os.path.join(args.xplane, "Custom Scenery", PACK)
     os.makedirs(os.path.join(root, "Earth nav data", "+30-130"), exist_ok=True)
     os.makedirs(os.path.join(root, "facades"), exist_ok=True)
     dsf, kept = build_dsf(data["buildings"], bbox)
     open(os.path.join(root, "Earth nav data", "+30-130", TILE + ".dsf"), "wb").write(dsf)
-    open(os.path.join(root, FACADE), "w").write(FAC)
-    open(os.path.join(root, "facades", "osm_building.png"), "wb").write(png_rgba(256, 256, wall_pixel))
+    for old in ("osm_building.fac", "osm_building.png"):
+        if os.path.exists(os.path.join(root, "facades", old)):
+            os.remove(os.path.join(root, "facades", old))
+    for i in range(len(FACADES) * len(ROOFS)):
+        open(os.path.join(root, facade_path(i)), "w").write(fac_text(i // len(ROOFS), i % len(ROOFS)))
+    write_textures(os.path.join(root, "facades"))
+    counts = [0] * (len(FACADES) * len(ROOFS))
+    for b in data["buildings"]:
+        counts[b.get("facade", 0)] += 1
+    print("facades:", ", ".join(f"{facade_path(i)[8:-4]} {c}" for i, c in enumerate(counts) if c))
     print(f"{kept} of {len(data['buildings'])} buildings written to {root} ({len(dsf)} byte DSF)")
 
 

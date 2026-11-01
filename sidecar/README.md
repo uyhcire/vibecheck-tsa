@@ -45,6 +45,12 @@ On a crash it prints why, writes the aircraft's velocity into X-Plane with a har
 
 X-Plane's own downtown is procedural autogen and does not match the footprints, so `build_xplane_scenery.py` writes a custom scenery pack, `Custom Scenery/OSM Obstacles - SF Downtown`, straight from `sf_buildings.json`: each polygon becomes a facade extruded to its height, and X-Plane's objects, facades, autogen, forests, draped polygons and strings are excluded inside the obstacle box. What X-Plane draws there is then exactly what the sidecar can crash into. The script encodes the DSF tile itself (no DSFTool); rebuild it after refreshing the JSON and restart X-Plane. The downtown scenario is aimed at the Salesforce Tower: hands off, you hit it.
 
+The buildings are dressed like main's photoreal renderer (`flight/src/photo.rs`): the same six CC0 facade
+textures and two roof textures (`flight/assets/textures`, pulled from `origin/main` with `git show` when
+this branch lacks them), chosen per building by the same height rule and seed, as twelve X-Plane facade
+types. Needs `pillow` in the venv. Per-building tint is not reproduced. After rebuilding, X-Plane has to
+reload the scenery (Developer > Reload scenery, or restart).
+
 ## Backup CBF guard (`--filter bcbf`)
 
 `--filter bcbf` puts the `bcbf-city-flight` backup control barrier function between the stick and JSBSim. `flight/src/bin/filterd.rs` runs the crate's fly-by-wire pilot and filter as a line protocol; `sidecar/bcbf.py` converts the JSBSim state into the crate's map frame (`flight/data/sf/geo.py`), sends the sticks, and turns the returned load-factor / roll-rate / throttle demand into elevator, aileron and throttle with two PI loops. Build the bridge once: `cd flight && cargo build --release --no-default-features --bin filterd`.
