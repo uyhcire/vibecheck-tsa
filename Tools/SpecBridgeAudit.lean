@@ -1,15 +1,12 @@
-import CityGate.SpecBridgeNear
-import CityGate.SafetyR
+import SpecBridgeNative
 
 /-! Axioms of the bridge from the city gate to `CitySafety.Safe`. Run: `lake env lean Tools/SpecBridgeAudit.lean`. -/
 
-#print axioms CityGate.SpecBridge.cityGate_spec_safe
-#print axioms CityGate.SpecBridge.cityGate_spec_safe_R
-#print axioms CityGate.city_safe_R
+#print axioms CityGate.SpecBridge.cityGate_spec_safe_funnel_of
+#print axioms CityGate.SpecBridge.cityGate_spec_safe_funnel
+#print axioms CityGate.SpecBridge.initChecked
+#print axioms CityGate.SpecBridge.startsSafe
 #print axioms CityGate.SpecBridge.outputsInRange
-#print axioms CityGate.SpecBridge.airframeNearGate
-#print axioms CityGate.SpecBridge.poseBounded_of
 #print axioms CityGate.SpecBridge.reach_corr
-#print axioms CityGate.SpecBridge.clear_soundH
-#print axioms CityGate.SpecBridge.cityMap_terrain
-#spec_surface CityGate.SpecBridge.cityGate_spec_safe in CityGate.SpecBridge
+#print axioms CityGate.SpecBridge.not_crash_of_startClearB
+#spec_surface CityGate.SpecBridge.cityGate_spec_safe_funnel_of in CityGate.SpecBridge

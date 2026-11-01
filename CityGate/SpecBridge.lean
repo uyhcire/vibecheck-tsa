@@ -1,25 +1,34 @@
 import CityGate.Safety
+import CityGate.SpecMap
 import GateSafety.ProofsR
 import Spec.CitySafetyChecks
 
-/-! # The city gate against the reviewed spec: `cityGate_spec_safe` proves `CitySafety.Safe cityMap specFilter`
-from three named assumptions (`TermSoundR`, `InitChecked`, `AirframeNear`). -/
+/-! # The city gate against the reviewed spec
+
+`cityGate_spec_safe_funnel_of` proves `CitySafety.Safe cityMap specFilter`. The gate's crash is the spec's crash
+(`GCrash`, which allows a landing), so gate safety gives spec safety directly. The theorem's hypotheses are:
+- the clearance test is sound against it;
+- the funnel assumption (`FunnelSoundR`);
+- checked starts;
+- crash-free starts (`startClearB`, decided).
+
+`SpecBridgeNative` discharges the last two by running the plant. -/
 
 namespace CityGate.SpecBridge
 open GateSafety
 
 /-! ## The map -/
 
-/-- An exported building box as a spec box (same six numbers, reordered). -/
-def toBox (b : Box Rat) : CitySafety.Box := ⟨b.xmin, b.xmax, b.ymin, b.ymax, b.zmin, b.zmax⟩
+theorem max_max_self (a x : Rat) : max a (max a x) = max a x := by
+  by_cases h : a ≤ x
+  · have e : max a x = x := by rw [Rat.max_def]; simp [h]
+    rw [e, e]
+  · have e : max a x = a := by rw [Rat.max_def]; simp [h]
+    rw [e, Rat.max_def]; simp
 
-/-- The exported city map (`CityGate.Map`) as a spec map: the same exact rational heights and boxes, no rounding. -/
-def cityMap : CitySafety.CityMap where
-  half := 3000
-  spacing := 20
-  n := gridN
-  height := node
-  boxes := boxes.toList.map toBox
+theorem node_floor (a b : Nat) : max cityMap.floor (node a b) = node a b := by
+  simp only [cityMap, node]
+  exact max_max_self _ _
 
 theorem cityMap_terrain (x y : Rat) : cityMap.terrain x y = terrainAt x y := by
   have hx : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((x + 3000) / 20) = gridCoord gridX0 x := by
@@ -28,7 +37,9 @@ theorem cityMap_terrain (x y : Rat) : cityMap.terrain x y = terrainAt x y := by
   have hy : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((y + 3000) / 20) = gridCoord gridY0 y := by
     simp only [CitySafety.clampR, gridCoord, gridY0, gridStep]
     congr 2; grind
-  simp only [CitySafety.CityMap.terrain, cityMap, terrainAt, hx, hy, square]
+  have hf : ∀ a b, max cityMap.floor (cityMap.height a b) = node a b := fun a b => node_floor a b
+  simp only [CitySafety.CityMap.terrain, hf]
+  simp only [cityMap, terrainAt, hx, hy, square]
   rfl
 
 /-- A point solid in the spec's sense is solid in the gate's sense. -/
@@ -43,12 +54,12 @@ theorem solid_of_spec (q : CitySafety.Pt) (h : CitySafety.Solid cityMap q) : Sol
 /-- The aircraft the gate sees for plant state `s` and last observation `ob`, placed at the map origin. -/
 def planeOf (s : JsbExact.State Float) (ob : FloatArray) : Plane := ⟨s, ob, 0, 0⟩
 
-def toSurf (u : CitySafety.Surfaces) : Surf := ⟨u.elev, u.ail, u.rud, u.thr⟩
-def ofSurf (a : Surf) : CitySafety.Surfaces := ⟨a.elev, a.ail, a.rud, a.thr⟩
+def toSurf (u : CitySafety.Surfaces) : Surf := ⟨u.elev, u.ail, u.rud, u.thr, u.brake⟩
+def ofSurf (a : Surf) : CitySafety.Surfaces := ⟨a.elev, a.ail, a.rud, a.thr, a.brk⟩
 
 /-- The controls of the first frame, flown before the gate starts (it needs one frame's observation): centred,
-throttle idle. -/
-def firstSurf : Surf := ⟨0, 0, 0, 0⟩
+throttle idle, brakes released. -/
+def firstSurf : Surf := ⟨0, 0, 0, 0, 0⟩
 
 /-- The aircraft after the first frame from plant state `s`: where the gate starts. -/
 def firstPlane (s : JsbExact.State Float) : Plane := (planeOf s FloatArray.empty).step firstSurf
@@ -57,9 +68,9 @@ def firstPlane (s : JsbExact.State Float) : Plane := (planeOf s FloatArray.empty
 controller it holds. -/
 abbrev Mem' := Option (FloatArray × Mem × Ctl)
 
-/-- One frame of the gate as a filter. The first frame flies `firstSurf` and starts the gate on the result; after
-that, the controls are those the gate's frame applies (`Gate.frame`: the first checked candidate, else the held
-controller), and the memory is the gate's after that frame. -/
+/-- One frame of the gate as a filter. The first frame flies `firstSurf` and starts the gate on the result. After
+that, the controls are those the gate's frame applies: the first checked candidate, else the held controller
+(`Gate.frame`). The memory is the gate's after that frame. -/
 def specAct : Mem' → JsbExact.State Float → CitySafety.Surfaces → CitySafety.Surfaces × Mem'
   | none, s, _ =>
     let pl := firstPlane s
@@ -82,57 +93,24 @@ def gateState : JsbExact.State Float × Mem' → Plane × (Mem × Ctl)
   | (s, none) => (firstPlane s, (cityGate.m₀, cityGate.start (firstPlane s)))
   | (s, some (ob, mc)) => (planeOf s ob, mc)
 
-/-- The aircraft whose reported position (`exactPos`) the gate's checks bound in a closed-loop state of
-`specFilter`: its own before the first frame's end, else the gate's start after it (0.39 m along). -/
-def refPlane (p : JsbExact.State Float × Mem') : Plane := (gateState p).1
+/-! ## The gate's crash is the spec's -/
 
-/-! ## The crash cube, any size -/
+/-- The gate's crash: the spec's crash of the aircraft's plant state. It allows a landing (wheels on the runway). -/
+def GCrash (pl : Plane) : Prop := CitySafety.Crash cityMap pl.st
 
-/-- `Crash` with the cube's half-size `h` (m) as a parameter: `CrashH envHalf` is `Crash` (`crashH_envHalf`). -/
-def CrashH (h : Rat) (p : Plane) : Prop :=
-  match exactPos p with
-  | some (x, y, z) => ∃ dx dy dz : Rat, -h ≤ dx ∧ dx ≤ h ∧ -h ≤ dy ∧ dy ≤ h ∧ -h ≤ dz ∧ dz ≤ h ∧
-      Solid (x + dx) (y + dy) (z + dz)
-  | none => True
+/-- **The funnel assumption.** The end-of-escape test is `inFunnel`, so this says: from the landing funnel, the
+autoland's flight never crashes, under the spec's crash rule, which allows a landing. Only for the rollouts the gate
+flies (`TermSoundR`). -/
+def FunnelSoundR : Prop := TermSoundR cityGate GCrash GInit
 
-theorem crashH_envHalf : CrashH envHalf = Crash := rfl
+theorem clearSound_of (hc : ∀ e pl, clearAt e pl = true → ¬ GCrash pl) : ClearSound cityGate GCrash :=
+  fun x hx => (cityGate_clear x hx).elim fun e he => hc e x.2 he
 
-/-- `clear_sound` for any cube up to the 8.5 m keep-out. -/
-theorem windowH (q d h : Rat) (k : Int) (hd1 : -h ≤ d) (hd2 : d ≤ h) (hk : h * S ≤ k) :
-    (((q * S).floor - k : Int) : Rat) ≤ (q + d) * S ∧ (q + d) * S ≤ (((q * S).ceil + k : Int) : Rat) := by
-  have h1 := Rat.floor_le (q * S)
-  have h2 : q * S ≤ ((q * S).ceil : Rat) := Rat.le_ceil
-  simp only [S, Rat.intCast_sub, Rat.intCast_add] at *
-  constructor <;> grind
-
-theorem clear_soundH {h : Rat} (hh : h ≤ 17 / 2) (e : Float) (p : Plane) : clearAt e p = true → ¬ CrashH h p := by
-  intro hc hcr
-  unfold clearAt at hc
-  unfold CrashH at hcr
-  cases hp : exactPos p with
-  | none => simp [hp] at hc
-  | some pos =>
-    obtain ⟨x, y, z⟩ := pos
-    simp only [hp, Bool.and_eq_true] at hc hcr
-    obtain ⟨ht, hb⟩ := hc
-    obtain ⟨dx, dy, dz, h1, h2, h3, h4, h5, h6, hs⟩ := hcr
-    have hk : h * S ≤ (((keepBase + extraUnits e : Nat) : Int) : Rat) := by
-      have : (136 : Int) ≤ ((keepBase + extraUnits e : Nat) : Int) := by simp [keepBase]; omega
-      have := Rat.intCast_le_intCast.mpr this
-      simp only [S] at *
-      grind
-    obtain ⟨wx1, wx2⟩ := windowH x dx h _ h1 h2 hk
-    obtain ⟨wy1, wy2⟩ := windowH y dy h _ h3 h4 hk
-    obtain ⟨wz1, wz2⟩ := windowH z dz h _ h5 h6 hk
-    rcases hs with ⟨b, hbm, b1, b2, b3, b4, b5, b6⟩ | hter
-    · exact box_case hb wx1 wx2 wy1 wy2 wz1 wz2 hbm b1 b2 b3 b4 b5 b6
-    · exact terrain_case ht wx1 wx2 wy1 wy2 wz1 hter
-
-/-! ## The assumptions -/
+/-! ## Controls in range -/
 
 /-- Every control the gate applies is finite and in range, so the spec's clamp changes nothing (`outputsInRange`). -/
 def OutputsInRange : Prop :=
-  ∀ p u, CitySafety.Reach specFilter p → u.Valid →
+  ∀ p u, CitySafety.Reach cityMap specFilter p → u.Valid →
     (specFilter.act p.2 p.1 u).1.clamp = (specFilter.act p.2 p.1 u).1
 
 theorem clampTo_idem {lo hi : Float} (h1 : lo ≤ lo) (h2 : lo ≤ hi) (h3 : hi ≤ hi) (x : Float) :
@@ -148,7 +126,8 @@ theorem ofSurf_clamp (u : Surf) : (ofSurf u.clamp).clamp = ofSurf u.clamp := by
   have z1 : ((0 : Float) ≤ 1) := by decide +kernel
   simp only [CitySafety.Surfaces.clamp, ofSurf, Surf.clamp]
   have e : clampIn = CitySafety.clampTo := rfl
-  rw [e, clampTo_idem m1 m2 p1, clampTo_idem m1 m2 p1, clampTo_idem m1 m2 p1, clampTo_idem z0 z1 p1]
+  rw [e, clampTo_idem m1 m2 p1, clampTo_idem m1 m2 p1, clampTo_idem m1 m2 p1, clampTo_idem z0 z1 p1,
+    clampTo_idem z0 z1 p1]
 
 theorem firstSurf_clamp : (ofSurf firstSurf).clamp = ofSurf firstSurf := by
   have m1 : ((-1 : Float) ≤ 0) := by decide +kernel
@@ -175,29 +154,6 @@ theorem outputsInRange : OutputsInRange := by
     show (ofSurf (cityGate.ctl _ (planeOf s ob)).1).clamp = ofSurf (cityGate.ctl _ (planeOf s ob)).1
     rw [hw]; exact ofSurf_clamp w
 
-/-- `q` lies in the cube of half-size `h` around `c`, per axis, boundary included. -/
-def Near (h : Rat) (c : Rat × Rat × Rat) (q : CitySafety.Pt) : Prop :=
-  c.1 - h ≤ q.x ∧ q.x ≤ c.1 + h ∧ c.2.1 - h ≤ q.y ∧ q.y ≤ c.2.1 + h ∧ c.2.2 - h ≤ q.z ∧ q.z ≤ c.2.2 + h
-
-/-- The airframe points of plant state `s` are defined and lie within `h` m per axis of `pl`'s reported position. -/
-def AirframeNearAt (h : Rat) (s : JsbExact.State Float) (pl : Plane) : Prop :=
-  ∀ c, exactPos pl = some c → ∃ ps, CitySafety.airframe s = some ps ∧ ∀ q ∈ ps, Near h c q
-
-/-- In every reachable state, the airframe points lie within `h` m of the gate's reported position (`refPlane`). -/
-def AirframeNear (h : Rat) : Prop :=
-  ∀ p, CitySafety.Reach specFilter p → AirframeNearAt h p.1 (refPlane p)
-
-/-- **Assumption:** after the first frame, every reachable state's airframe points lie within `h` m per axis of
-the position the plant reported for that same state. The c172p's points lie about 5.9 m from its CG at most;
-this could be proved from bounds on the reported rotation matrix's entries and agreement of `Diag.loc` with
-`report`. Checked along flights by `specbridgeinit`. -/
-def AirframeNearGate (h : Rat) : Prop :=
-  ∀ s ob mc, CitySafety.Reach specFilter (s, some (ob, mc)) → AirframeNearAt h s (planeOf s ob)
-
-/-- The 4 starts' airframe points lie within `h` m of the gate's start, one frame on (decidable; see
-`SpecBridgeNative`). -/
-def AirframeNearInit (h : Rat) : Prop := ∀ s, CitySafety.Init s → AirframeNearAt h s (firstPlane s)
-
 /-! ## Correspondence: every spec state is a gate state -/
 
 /-- What a reachable state of `specFilter` is: a spec start before the first frame, afterwards a reachable state of
@@ -222,11 +178,11 @@ theorem frame_fst (p : JsbExact.State Float × Mem') (u : CitySafety.Surfaces)
   simp only [CitySafety.Filter.frame]
   rw [hc]
 
-theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach specFilter p → Corr p := by
+theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach cityMap specFilter p → Corr p := by
   intro p hp
   induction hp with
   | init h => exact h
-  | @step p u hu hp ih =>
+  | @step p u hu _ hp ih =>
     have hs := frame_fst p u (hOut p u hp hu)
     obtain ⟨s, m⟩ := p
     cases m with
@@ -249,7 +205,8 @@ theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach specFilter 
             (cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).2) := rfl
       have ha : (specFilter.act (some (ob, m, c)) s u).1 = ofSurf (cityGate.ctl w (planeOf s ob)).1 := by
         rw [← hw]; rfl
-      have h1 : (specFilter.frame (s, some (ob, m, c)) u).1 = (cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).1.st := by
+      have h1 : (specFilter.frame (s, some (ob, m, c)) u).1 =
+          (cityGate.frame (planeOf s ob, (m, c)) (toSurf u)).1.st := by
         dsimp only at hs
         rw [ha] at hs
         rw [hg1, hst]; exact hs
@@ -259,7 +216,7 @@ theorem reach_corr (hOut : OutputsInRange) : ∀ p, CitySafety.Reach specFilter 
       rw [h1, planeOf_eta s ob hg1]
       exact hg
 
-theorem reach_gate (p : JsbExact.State Float × Mem') (hp : CitySafety.Reach specFilter p) :
+theorem reach_gate (p : JsbExact.State Float × Mem') (hp : CitySafety.Reach cityMap specFilter p) :
     GateSafety.Reach cityGate GInit (gateState p) := by
   have hc := reach_corr outputsInRange p hp
   obtain ⟨s, m⟩ := p
@@ -267,94 +224,133 @@ theorem reach_gate (p : JsbExact.State Float × Mem') (hp : CitySafety.Reach spe
   | none => exact GateSafety.Reach.init ⟨s, hc, rfl⟩
   | some v => obtain ⟨ob, mc⟩ := v; exact hc
 
-theorem airframeNear_of {h : Rat} (hi : AirframeNearInit h) (hg : AirframeNearGate h) : AirframeNear h := by
-  intro p hp
-  obtain ⟨s, m⟩ := p
-  cases m with
-  | none => exact hi s (reach_corr outputsInRange _ hp)
-  | some v => obtain ⟨ob, mc⟩ := v; exact hg s ob mc hp
+/-! ## Crash-free starts, decided -/
 
-/-- `Near`, decided. -/
-def nearB (h : Rat) (c : Rat × Rat × Rat) (q : CitySafety.Pt) : Bool :=
-  decide (c.1 - h ≤ q.x ∧ q.x ≤ c.1 + h ∧ c.2.1 - h ≤ q.y ∧ q.y ≤ c.2.1 + h ∧ c.2.2 - h ≤ q.z ∧ q.z ≤ c.2.2 + h)
+theorem min_le_l (a b : Rat) : min a b ≤ a := by rw [Rat.min_def]; split <;> grind
+theorem min_le_r (a b : Rat) : min a b ≤ b := by rw [Rat.min_def]; split <;> grind
+theorem le_max_l (a b : Rat) : a ≤ max a b := by rw [Rat.max_def]; split <;> grind
+theorem le_max_r (a b : Rat) : b ≤ max a b := by rw [Rat.max_def]; split <;> grind
 
-/-- `AirframeNearAt`, decided. -/
-def nearAtB (h : Rat) (s : JsbExact.State Float) (pl : Plane) : Bool :=
-  match exactPos pl with
-  | none => true
-  | some c => match CitySafety.airframe s with
-    | none => false
-    | some ps => ps.all (nearB h c)
+/-- The least and greatest of `f` over `ps` (`d` if empty). -/
+def minOf (f : CitySafety.Pt → Rat) (ps : List CitySafety.Pt) (d : Rat) : Rat := ps.foldr (fun q m => min (f q) m) d
+def maxOf (f : CitySafety.Pt → Rat) (ps : List CitySafety.Pt) (d : Rat) : Rat := ps.foldr (fun q m => max (f q) m) d
 
-theorem nearAt_of_B {h : Rat} {s : JsbExact.State Float} {pl : Plane} (hb : nearAtB h s pl = true) :
-    AirframeNearAt h s pl := by
-  intro c hc
-  simp only [nearAtB, hc] at hb
-  cases ha : CitySafety.airframe s with
-  | none => simp [ha] at hb
-  | some ps =>
-    simp only [ha, List.all_eq_true, nearB, decide_eq_true_eq] at hb
-    exact ⟨ps, rfl, fun q hq => hb q hq⟩
+theorem minOf_le (f : CitySafety.Pt → Rat) (d : Rat) :
+    ∀ (ps : List CitySafety.Pt) (q : CitySafety.Pt), q ∈ ps → minOf f ps d ≤ f q
+  | [], _, h => by cases h
+  | a :: ps, q, h => by
+    simp only [minOf, List.foldr_cons]
+    rcases List.mem_cons.mp h with rfl | h
+    · exact min_le_l _ _
+    · exact Rat.le_trans (min_le_r _ _) (minOf_le f d ps q h)
 
-/-! ## Geometry -/
+theorem le_maxOf (f : CitySafety.Pt → Rat) (d : Rat) :
+    ∀ (ps : List CitySafety.Pt) (q : CitySafety.Pt), q ∈ ps → f q ≤ maxOf f ps d
+  | [], _, h => by cases h
+  | a :: ps, q, h => by
+    simp only [maxOf, List.foldr_cons]
+    rcases List.mem_cons.mp h with rfl | h
+    · exact le_max_l _ _
+    · exact Rat.le_trans (le_maxOf f d ps q h) (le_max_r _ _)
 
-/-- The cube is convex: a hull of points in it stays in it. -/
-theorem near_hull {h : Rat} {c : Rat × Rat × Rat} {ps : List CitySafety.Pt} (hp : ∀ q ∈ ps, Near h c q)
-    {q : CitySafety.Pt} (hq : CitySafety.InHull ps q) : Near h c q := by
-  have g := fun cx cy cz k (f : ∀ r ∈ ps, k ≤ cx * r.x + cy * r.y + cz * r.z) => CitySafety.hull_lin_ge cx cy cz k f hq
-  have l1 := g 1 0 0 (c.1 - h) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
-  have l2 := g (-1) 0 0 (-(c.1 + h)) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
-  have l3 := g 0 1 0 (c.2.1 - h) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
-  have l4 := g 0 (-1) 0 (-(c.2.1 + h)) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
-  have l5 := g 0 0 1 (c.2.2 - h) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
-  have l6 := g 0 0 (-1) (-(c.2.2 + h)) (fun r hr => by have := hp r hr; simp only [Near] at this; grind)
-  simp only [Near]
+/-- A coordinate between `a` and `b`, scaled to units, lies in the window `[⌊aS⌋, ⌈bS⌉]`. -/
+theorem win {a q b : Rat} (h1 : a ≤ q) (h2 : q ≤ b) :
+    (((a * S).floor : Int) : Rat) ≤ q * S ∧ q * S ≤ (((b * S).ceil : Int) : Rat) := by
+  have f1 := Rat.floor_le (a * S)
+  have c1 : b * S ≤ ((b * S).ceil : Rat) := Rat.le_ceil
+  have m1 : a * S ≤ q * S := Rat.mul_le_mul_of_nonneg_right h1 (by simp only [S]; decide)
+  have m2 : q * S ≤ b * S := Rat.mul_le_mul_of_nonneg_right h2 (by simp only [S]; decide)
+  exact ⟨Rat.le_trans f1 m1, Rat.le_trans m2 c1⟩
+
+/-- The fold's starting point: the first point of `ps` (so the span is exactly `ps`'s). -/
+def d0 (ps : List CitySafety.Pt) : CitySafety.Pt := ps.headD ⟨0, 0, 0⟩
+
+/-- `q` lies in the box spanned by `ps`'s coordinates. -/
+def InSpan (ps : List CitySafety.Pt) (q : CitySafety.Pt) : Prop :=
+  minOf (·.x) ps (d0 ps).x ≤ q.x ∧ q.x ≤ maxOf (·.x) ps (d0 ps).x ∧ minOf (·.y) ps (d0 ps).y ≤ q.y ∧
+    q.y ≤ maxOf (·.y) ps (d0 ps).y ∧ minOf (·.z) ps (d0 ps).z ≤ q.z ∧ q.z ≤ maxOf (·.z) ps (d0 ps).z
+
+theorem inSpan_of_mem {ps : List CitySafety.Pt} {q : CitySafety.Pt} (h : q ∈ ps) : InSpan ps q :=
+  ⟨minOf_le _ _ _ _ h, le_maxOf _ _ _ _ h, minOf_le _ _ _ _ h, le_maxOf _ _ _ _ h, minOf_le _ _ _ _ h,
+    le_maxOf _ _ _ _ h⟩
+
+/-- The hull of part of `ps` stays in `ps`'s span (the span is a box, which is convex). -/
+theorem inSpan_hull {ps bs : List CitySafety.Pt} (hsub : ∀ p ∈ bs, p ∈ ps) {q : CitySafety.Pt}
+    (hq : CitySafety.InHull bs q) : InSpan ps q := by
+  have g := fun cx cy cz k (f : ∀ r ∈ bs, k ≤ cx * r.x + cy * r.y + cz * r.z) => CitySafety.hull_lin_ge cx cy cz k f hq
+  have hp := fun r (hr : r ∈ bs) => inSpan_of_mem (hsub r hr)
+  have l1 := g 1 0 0 (minOf (·.x) ps (d0 ps).x) (fun r hr => by have := hp r hr; simp only [InSpan] at this; grind)
+  have l2 := g (-1) 0 0 (-maxOf (·.x) ps (d0 ps).x) (fun r hr => by have := hp r hr; simp only [InSpan] at this; grind)
+  have l3 := g 0 1 0 (minOf (·.y) ps (d0 ps).y) (fun r hr => by have := hp r hr; simp only [InSpan] at this; grind)
+  have l4 := g 0 (-1) 0 (-maxOf (·.y) ps (d0 ps).y) (fun r hr => by have := hp r hr; simp only [InSpan] at this; grind)
+  have l5 := g 0 0 1 (minOf (·.z) ps (d0 ps).z) (fun r hr => by have := hp r hr; simp only [InSpan] at this; grind)
+  have l6 := g 0 0 (-1) (-maxOf (·.z) ps (d0 ps).z) (fun r hr => by have := hp r hr; simp only [InSpan] at this; grind)
+  simp only [InSpan]
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩ <;> grind
 
-/-- A solid point near the aircraft's position is a crash of the cube. -/
-theorem crashH_of_near {h : Rat} {pl : Plane} {c : Rat × Rat × Rat} (hc : exactPos pl = some c)
-    {q : CitySafety.Pt} (hn : Near h c q) (hs : Solid q.x q.y q.z) : CrashH h pl := by
-  obtain ⟨x, y, z⟩ := c
-  simp only [Near] at hn
-  simp only [CrashH, hc]
-  refine ⟨q.x - x, q.y - y, q.z - z, by grind, by grind, by grind, by grind, by grind, by grind, ?_⟩
-  have e1 : x + (q.x - x) = q.x := by grind
-  have e2 : y + (q.y - y) = q.y := by grind
-  have e3 : z + (q.z - z) = q.z := by grind
-  rw [e1, e2, e3]; exact hs
+/-- The span of `ps`, rounded out to units, is clear of buildings and above the terrain. -/
+def spanClear (ps : List CitySafety.Pt) : Bool :=
+  let xl := (minOf (·.x) ps (d0 ps).x * S).floor
+  let xh := (maxOf (·.x) ps (d0 ps).x * S).ceil
+  let yl := (minOf (·.y) ps (d0 ps).y * S).floor
+  let yh := (maxOf (·.y) ps (d0 ps).y * S).ceil
+  let zl := (minOf (·.z) ps (d0 ps).z * S).floor
+  let zh := (maxOf (·.z) ps (d0 ps).z * S).ceil
+  boxesClear xl xh yl yh zl zh && terrainClear xl xh yl yh zl
+
+theorem not_solid_of_spanClear {ps : List CitySafety.Pt} (hc : spanClear ps = true) {q : CitySafety.Pt}
+    (hq : InSpan ps q) : ¬ CitySafety.Solid cityMap q := by
+  intro hs
+  simp only [spanClear, Bool.and_eq_true] at hc
+  obtain ⟨hb, ht⟩ := hc
+  obtain ⟨x1, x2, y1, y2, z1, z2⟩ := hq
+  obtain ⟨wx1, wx2⟩ := win x1 x2
+  obtain ⟨wy1, wy2⟩ := win y1 y2
+  obtain ⟨wz1, wz2⟩ := win z1 z2
+  rcases solid_of_spec q hs with ⟨b, hbm, b1, b2, b3, b4, b5, b6⟩ | hter
+  · exact box_case hb wx1 wx2 wy1 wy2 wz1 wz2 hbm b1 b2 b3 b4 b5 b6
+  · exact terrain_case ht wx1 wx2 wy1 wy2 wz1 hter
+
+/-- A start state is crash-free if its airframe points and sink rate are defined and the span of the points is
+clear (decidable: `SpecBridgeNative` runs it on the 4 starts). -/
+def startClearB (s : JsbExact.State Float) : Bool :=
+  match CitySafety.bodyPoints.mapM (CitySafety.mapPoint cityMap s),
+    CitySafety.wheelPoints.mapM (CitySafety.mapPoint cityMap s), CitySafety.sinkRate s with
+  | some bs, some ws, some _ => spanClear (bs ++ ws)
+  | _, _, _ => false
+
+theorem not_crash_of_startClearB {s : JsbExact.State Float} (h : startClearB s = true) :
+    ¬ CitySafety.Crash cityMap s := by
+  unfold startClearB at h
+  unfold CitySafety.Crash
+  cases h1 : CitySafety.bodyPoints.mapM (CitySafety.mapPoint cityMap s) <;>
+    cases h2 : CitySafety.wheelPoints.mapM (CitySafety.mapPoint cityMap s) <;>
+    cases h3 : CitySafety.sinkRate s <;> simp only [h1, h2, h3] at h ⊢ <;> try simp at h
+  rename_i bs ws v
+  rintro (⟨q, hq, hs⟩ | ⟨w, hw, hs, _⟩)
+  · exact not_solid_of_spanClear h (inSpan_hull (fun p hp => List.mem_append_left _ hp) hq) hs
+  · exact not_solid_of_spanClear h (inSpan_of_mem (List.mem_append_right _ hw)) hs
 
 /-! ## The theorem -/
 
-/-- The spec's safety from the gate's own: no reachable gate state is a crash of the `h` m cube. -/
-theorem spec_safe_of_gate_safe {h : Rat} (gsafe : GateSafety.Safe cityGate (CrashH h) GInit)
-    (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter := by
-  intro p hp hcr
-  have hnc := gsafe _ (reach_gate p hp)
-  change ¬ CrashH h (refPlane p) at hnc
-  cases hc : exactPos (refPlane p) with
-  | none => exact hnc (by simp only [CrashH, hc])
-  | some c =>
-    obtain ⟨ps, h1, hall⟩ := hNear p hp c hc
-    simp only [CitySafety.Crash, h1] at hcr
-    obtain ⟨q, hq, hs⟩ := hcr
-    exact hnc (crashH_of_near hc (near_hull hall hq) (solid_of_spec q hs))
+/-- **The city gate is safe against the spec.** It takes four hypotheses:
+- `hc`: the clearance test is sound against the spec's crash;
+- `hF`: from the landing funnel, the autoland never crashes (`FunnelSoundR`);
+- `hInit`: the starts pass the gate's initial check;
+- `hStart`: the starts are crash-free.
 
-theorem clearSoundH {h : Rat} (hh : h ≤ 17 / 2) : ClearSound cityGate (CrashH h) :=
-  fun x hx => (cityGate_clear x hx).elim fun e he => clear_soundH hh e x.2 he
-
-/-- **The city gate is safe against the spec**, given three assumptions: `hT`, the end-of-escape test means safe
-forever for the `h` m cube (known false for the current helix end test, see tracker #30); `hInit`, the 4 starts pass
-the gate's initial check (`specbridgeinit` reports true); `hNear`, see `AirframeNear`. -/
-theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGate (CrashH h))
-    (hInit : InitChecked cityGate GInit) (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter :=
-  spec_safe_of_gate_safe (GateSafety.safe cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hNear
-
-/-- **`cityGate_spec_safe` with the end-of-escape assumption on the gate's own rollouts only** (`TermSoundR`: the
-rollouts of its start controller, or of a candidate it proposes at a reachable state, which `TermSound` implies).
-`TermSoundR` is currently known false for the helix end test (counterexamples in tracker #30), and false as stated
-while `JsbExact` burns fuel; the theorem is conditional on a redesigned certifying end test. -/
-theorem cityGate_spec_safe_R {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR cityGate (CrashH h) GInit)
-    (hInit : InitChecked cityGate GInit) (hNear : AirframeNear h) : CitySafety.Safe cityMap specFilter :=
-  spec_safe_of_gate_safe (GateSafety.safeR cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hNear
+`SpecBridgeNative` discharges `hInit` and `hStart` by running the plant. -/
+theorem cityGate_spec_safe_funnel_of (hc : ∀ e pl, clearAt e pl = true → ¬ GCrash pl) (hF : FunnelSoundR)
+    (hInit : InitChecked cityGate GInit) (hStart : ∀ s, CitySafety.Init s → ¬ CitySafety.Crash cityMap s) :
+    CitySafety.Safe cityMap specFilter := by
+  have gsafe := GateSafety.safeR cityGate GCrash GInit (clearSound_of hc) hF hInit
+  intro p hp
+  obtain ⟨s, m⟩ := p
+  cases m with
+  | none => exact hStart s (reach_corr outputsInRange _ hp)
+  | some v =>
+    obtain ⟨ob, mc⟩ := v
+    have h := gsafe (gateState (s, some (ob, mc))) (reach_gate (s, some (ob, mc)) hp)
+    exact h
 
 end CityGate.SpecBridge
