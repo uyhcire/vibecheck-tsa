@@ -4,7 +4,7 @@ use crate::envfilter::{law_params, rollout_law, thread_cpu, Law, Outcome, Roll, 
 use crate::filter::{LAM_DECAY, T_LOOK, T_MARGIN};
 use crate::jsb::{JsbPlant, DT_JSB};
 use crate::model::*;
-use crate::world::{World, MAP_HALF};
+use crate::world::World;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -35,10 +35,6 @@ pub fn parse_args(args: &[String]) {
 
 fn frames(t: f64) -> usize {
     (t / DT_JSB).round() as usize
-}
-
-fn on_map(x: f64, y: f64) -> bool {
-    x.abs() < MAP_HALF && y.abs() < MAP_HALF
 }
 
 /// Hold `hold` through the fly-by-wire for `hold_frames` frames from where it verified, then escape `esc`.
@@ -111,8 +107,7 @@ fn hold(world: &World, base: &JsbPlant, u: &Cmd, marks: &[usize]) -> Hold {
     let mut q = base.fork();
     let mut out = Hold { forks: marks.iter().map(|_| None).collect(), path: Vec::with_capacity(n / SAMPLE + 2), frames: 0 };
     let ok = |q: &JsbPlant| {
-        let s = q.state();
-        !on_map(s[X], s[Y]) || world.airframe_clearance(&s, 50.0) > MARGIN
+        world.airframe_clearance(&q.state(), 50.0) > MARGIN
     };
     let s = q.state();
     out.path.push([s[X], s[Y], s[Z]]);
