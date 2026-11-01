@@ -134,6 +134,46 @@ def OutputsInRange : Prop :=
   ∀ p u, CitySafety.Reach specFilter p → u.Valid →
     (specFilter.act p.2 p.1 u).1.clamp = (specFilter.act p.2 p.1 u).1
 
+theorem clampTo_idem {lo hi : Float} (h1 : lo ≤ lo) (h2 : lo ≤ hi) (h3 : hi ≤ hi) (x : Float) :
+    CitySafety.clampTo lo hi (CitySafety.clampTo lo hi x) = CitySafety.clampTo lo hi x := by
+  unfold CitySafety.clampTo
+  by_cases a : lo ≤ x <;> by_cases b : x ≤ hi <;> simp [a, b, h1, h2, h3]
+
+theorem ofSurf_clamp (u : Surf) : (ofSurf u.clamp).clamp = ofSurf u.clamp := by
+  have m1 : ((-1 : Float) ≤ -1) := by decide +kernel
+  have m2 : ((-1 : Float) ≤ 1) := by decide +kernel
+  have p1 : ((1 : Float) ≤ 1) := by decide +kernel
+  have z0 : ((0 : Float) ≤ 0) := by decide +kernel
+  have z1 : ((0 : Float) ≤ 1) := by decide +kernel
+  simp only [CitySafety.Surfaces.clamp, ofSurf, Surf.clamp]
+  have e : clampIn = CitySafety.clampTo := rfl
+  rw [e, clampTo_idem m1 m2 p1, clampTo_idem m1 m2 p1, clampTo_idem m1 m2 p1, clampTo_idem z0 z1 p1]
+
+theorem firstSurf_clamp : (ofSurf firstSurf).clamp = ofSurf firstSurf := by
+  have m1 : ((-1 : Float) ≤ 0) := by decide +kernel
+  have z0 : ((0 : Float) ≤ 0) := by decide +kernel
+  have z1 : ((0 : Float) ≤ 1) := by decide +kernel
+  simp [CitySafety.Surfaces.clamp, ofSurf, firstSurf, CitySafety.clampTo, m1, z0, z1]
+
+theorem ctl_clamp (c : Ctl) (pl : Plane) : ∃ v : Surf, (cityGate.ctl c pl).1 = v.clamp := by
+  show ∃ v : Surf, (Ctl.ctl c pl).1 = v.clamp
+  unfold Ctl.ctl
+  split
+  · exact ⟨_, rfl⟩
+  · exact ⟨_, rfl⟩
+
+/-- **`OutputsInRange` holds**: every control the gate applies has been through `Surf.clamp`. -/
+theorem outputsInRange : OutputsInRange := by
+  intro p u _ _
+  obtain ⟨s, m⟩ := p
+  cases m with
+  | none => exact firstSurf_clamp
+  | some v =>
+    obtain ⟨ob, m, c⟩ := v
+    obtain ⟨w, hw⟩ := ctl_clamp ((cityGate.choose (planeOf s ob) m c (toSurf u)).getD c) (planeOf s ob)
+    show (ofSurf (cityGate.ctl _ (planeOf s ob)).1).clamp = ofSurf (cityGate.ctl _ (planeOf s ob)).1
+    rw [hw]; exact ofSurf_clamp w
+
 /-- `q` lies in the cube of half-size `h` around `c`, per axis, boundary included. -/
 def Near (h : Rat) (c : Rat × Rat × Rat) (q : CitySafety.Pt) : Prop :=
   c.1 - h ≤ q.x ∧ q.x ≤ c.1 + h ∧ c.2.1 - h ≤ q.y ∧ q.y ≤ c.2.1 + h ∧ c.2.2 - h ≤ q.z ∧ q.z ≤ c.2.2 + h
@@ -280,5 +320,15 @@ theorem cityGate_spec_safe_R {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR city
     (hInit : InitChecked cityGate GInit) (hOut : OutputsInRange) (hNear : SweepNear h) :
     CitySafety.Safe cityMap specFilter :=
   spec_safe_of_gate_safe (GateSafety.safeR cityGate (CrashH h) GInit (clearSoundH hh) hT hInit) hOut hNear
+
+end CityGate.SpecBridge
+
+namespace CityGate.SpecBridge
+open GateSafety
+
+/-- **`cityGate_spec_safe_R` without `OutputsInRange`**, which is now a theorem (`outputsInRange`). -/
+theorem cityGate_spec_safe_R' {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSoundR cityGate (CrashH h) GInit)
+    (hInit : InitChecked cityGate GInit) (hNear : SweepNear h) : CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_R hh hT hInit outputsInRange hNear
 
 end CityGate.SpecBridge
