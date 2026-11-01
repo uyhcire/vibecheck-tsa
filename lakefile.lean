@@ -11,6 +11,7 @@ lean_lib Envelope
 lean_lib JsbExact
 lean_lib VcFilter
 lean_lib CityJsb
+lean_lib Spec
 
 /-- SDL3 install prefix; `make` passes `-K sdl=$(brew --prefix sdl3)`. -/
 def sdlPrefix : String := (get_config? sdl).getD "/opt/homebrew/opt/sdl3"
@@ -99,6 +100,11 @@ lean_exe cityplanttest where
 
 lean_exe cityimporttest where
   root := `Tools.CityImportTest
+  moreLinkObjs := #[jxmath.o]
+
+/-- `CitySafety.passThrough` flown into the hand-made map until a contact point is in something solid. -/
+lean_exe citysafetydemo where
+  root := `Tools.CitySafetyDemo
   moreLinkObjs := #[jxmath.o]
 
 lean_exe jsbdrift where
