@@ -10,7 +10,7 @@ Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` 
 * this file: `ratOf`, `InRange`, `Surfaces`, `Surfaces.Valid`, `clampTo`, `Surfaces.clamp`, `Surfaces.toInput`,
   `StartCond`, `StartCond.state`, `startConds`, `Init`, `Filter`, `Filter.frame`, `Reach`, `Pt`, `Box`,
   `Box.Contains`, `CityMap`, `clampR`, `CityMap.terrain`, `Solid`, `combo`, `InHull`, `contactPoints`,
-  `flightGearPoints`, `ft`, `pointEcef`, `altitudeFt`, `mapPoint`, `airframe`, `HullHits`, `SweptCrash`, `Safe`;
+  `flightGearPoints`, `ft`, `Report`, `report`, `mulRows`, `mapPoint`, `airframe`, `HullHits`, `Crash`, `Safe`;
 * the plant: `JsbExact.step` and what it calls, the generated `JsbExact.Gen` (from `c172p.xml`),
   `CityJsb.template` and `CityJsb.initAt`. These are trusted because they match JSBSim 1.3.3 bit for bit on the
   validation datasets (measured, not proved);
@@ -21,13 +21,17 @@ Trusted surface of `Safe` (`#spec_surface Safe` in `Spec/CitySafetyChecks.lean` 
 Decisions:
 1. Airframe: the convex hull of the stock c172p's 7 contact points and FlightGear's c172p's 13 default contact
    points, the points at which FlightGear decides crashes.
-2. Numbers: each airframe point's map position is the plant's own `Float` computation, read exactly (`ratOf`);
-   hulls, terrain and buildings are exact in `Rat` from there. A non-finite pose is a crash.
-3. Map frame: the demo's. East and north are ECEF y and z, up is altitude above sea level (`Diag.hsl`'s formula),
-   per point. Hulls are taken in these coordinates (see `SweptCrash`).
+2. Numbers: the plant reports the aircraft's pose as `Float`s (`report`: the CG's location and altitude, and the
+   rotation matrix `Tb2l`), read exactly (`ratOf`); airframe points, hulls, terrain and buildings are exact in `Rat`
+   from there. A non-finite pose is a crash.
+3. Map frame: the demo's. The reported CG position is east = ECEF y, north = ECEF z, up = altitude above sea level
+   (`Diag.hsl`), as `CityJsb.obs` reports it. Airframe points are placed from it with the reported `Tb2l`, in the
+   local north-east-down frame at the CG, which turns by at most 0.03° against the map axes over the ±3000 m map
+   (under 6 mm across the airframe).
 4. Beyond the ±3000 m grid the terrain continues the edge profile (`World::terrain`'s clamp; 731 to 927 m on the
    demo map); the gate's "off the map is clear" is not sound under this.
-5. Contact is checked over each frame's sweep: the hull of the airframe points at both ends of the frame.
+5. Contact is checked at each frame's state. Frames are 1/128 s (0.39 m at 50 m/s), so contact strictly between
+   two frames is not counted; `Spec/CitySafetyChecks.lean` shows a 2 cm ledge this misses.
 6. Touching counts as contact (all solids are closed).
 -/
 
@@ -204,31 +208,41 @@ def flightGearPoints : List (V3 Float) :=
 /-- One foot in metres, exactly. -/
 def ft : Rat := 3048 / 10000
 
-/-- ECEF position (ft) of the structural point `r` (inches) of the aircraft in state `s`, computed in `Float` as `step`
-and `gearForces` compute a contact point's location: Earth rotated by `s.epa`, CG at `s.ri` and `s.cg`, attitude
-`s.q`. (`gearForces` also shifts the CG's location while a gear leg is on the ground; that case is already a crash.) -/
-def pointEcef (s : State Float) (r : V3 Float) : V3 Float :=
+/-- What the plant reports about the aircraft in state `s`, in `Float` as `step` computes it: the CG's ECEF location
+(ft; `Diag.loc`: Earth rotated by `s.epa`, CG at `s.ri`), its altitude above sea level (ft; `Diag.hsl`: distance from
+the Earth's centre minus the sea-level radius at its geocentric latitude), and the body-to-local rotation matrix
+`Tb2l` from the attitude `s.q` (rows local north, east, down; columns body x forward, y right, z down). -/
+structure Report where
+  loc : V3 Float
+  hsl : Float
+  tb2l : M33 Float
+
+def report (s : State Float) : Report :=
   let ce := S.cosS s.epa
   let se := S.sinS s.epa
   let ti2ec : M33 Float := M33.mk' ce se 0 (-se) ce 0 0 0 1
-  let locv := ti2ec.mulV s.ri
-  let tec2l := (locDerive locv).tec2l
-  let tb2l := (s.q.toM.mul (tec2l.mul ti2ec).T).T
-  let whlBody := (m9 Gen.Ts2b : M33 Float).mulV (V3.sub r s.cg)
-  V3.add (tec2l.T.mulV (tb2l.mulV whlBody)) locv
+  let loc := ti2ec.mulV s.ri
+  let l := locDerive loc
+  { loc, hsl := l.radius - seaLevelRadius l, tb2l := (s.q.toM.mul (l.tec2l.mul ti2ec).T).T }
 
-/-- Altitude above sea level (ft) of the ECEF point `p`, as `step` computes the aircraft's (`Diag.hsl`): distance
-from the Earth's centre minus the sea-level radius at the point's geocentric latitude. -/
-def altitudeFt (p : V3 Float) : Float :=
-  let l := locDerive p
-  l.radius - seaLevelRadius l
+/-- `m · v` for a 3 × 3 matrix given row by row as 9 numbers (missing entries count as 0). -/
+def mulRows (m : List Rat) (v : Rat × Rat × Rat) : Rat × Rat × Rat :=
+  let a := fun i => m.getD i 0
+  (a 0 * v.1 + a 1 * v.2.1 + a 2 * v.2.2, a 3 * v.1 + a 4 * v.2.1 + a 5 * v.2.2, a 6 * v.1 + a 7 * v.2.1 + a 8 * v.2.2)
 
-/-- Map position of the structural point `r` of the aircraft in state `s`, or `none` if a number involved is not
-finite. The map frame is the demo's (`CityJsb.obs`, `MapFrame` at latitude and longitude 0): east is ECEF y, north is
-ECEF z and up is altitude above sea level, each the plant's `Float` value read exactly and converted to metres. -/
+/-- Map position of the structural point `r` (inches) of the aircraft in state `s`, or `none` if a number involved is
+not finite. Exact (`ratOf`) from the plant's reported values: the point's offset from the CG is `Ts2b · (r - cg)` in
+body axes (ft; `Ts2b` maps structural inches, x aft, to body feet, x forward), `Tb2l` turns it into local north, east
+and down, and the map position is the reported CG position (east = ECEF y, north = ECEF z, up = `hsl`, as the demo's
+`CityJsb.obs`) plus that offset, converted to metres. -/
 def mapPoint (s : State Float) (r : V3 Float) : Option Pt := do
-  let p := pointEcef s r
-  return ⟨(← ratOf p.y) * ft, (← ratOf p.z) * ft, (← ratOf (altitudeFt p)) * ft⟩
+  let rep := report s
+  let ts2b ← Gen.Ts2b.toList.mapM ratOf
+  let tb2l ← [rep.tb2l.a11, rep.tb2l.a12, rep.tb2l.a13, rep.tb2l.a21, rep.tb2l.a22, rep.tb2l.a23,
+    rep.tb2l.a31, rep.tb2l.a32, rep.tb2l.a33].mapM ratOf
+  let off := ((← ratOf r.x) - (← ratOf s.cg.x), (← ratOf r.y) - (← ratOf s.cg.y), (← ratOf r.z) - (← ratOf s.cg.z))
+  let (n, e, d) := mulRows tb2l (mulRows ts2b off)
+  return ⟨((← ratOf rep.loc.y) + e) * ft, ((← ratOf rep.loc.z) + n) * ft, ((← ratOf rep.hsl) - d) * ft⟩
 
 /-- Map positions of the airframe points in state `s`, or `none` if any is undefined. -/
 def airframe (s : State Float) : Option (List Pt) := (contactPoints ++ flightGearPoints).mapM (mapPoint s)
@@ -237,26 +251,15 @@ def airframe (s : State Float) : Option (List Pt) := (contactPoints ++ flightGea
 def HullHits (M : CityMap) (ps : List Pt) : Prop := ∃ q, InHull ps q ∧ Solid M q
 
 /-- The aircraft in state `s` touches the city: some point of the convex hull of its airframe points is in
-something solid. A state with a non-finite pose counts as a crash (the simulation has broken down). `Safe` rules out
-`Crash` at every reachable state (`safe_no_crash` in `Spec/CitySafetyChecks.lean`). -/
+something solid. A state with a non-finite pose counts as a crash (the simulation has broken down). -/
 def Crash (M : CityMap) (s : State Float) : Prop :=
   match airframe s with
   | none => True
   | some ps => HullHits M ps
 
-/-- The frame from `s` to `s'` touches the city: some point of the convex hull of the airframe points at both
-states is in something solid. This hull contains each point's straight-line path from `s` to `s'`
-(`segment_in_sweep`); the plant has no state between frames that would define a curved path. The hull is taken in map
-coordinates, whose `z` follows the Earth's curvature, so a straight segment there is a curve in space: for the
-12 m airframe the two differ by at most L²/8R ≈ 3 µm. A non-finite pose at either end counts as a crash. -/
-def SweptCrash (M : CityMap) (s s' : State Float) : Prop :=
-  match airframe s, airframe s' with
-  | some ps, some ps' => HullHits M (ps ++ ps')
-  | _, _ => True
-
-/-- The filter `F` keeps the aircraft from touching the city `M`, whatever the pilot does: no frame the closed loop
-can take from a reachable state touches it. -/
+/-- The filter `F` keeps the aircraft from touching the city `M`, whatever the pilot does: no state the closed loop
+can reach is a crash. Contact is checked at each frame's state (decision 5). -/
 def Safe (M : CityMap) (F : Filter) : Prop :=
-  ∀ p u, Reach F p → u.Valid → ¬ SweptCrash M p.1 (F.frame p u).1
+  ∀ p, Reach F p → ¬ Crash M p.1
 
 end CitySafety
