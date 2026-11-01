@@ -241,7 +241,10 @@ theorem crashH_of_near {h : Rat} {pl : Plane} {c : Rat × Rat × Rat} (hc : exac
 
 /-! ## The theorem -/
 
-/-- **The city gate is safe against the spec**, given the four assumptions. -/
+/-- **The city gate is safe against the spec**, given four assumptions:
+`hT`: the end-of-escape test means safe forever for the `h` m cube; believed to hold now that leaving the map is not
+an end and the straight ending needs a settled climb, but unproved. `hInit`: the 4 starts pass the initial check
+(Float through libm; `specbridgeinit` reports true). `hOut`, `hNear`: see `OutputsInRange`, `SweepNear`. -/
 theorem cityGate_spec_safe {h : Rat} (hh : h ≤ 17 / 2) (hT : TermSound cityGate (CrashH h))
     (hInit : InitChecked cityGate GInit) (hOut : OutputsInRange) (hNear : SweepNear h) :
     CitySafety.Safe cityMap specFilter := by

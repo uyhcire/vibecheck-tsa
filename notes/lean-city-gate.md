@@ -39,5 +39,7 @@ Rust's clearance can't be certified as is. Lean has no theorems about float roun
 **Open.**
 1. **Speed.** About 65 ms CPU per 20 ms tick against about 10 ms for Rust. `clearAt` still uses `Rat` for decoding and terrain squares, and there is no early stop once a candidate verifies.
 2. **Conservativeness against Rust.** The cube corners, per-square terrain maxima and 4 candidates may intervene more. The 4 m margin was there for the 8-frame gaps and could shrink now that every frame is checked. A ball or capsule test in integer squared distances needs no square roots.
-3. **`TermSound`** remains an assumption, including the rule that leaving the map counts as clear.
+3. **`TermSound`** remains an assumption. Two known holes are fixed: leaving the map no longer ends a rollout (`Ctl.term`, `rayClear`), and the straight ending needs a settled climb (windows' mean vz within 1 m/s) with the ray gradient capped at 0.11. These changes make the Lean gate differ from the Rust one.
 4. **`Init`** is "the initial escape checks out", which is computed, not a fixed set.
+
+**Against the reviewed spec.** `CityGate/SpecBridge.lean` proves `cityGate_spec_safe : CitySafety.Safe cityMap specFilter` from `TermSound cityGate (CrashH h)` (h ≤ 8.5, about 7 needed), `InitChecked cityGate GInit` (`lake exe specbridgeinit` checks it), `OutputsInRange` and `SweepNear h`. Audit: `lake env lean Tools/SpecBridgeAudit.lean`.
