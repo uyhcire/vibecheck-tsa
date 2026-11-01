@@ -542,7 +542,8 @@ struct App {
     scenario: usize,
     phase: Phase,
     robust: bool,
-    mismatch: bool,
+    wind: bool,
+    model_error: bool,
     kamikaze: Option<Kamikaze>,
     show_paths: bool,
     show_help: bool,
@@ -571,7 +572,7 @@ fn filter_button() -> Rect {
 
 impl App {
     fn cfg(&self, filter_on: bool) -> SimCfg {
-        SimCfg { filter_on, filter: FilterCfg { phase: self.phase, robust: self.robust }, mismatch: self.mismatch, seed: self.seed }
+        SimCfg { filter_on, filter: FilterCfg { phase: self.phase, robust: self.robust }, wind: self.wind, model_error: self.model_error, seed: self.seed }
     }
 
     fn reset(&mut self, scenario: usize) {
@@ -638,8 +639,12 @@ impl App {
         if is_key_pressed(KeyCode::B) {
             self.show_paths = !self.show_paths;
         }
+        if is_key_pressed(KeyCode::N) {
+            self.wind = !self.wind;
+            self.rebuild();
+        }
         if is_key_pressed(KeyCode::M) {
-            self.mismatch = !self.mismatch;
+            self.model_error = !self.model_error;
             self.rebuild();
         }
         if is_key_pressed(KeyCode::F) {
@@ -702,7 +707,7 @@ impl App {
         let world = self.world;
         std::thread::spawn(move || {
             let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).saturating_sub(2).max(1);
-            let opts = HarnessOpts { episodes: 200, threads, kamikaze_secs: 300.0, extended: false };
+            let opts = HarnessOpts { only: None, episodes: 200, threads, kamikaze_secs: 300.0, extended: false };
             let t0 = std::time::Instant::now();
             let rep = run_harness(world, &opts, &|n, d, t| *p2.lock().unwrap() = (n.to_string(), d, t));
             let text = format!("{}\n{} threads, {:.0} s", format_report(&rep), threads, t0.elapsed().as_secs_f64());
@@ -773,7 +778,7 @@ impl App {
             if let Some(pl) = self.sim.fs.plan {
                 let mut p = Vec::new();
                 let (hold, te) = pl.tail(self.sim.k);
-                pred.rollout(&s, hold, pl.esc, te, pl.psi0, f64::NEG_INFINITY, Some(&mut p));
+                pred.rollout(&s, hold, pl.esc, te, pl.eref, f64::NEG_INFINITY, Some(&mut p));
                 self.plan_path = p.iter().map(|q| v3(*q)).collect();
             }
         }
@@ -963,8 +968,12 @@ impl App {
         } else {
             pills.push(("SAFETY FILTER OFF".into(), Color::new(0.75, 0.12, 0.1, 0.92), WHITE));
         }
-        if self.mismatch {
-            pills.push(("MISMATCH: wind + weaker aircraft".into(), Color::new(0.55, 0.25, 0.7, 0.92), WHITE));
+        if self.wind {
+            let txt = format!("WIND {:.0} m/s · gusts ≤ {:.1} m/s", WIND_SPEED, GUST_XY);
+            pills.push((txt, Color::new(0.15, 0.4, 0.7, 0.92), WHITE));
+        }
+        if self.model_error {
+            pills.push(("MODEL ERROR: weaker aircraft".into(), Color::new(0.55, 0.25, 0.7, 0.92), WHITE));
         }
         if self.kamikaze.is_some() {
             pills.push(("KAMIKAZE AUTOPILOT".into(), Color::new(0.6, 0.05, 0.05, 0.92), WHITE));
@@ -1018,7 +1027,7 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 15] = [
+        let lines: [(&str, &str); 16] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
@@ -1026,7 +1035,8 @@ impl App {
             ("F", "filter: P1 blend+commit · P2 closed-form · permissive"),
             ("G", "Phase 3 robust margins on / off"),
             ("B", "show escape paths (green valid, red not, yellow committed)"),
-            ("M", "model mismatch: wind and a weaker, slower aircraft"),
+            ("N", "wind: 7 m/s steady + bounded gusts (filter knows the envelope)"),
+            ("M", "model error: a weaker, slower aircraft than the filter assumes"),
             ("C", "camera: chase · cockpit · orbit · overhead"),
             ("1 2 3 4", "tower run · dive · ridge · slow and low"),
             ("K", "kamikaze autopilot (flies at buildings and terrain)"),
@@ -1060,8 +1070,8 @@ impl App {
             ui.text(k, x + 24.0, yy, 15.0, Color::new(1.0, 0.8, 0.35, 1.0), true);
             ui.text(v, x + 150.0, yy, 15.0, WHITE, false);
         }
-        let warn1 = "The guarantee holds only under the nominal model with full state knowledge.";
-        let warn2 = "With mismatch on (M) it no longer strictly holds; the harness measures what happens.";
+        let warn1 = "The guarantee holds for the nominal aircraft with full state knowledge.";
+        let warn2 = "Wind is covered up to its gust envelope; model error (M) is not: use G for margins.";
         ui.text(warn1, x + 24.0, y + ph - 44.0, 14.0, Color::new(1.0, 0.65, 0.4, 1.0), false);
         ui.text(warn2, x + 24.0, y + ph - 24.0, 14.0, Color::new(1.0, 0.65, 0.4, 1.0), false);
     }
@@ -1123,7 +1133,8 @@ async fn main() {
         scenario,
         phase: Phase::P1,
         robust: false,
-        mismatch: false,
+        wind: false,
+        model_error: false,
         kamikaze: None,
         show_paths: args.iter().any(|a| a == "--paths"),
         show_help: shot.is_none(),

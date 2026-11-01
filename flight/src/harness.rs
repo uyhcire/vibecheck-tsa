@@ -1,6 +1,6 @@
 //! Headless acceptance harness: hostile-pilot episodes with the filter on and
-//! off (same seeds), mismatch measurements, Phase 1 vs Phase 2, kamikaze
-//! endurance per scenario, and a no-nuisance check.
+//! off (same seeds), gusty wind and model-error runs, the filter variants,
+//! kamikaze endurance per scenario, a no-nuisance check, and street metrics.
 
 use crate::filter::*;
 use crate::model::*;
@@ -15,7 +15,8 @@ pub struct EpCfg {
     pub filter_on: bool,
     pub phase: Phase,
     pub robust: bool,
-    pub mismatch: bool,
+    pub wind: bool,
+    pub model_error: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -46,7 +47,8 @@ pub fn run_episode(world: &World, cfg: EpCfg, seed: u64, start: Option<State>, p
     let scfg = SimCfg {
         filter_on: cfg.filter_on,
         filter: FilterCfg { phase: cfg.phase, robust: cfg.robust },
-        mismatch: cfg.mismatch,
+        wind: cfg.wind,
+        model_error: cfg.model_error,
         seed,
     };
     let mut sim = Sim::new(world, s0, scfg);
@@ -124,9 +126,16 @@ pub struct Summary {
     pub ms_max: f64,
     pub du_per_active_tick: f64,
     pub filter_on: bool,
+    /// Episodes whose start has no verified escape under this configuration
+    /// (no filter can rescue those); with the filter on they are reported
+    /// but not counted as crashes or violations.
+    pub bad_starts: usize,
 }
 
-pub fn summarize(name: &str, filter_on: bool, rs: &[EpResult]) -> Summary {
+pub fn summarize(name: &str, filter_on: bool, rs_all: &[EpResult]) -> Summary {
+    let bad_starts = if filter_on { rs_all.iter().filter(|r| !r.started_safe).count() } else { 0 };
+    let rs: Vec<EpResult> = rs_all.iter().filter(|r| !filter_on || r.started_safe).copied().collect();
+    let rs = &rs[..];
     let mut mins: Vec<f64> = rs.iter().map(|r| r.min_clear).collect();
     mins.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let ticks: u64 = rs.iter().map(|r| r.ticks).sum();
@@ -146,6 +155,7 @@ pub fn summarize(name: &str, filter_on: bool, rs: &[EpResult]) -> Summary {
         ms_max: rs.iter().map(|r| r.ms_max).fold(0.0, f64::max),
         du_per_active_tick: rs.iter().map(|r| r.du_sum).sum::<f64>() / active.max(1) as f64,
         filter_on,
+        bad_starts,
     }
 }
 
@@ -198,7 +208,7 @@ pub fn street_coverage(world: &World, n: usize, threads: usize, heading_err_deg:
                     continue;
                 }
                 let below = below_roof(world, x, y, s[2]);
-                let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true };
+                let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true, gust: 0.0, gust_z: 0.0 };
                 let h = pred.best(&s, None, &ESC_ORDER, 0.0).0;
                 return (h >= 0.0, below);
             }
@@ -227,7 +237,7 @@ pub fn street_pilot(world: &World, filter_on: bool, phase: Phase) -> (f64, f64, 
         let psi = if ns { if dir > 0.0 { PI / 2.0 } else { -PI / 2.0 } } else if dir > 0.0 { 0.0 } else { PI };
         let (x, y) = if ns { (lat, start) } else { (start, lat) };
         let s0 = trimmed(x, y, world.terrain(x, y) + 40.0, 45.0, 0.0, psi, 0.6);
-        let cfg = SimCfg { filter_on, filter: FilterCfg { phase, robust: false }, mismatch: false, seed: k as u64 };
+        let cfg = SimCfg { filter_on, filter: FilterCfg { phase, robust: false }, wind: false, model_error: false, seed: k as u64 };
         let mut sim = Sim::new(world, s0, cfg);
         let mut fbw = Fbw::from_state(&s0);
         for _ in 0..(30.0 / DT_F) as usize {
@@ -267,6 +277,8 @@ pub struct Report {
 }
 
 pub struct HarnessOpts {
+    /// Run only configurations whose name contains this (case-insensitive).
+    pub only: Option<String>,
     pub episodes: usize,
     pub threads: usize,
     pub kamikaze_secs: f64,
@@ -296,19 +308,26 @@ pub fn nuisance_starts(world: &World) -> Vec<State> {
     v
 }
 
-pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usize, usize) + Sync)) -> Report {
-    let p1 = EpCfg { filter_on: true, phase: Phase::P1, robust: false, mismatch: false };
+/// The episode configurations: each runs on the same random starts.
+pub fn run_configs(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usize, usize) + Sync)) -> Vec<Summary> {
+    let p1 = EpCfg { filter_on: true, phase: Phase::P1, robust: false, wind: false, model_error: false };
     let mut configs: Vec<(&str, EpCfg)> = vec![
         ("P1 filter ON", p1),
         ("filter OFF", EpCfg { filter_on: false, ..p1 }),
-        ("P1 ON + mismatch", EpCfg { mismatch: true, ..p1 }),
-        ("OFF + mismatch", EpCfg { filter_on: false, mismatch: true, ..p1 }),
+        ("P1 ON + gusty wind", EpCfg { wind: true, ..p1 }),
+        ("OFF + gusty wind", EpCfg { filter_on: false, wind: true, ..p1 }),
+        ("P1 ON + model error", EpCfg { model_error: true, ..p1 }),
     ];
     if o.extended {
         configs.push(("P2 closed-form ON", EpCfg { phase: Phase::P2, ..p1 }));
         configs.push(("Permissive ON", EpCfg { phase: Phase::Permissive, ..p1 }));
-        configs.push(("P1+P3 robust + mismatch", EpCfg { robust: true, mismatch: true, ..p1 }));
-        configs.push(("P2+P3 robust + mismatch", EpCfg { phase: Phase::P2, robust: true, mismatch: true, ..p1 }));
+        configs.push(("P1+P3 + model error", EpCfg { robust: true, model_error: true, ..p1 }));
+        configs.push(("P1 + wind + model error", EpCfg { wind: true, model_error: true, ..p1 }));
+        configs.push(("P1+P3 + wind + model err", EpCfg { robust: true, wind: true, model_error: true, ..p1 }));
+    }
+    if let Some(f) = &o.only {
+        let f = f.to_lowercase();
+        configs.retain(|(n, _)| n.to_lowercase().contains(&f));
     }
     // Same random starts for every configuration.
     let starts: Vec<State> = par_map(
@@ -334,6 +353,12 @@ pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usiz
         );
         rows.push(summarize(name, cfg.filter_on, &rs));
     }
+    rows
+}
+
+pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usize, usize) + Sync)) -> Report {
+    let p1 = EpCfg { filter_on: true, phase: Phase::P1, robust: false, wind: false, model_error: false };
+    let rows = run_configs(world, o, progress);
     // Kamikaze endurance per scenario.
     let kjobs: Vec<usize> = (0..4).collect();
     let kres = par_map(
@@ -362,7 +387,7 @@ pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usiz
     let r_off = &rows[1];
     let mut checks = vec![
         (
-            "Filter on, no mismatch: zero crashes and zero invariant violations".to_string(),
+            "Filter on, calm air: zero crashes and zero invariant violations".to_string(),
             r_on.crashes == 0 && r_on.inv_viol_eps == 0,
             format!("{} crashes, {} episodes with violations / {}", r_on.crashes, r_on.inv_viol_eps, r_on.episodes),
         ),
@@ -391,10 +416,16 @@ pub fn run_harness(world: &World, o: &HarnessOpts, progress: &(dyn Fn(&str, usiz
             format!("{:.3} ms mean, {:.2} ms max", r_on.ms_mean, r_on.ms_max),
         ),
     ];
+    let r_wind = &rows[2];
     checks.push((
-        "Mismatch results reported alongside the main results".to_string(),
-        rows.len() >= 4,
-        format!("P1 + mismatch: {} / {} crashed", rows[2].crashes, rows[2].episodes),
+        "Filter on, gusty wind within the envelope: zero crashes and zero invariant violations".to_string(),
+        r_wind.crashes == 0 && r_wind.inv_viol_eps == 0,
+        format!("{} crashes, {} episodes with violations / {}", r_wind.crashes, r_wind.inv_viol_eps, r_wind.episodes),
+    ));
+    checks.push((
+        "Model-error results reported alongside the main results".to_string(),
+        true,
+        format!("P1 + model error: {} / {} crashed", rows[4].crashes, rows[4].episodes),
     ));
     let coverage = street_coverage(world, 2000, o.threads, 0.0);
     let coverage_4deg = street_coverage(world, 2000, o.threads, 4.0);
@@ -421,15 +452,16 @@ pub fn format_coverage(c: &Coverage, label: &str) -> String {
 pub fn format_report(r: &Report) -> String {
     let mut s = String::new();
     s += &format!(
-        "{:<26} {:>5} {:>8} {:>9} {:>10} {:>10} {:>8} {:>8} {:>9} {:>8} {:>8}\n",
-        "config", "eps", "crashes", "inv.viol", "min clr m", "med clr m", "active", "commit", "ms/tick", "ms max", "|du|/tk"
+        "{:<26} {:>5} {:>6} {:>8} {:>9} {:>10} {:>10} {:>8} {:>8} {:>9} {:>8} {:>8}\n",
+        "config", "eps", "bad st", "crashes", "inv.viol", "min clr m", "med clr m", "active", "commit", "ms/tick", "ms max", "|du|/tk"
     );
     for row in &r.rows {
         if row.filter_on {
             s += &format!(
-                "{:<26} {:>5} {:>8} {:>9} {:>10.1} {:>10.1} {:>7.1}% {:>7.1}% {:>9.3} {:>8.2} {:>8.4}\n",
+                "{:<26} {:>5} {:>6} {:>8} {:>9} {:>10.1} {:>10.1} {:>7.1}% {:>7.1}% {:>9.3} {:>8.2} {:>8.4}\n",
                 row.name,
                 row.episodes,
+                row.bad_starts,
                 row.crashes,
                 row.inv_viol_eps,
                 row.min_clear,
@@ -442,8 +474,8 @@ pub fn format_report(r: &Report) -> String {
             );
         } else {
             s += &format!(
-                "{:<26} {:>5} {:>8} {:>9} {:>10.1} {:>10.1} {:>8} {:>8} {:>9} {:>8} {:>8}\n",
-                row.name, row.episodes, row.crashes, "-", row.min_clear, row.median_min_clear, "-", "-", "-", "-", "-"
+                "{:<26} {:>5} {:>6} {:>8} {:>9} {:>10.1} {:>10.1} {:>8} {:>8} {:>9} {:>8} {:>8}\n",
+                row.name, row.episodes, "-", row.crashes, "-", row.min_clear, row.median_min_clear, "-", "-", "-", "-", "-"
             );
         }
     }

@@ -7,17 +7,26 @@ use crate::model::*;
 use crate::world::*;
 use std::f64::consts::PI;
 
+pub const WIND_SPEED: f64 = 7.0;
+/// Gust envelope per axis (m/s): horizontal, vertical.
+pub const GUST_XY: f64 = 2.5;
+pub const GUST_Z: f64 = 0.5;
+
 #[derive(Clone, Copy, Debug)]
 pub struct SimCfg {
     pub filter_on: bool,
     pub filter: FilterCfg,
-    pub mismatch: bool,
+    /// Steady wind with bounded gusts (the filter knows the steady wind and
+    /// the gust envelope).
+    pub wind: bool,
+    /// A weaker, slower aircraft than the filter's model (not known to it).
+    pub model_error: bool,
     pub seed: u64,
 }
 
 impl Default for SimCfg {
     fn default() -> Self {
-        SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed: 1 }
+        SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, wind: false, model_error: false, seed: 1 }
     }
 }
 
@@ -32,7 +41,6 @@ pub struct Sim<'w> {
     pub wind: [f64; 3],
     wind_mean: [f64; 3],
     gust: [f64; 3],
-    pub wind_est: [f64; 3],
     rng: Rng,
     pub crashed: bool,
     pub crash_clear: f64,
@@ -55,8 +63,8 @@ impl<'w> Sim<'w> {
     pub fn new(world: &'w World, s0: State, cfg: SimCfg) -> Sim<'w> {
         let mut rng = Rng::new(cfg.seed ^ 0x51u64);
         let wa = rng.range(0.0, 2.0 * PI);
-        let ws = if cfg.mismatch { 7.0 } else { 0.0 };
-        let prm_true = if cfg.mismatch { Params::mismatch() } else { Params::nominal() };
+        let ws = if cfg.wind { WIND_SPEED } else { 0.0 };
+        let prm_true = if cfg.model_error { Params::mismatch() } else { Params::nominal() };
         let prm_ctrl = if cfg.filter.robust { Params::mismatch() } else { Params::nominal() };
         let wind_mean = [ws * wa.cos(), ws * wa.sin(), 0.0];
         let mut sim = Sim {
@@ -70,7 +78,6 @@ impl<'w> Sim<'w> {
             wind: wind_mean,
             wind_mean,
             gust: [0.0; 3],
-            wind_est: if cfg.filter.robust { wind_mean } else { [0.0; 3] },
             rng,
             crashed: false,
             crash_clear: 0.0,
@@ -97,10 +104,22 @@ impl<'w> Sim<'w> {
         Pred {
             world: self.world,
             prm: self.prm_ctrl,
-            wind: if self.cfg.filter.robust { self.wind_est } else { [0.0; 3] },
+            wind: self.wind_mean,
             robust: self.cfg.filter.robust,
             swept: true,
             accept: true,
+            gust: self.gust_env().0,
+            gust_z: self.gust_env().1,
+        }
+    }
+
+    /// Gust envelope the filter is certified for: max horizontal and
+    /// vertical deviation of the wind from its steady value.
+    pub fn gust_env(&self) -> (f64, f64) {
+        if self.cfg.wind {
+            (GUST_XY * std::f64::consts::SQRT_2, GUST_Z)
+        } else {
+            (0.0, 0.0)
         }
     }
 
@@ -119,21 +138,21 @@ impl<'w> Sim<'w> {
         self.k as f64 * DT
     }
 
+    /// Steady wind plus gusts: a random (Ornstein-Uhlenbeck) process clipped
+    /// to the envelope, per axis.
     fn update_wind(&mut self) {
-        if !self.cfg.mismatch {
+        if !self.cfg.wind {
             self.wind = [0.0; 3];
             return;
         }
         let tau = 4.0;
-        let sig = [2.0, 2.0, 0.8];
+        let sig = [1.5, 1.5, 0.5];
+        let lim = [GUST_XY, GUST_XY, GUST_Z];
         for a in 0..3 {
             let dw = (self.rng.f() - 0.5) * 3.4641; // unit variance
             self.gust[a] += -self.gust[a] / tau * DT_F + sig[a] * (2.0 * DT_F / tau).sqrt() * dw;
+            self.gust[a] = self.gust[a].clamp(-lim[a], lim[a]);
             self.wind[a] = self.wind_mean[a] + self.gust[a];
-        }
-        let a = DT_F / 5.0;
-        for i in 0..3 {
-            self.wind_est[i] += (self.wind[i] - self.wind_est[i]) * a;
         }
     }
 
@@ -173,8 +192,8 @@ impl<'w> Sim<'w> {
             CmdSrc::FollowPlan => match self.fs.plan {
                 Some(pl) if self.k < pl.hold_end => pl.hold,
                 Some(pl) => {
-                    let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
-                    esc_law(&self.prm_ctrl, &self.s, pl.esc, (self.k - pl.hold_end) as f64 * DT, psi0).cmd
+                    let e = pl.eref.unwrap_or_else(|| self.pred().esc_ref(&self.s, pl.esc));
+                    esc_law(&self.prm_ctrl, &self.s, pl.esc, (self.k - pl.hold_end) as f64 * DT, &e, &self.wind).cmd
                 }
                 None => u_p,
             },
@@ -198,17 +217,15 @@ impl<'w> Sim<'w> {
         match src {
             CmdSrc::Const(u) => rk4(&prm, &mut self.s, DT, &wind, |_, _| u),
             CmdSrc::FollowPlan => {
-                if let Some(mut pl) = self.fs.plan {
-                    pl.begin_step(self.k, &self.s);
-                    self.fs.plan = Some(pl);
+                if let Some(pl) = self.fs.plan {
                     if self.k < pl.hold_end {
                         let u = pl.hold;
                         rk4(&prm, &mut self.s, DT, &wind, |_, _| u);
                     } else {
                         let te = (self.k - pl.hold_end) as f64 * DT;
                         let pc = self.prm_ctrl;
-                        let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
-                        rk4(&prm, &mut self.s, DT, &wind, |st, off| esc_law(&pc, st, pl.esc, te + off, psi0).cmd);
+                        let e = pl.eref.unwrap_or_else(|| self.pred().esc_ref(&self.s, pl.esc));
+                        rk4(&prm, &mut self.s, DT, &wind, |st, off| esc_law(&pc, st, pl.esc, te + off, &e, &wind).cmd);
                     }
                 } else {
                     rk4(&prm, &mut self.s, DT, &wind, |_, _| u_p);
@@ -216,12 +233,6 @@ impl<'w> Sim<'w> {
             }
         }
         self.k += 1;
-        // Keep the plan's escape heading reference once the hold elapses
-        // even while flying the pilot's command (so a later commit is exact).
-        if let Some(mut pl) = self.fs.plan {
-            pl.begin_step(self.k, &self.s);
-            self.fs.plan = Some(pl);
-        }
         let c = self.world.true_clearance([self.s[X], self.s[Y], self.s[Z]]);
         self.true_clear = c;
         self.min_true_clear = self.min_true_clear.min(c);
@@ -235,7 +246,7 @@ impl<'w> Sim<'w> {
 // ---------------------------------------------------------------- starts
 
 fn safe_h(world: &World, s: &State) -> f64 {
-    let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true };
+    let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true, gust: 0.0, gust_z: 0.0 };
     pred.best(s, None, &ESC_ORDER, f64::INFINITY).0
 }
 

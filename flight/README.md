@@ -35,9 +35,10 @@ Demo flags (handy for screenshots): `--scenario 1..4`, `--off`, `--kamikaze`,
 | Q / E | throttle down / up |
 | Space | safety filter on/off |
 | F | filter: P1 blend+commit → P2 closed-form → permissive |
-| G | Phase 3 robust margins on/off (works with any filter) |
+| G | Phase 3 robust margins for model error, on/off (works with any filter) |
 | B | escape paths (green valid, red invalid, yellow = committed plan) |
-| M | model mismatch: wind + gusts, weaker and slower aircraft |
+| N | wind: 7 m/s steady + bounded gusts (the filter knows the envelope) |
+| M | model error: a weaker, slower aircraft than the filter assumes |
 | C | camera: chase, cockpit, orbit, overhead |
 | 1–4 | scenarios: tower run, dive, ridge, slow and low |
 | K | kamikaze autopilot |
@@ -66,19 +67,20 @@ own), and first-order lags on load factor, roll rate and throttle. The numbers
 are light-sport: stall 25 m/s, cruise 50 m/s. Physics runs at 100 Hz with RK4
 and the filter at 50 Hz. The predictor uses the same equations.
 
-**Escapes** (`escape.rs`). Ten Auto-GCAS-style maneuvers, all at full power:
-a pull-up of 0, 3, 6, 10 or 15 s (up and out of a street canyon), then a
-climbing turn left or right at up to 45° bank. During the pull-up the escape
-steers onto the nearest street direction if the nose is within 25° of it.
-That direction is fixed by the heading when the escape begins, so the
-predictor and the aircraft fly the same path. Each escape gets 40 s after its
-pull-up to reach the terminal helix. The climb angle comes from a speed-hold through pitch, so
-a slow aircraft trades less energy. Bank is limited so load factor stays under
-85% of the stall limit. Each escape is valid only once it reaches a *steady
-climbing helix after 360° of turn* whose ground circle is clear at the current
-height. From then on it only gains height over the same ground.
-`h_i(x)` is the worst clearance along escape `i` (−∞ if it never reaches the
-helix in time); `h(x) = max_i h_i(x)`.
+**Escapes** (`escape.rs`). Ten Auto-GCAS-style maneuvers, all at full power,
+with the climb angle from a speed-hold through pitch (a slow aircraft trades
+less energy) and bank limited to keep the load factor under 85% of the stall
+limit. When an escape begins it fixes a path over the ground: a straight climb
+line for 0, 3, 6, 10 or 15 s along the nearest street direction (if the track
+is within 25° of it), then an orbit left or right around a fixed point. It
+follows that path with a crab angle into the measured wind, so a gust causes
+a small, bounded wobble instead of a drift that grows with time. An escape
+ends once the predicted flight has stayed settled on its orbit for 3 s
+(radius, course, bank, roll rate, speed and climb all steady), climbing faster
+than the worst downdraft, with the whole circle clear at the current height. From then on
+it stays near the same ground circle at ever greater height, so it is safe
+forever. `h_i(x)` is the worst clearance along escape `i` (−∞ if it doesn't
+settle within 40 s of its pull-up); `h(x) = max_i h_i(x)`.
 
 **Phase 1 filter** (`filter.rs`, default). Each tick it asks how long the
 pilot could keep the current command and still escape. If the answer is at
@@ -102,9 +104,21 @@ and committed fallback still run underneath as a safety net.
 "pilot for one tick, then the best escape" verifies, and otherwise flies the
 committed escape. It's the most permissive option, but it intervenes abruptly.
 
-**Phase 3 robustness**. The predictor uses the worst-case (mismatch)
-aircraft and an estimated mean wind. The required clearance grows along the
-prediction: 1 m/s laterally (via wider maps) and 0.25 m/s vertically.
+**Wind.** With full state knowledge the wind is measured (ground velocity
+minus air velocity). The filter predicts with the steady wind and is given a
+gust envelope: at most 2.5 m/s per horizontal axis and 0.5 m/s vertically,
+which the simulator's gusts respect. Margins follow from it:
+- Laterally: gust × 1.5 s of path-following error, plus gust × the time the
+  pilot's (uncorrected) command is held. New plans pay the tracking term
+  twice, so a re-check after a gust still passes.
+- Vertically: the predicted path is checked lowered by the worst downdraft so
+  far.
+
+In calm air all of these margins are zero.
+
+**Phase 3 robustness (model error)**. The predictor assumes the worst-case
+weaker aircraft, and the required clearance grows along the prediction:
+1 m/s laterally and 0.25 m/s vertically.
 
 The filter only ever changes the commands sent to the aircraft. Collisions are
 always checked against the true geometry (an aircraft sphere of radius 4.5 m
@@ -112,16 +126,23 @@ against boxes and terrain), never against the inflated map.
 
 ## Results (`harness 200 --extended`, M3 Max)
 
-| Config | Crashes / 200 | Invariant violations | Min true clearance | Filter active | Commit | ms / tick |
+| Config | Crashes | Invariant violations | Min true clearance | Filter active | Commit | ms / tick |
 |---|---|---|---|---|---|---|
-| **P1 filter ON** | **0** | **0** | 2.0 m | 64% | 0.3% | 1.72 |
-| filter OFF | 199 | – | crash | – | – | – |
-| P1 + mismatch | 106 | 151 eps | crash | 64% | 5.0% | 1.68 |
-| OFF + mismatch | 200 | – | crash | – | – | – |
-| P2 closed-form | 0 | 0 | 2.8 m | 51% | 0.1% | 1.85 |
-| Permissive | 0 | 0 | 2.0 m | 32% | 32% | 0.63 |
-| P1+P3 robust + mismatch | 10 | 73 eps | crash | 68% | 5.1% | 2.23 |
-| P2+P3 robust + mismatch | 1 | 51 eps | crash | 54% | 3.4% | 2.15 |
+| **P1 filter ON (calm)** | **0 / 200** | **0** | 2.0 m | 64% | 0.6% | 2.2 |
+| filter OFF | 199 / 200 | – | crash | – | – | – |
+| **P1 + gusty wind** | **0 / 199** | **0** | 10.9 m | 68% | 2.5% | 2.2 |
+| OFF + gusty wind | 199 / 200 | – | crash | – | – | – |
+| P1 + model error | 1 / 200 | 7 eps | crash | 66% | 1.2% | 2.1 |
+| P2 closed-form | 0 / 200 | 0 | 2.0 m | 51% | 0.1% | 2.4 |
+| Permissive | 0 / 200 | 0 | 2.0 m | 32% | 32% | 0.8 |
+| P1+P3 + model error | 0 / 198 | 0 | 2.6 m | 69% | 0.9% | 2.5 |
+| P1 + wind + model error | 1 / 199 | 1 ep | crash | 69% | 3.4% | 2.3 |
+| P1+P3 + wind + model error | 0 / 195 | 0 | 12.4 m | 72% | 1.8% | 2.4 |
+
+Every configuration uses the same 200 random starts. With the filter on, a
+start counts only if it has a verified escape under that configuration (no
+filter can rescue an aircraft that starts outside its safe set). That
+excludes 1 start in wind, and up to 5 with Phase 3's extra margins.
 
 Minimum true clearance is the gap between the aircraft's 4.5 m sphere and
 the nearest building or terrain surface. The 2.0 m floor is exactly the
@@ -129,7 +150,7 @@ margin new plans must keep (1 m + 0.5 m + 0.5 m slack), which shows the
 predictor and the aircraft agree.
 
 **Flying between buildings.** Of 2,000 random states on street centrelines
-20–90 m above the ground, 92% of those below rooftop height have a verified
+20–90 m above the ground, 93% of those below rooftop height have a verified
 escape, even with the nose 4° off the street axis. (It was 5.9% with the
 original margins and four escapes.) A street-following autopilot holding
 40 m on six streets spends this share of its time below rooftops:
@@ -137,9 +158,9 @@ original margins and four escapes.) A street-following autopilot holding
 | Filter | Below rooftops | Mean intervention |
 |---|---|---|
 | off | 44.4% | – |
-| P1 (time margin) | 41.0% | 0.04 |
-| Permissive | 43.2% | 0.03 |
-| P2 | 17.7% | 0.23 |
+| P1 (time margin) | 40.3% | 0.11 |
+| Permissive | 42.2% | 0.05 |
+| P2 | 18.4% | 0.26 |
 
 P2 keeps the barrier above a 12 m floor, which is conservative in streets.
 
@@ -150,8 +171,8 @@ safe set. Pilots are a nose-down-biased random stick, with a kamikaze
 autopilot in a quarter of the episodes. Every configuration uses the same seeds.
 
 Timing: the `ms max` column in the harness (~100 ms) comes from 16 threads
-sharing the CPU. Single-threaded (`--threads 1`) P1 averages 1.3 ms and its
-worst tick is 5.2 ms, well inside the 20 ms filter period.
+sharing the CPU. Single-threaded (`--threads 1`) P1 averages 1.6 ms and its
+worst tick is 7 ms in calm air and 14 ms in wind, inside the 20 ms filter period.
 
 ## The trusted core
 
@@ -164,6 +185,7 @@ The safety claim rests only on:
 3. **The clearance checks are conservative:** exact segment-to-box distance
    for buildings; a dilated, swept height map for terrain.
 4. **The predictor uses the same equations as the aircraft.**
+5. **Wind is the steady wind plus gusts within the stated envelope.**
 
 The blending rules (P1, P2, permissive), the GUI and the autopilots only
 choose which candidate command to try. They sit outside the trusted core, so
@@ -176,10 +198,11 @@ they can be tuned for feel without touching what needs certifying.
   equations; RK4 at 0.1 s vs 0.01 s differs by millimetres, and by about 1 m on
   the pull-up escapes. The 1 m acceptance margin and the one-cell (2.5 m)
   wider acceptance map absorb that and the sampling-phase effects.
-- With mismatch on, the guarantee no longer strictly holds. The harness
-  measures it: 106/200 crashes with P1, and 10/200 (P1) or 1/200 (P2) with
-  Phase 3 margins (G). A 1 m building margin leaves no room for model error,
-  so turn on G whenever mismatch (M) is on.
-- The Phase 3 terminal check under wind clears one drifting lap, not "forever".
+- **Wind is covered** up to the gust envelope (2.5 m/s per horizontal axis,
+  0.5 m/s vertical) with the steady wind known: 0 crashes in gusty wind.
+  Before escapes followed ground paths and the predictor used the measured
+  wind, the same test crashed 89 times in 200.
+- **Model error (M) is not covered:** a weaker aircraft than the filter
+  assumes crashed 1/200 times. Phase 3 margins (G) cover it: 0/198.
 - The safety argument is engineering-level and tested, not machine-checked.
   The trusted core above is the part to prove formally.

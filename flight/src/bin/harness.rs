@@ -30,7 +30,17 @@ fn main() {
         println!("({:.1}s)", t.elapsed().as_secs_f64());
         return;
     }
-    let opts = HarnessOpts { episodes, threads, kamikaze_secs, extended };
+    let only = args.iter().position(|a| a == "--only").and_then(|i| args.get(i + 1)).cloned();
+    if let Some(f) = &only {
+        // Quick targeted run: only matching configurations, no acceptance gate.
+        let opts = HarnessOpts { only: Some(f.clone()), episodes, threads, kamikaze_secs, extended: true };
+        let rows = run_configs(&world, &opts, &|_, _, _| {});
+        for r in rows {
+            println!("{:<28} crashes {:>3}/{}  invariant-violation episodes {:>3}  min clearance {:.1} m  (unsafe starts excluded: {})", r.name, r.crashes, r.episodes, r.inv_viol_eps, r.min_clear, r.bad_starts);
+        }
+        return;
+    }
+    let opts = HarnessOpts { only: None, episodes, threads, kamikaze_secs, extended };
     let rep = run_harness(&world, &opts, &|name, d, n| {
         if d == n || d % 10 == 0 {
             eprint!("\r{:<28} {:>4}/{:<4}", name, d, n);
