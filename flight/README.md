@@ -34,6 +34,19 @@ each frame K times (2 turns a Retina capture into its 1x size). `DIR/frames.csv`
 frame (time, simulated time, airframe clearance and its running minimum, filter mode, crash), and
 `DIR/args.txt` the command line; the run ends by printing an `ffmpeg` command that encodes the frames.
 
+`DIR/trace.jsonl` has one JSON object per kept frame, for drawing on the footage:
+
+| key | meaning |
+|---|---|
+| `frame`, `png`, `t`, `sim_t` | rendered frame index, its PNG, time (frame / 60 s), simulated time (stops at a crash) |
+| `clear`, `min_clear`, `crashed` | airframe clearance (m), its running minimum, contact |
+| `mode` | `pilot`, `blend`, `escape` (the gate flying its escape) or `off` (filter off) |
+| `escape`, `escape_verified` | name of the escape the gate is flying, else the one it holds as verified (`street`, `left`, `left40`, ...), or `null`; whether one is verified |
+| `escape_path` | that escape's verified path (rollout plus terminal continuation, world metres), thinned to points at least 20 m apart, about 2 Hz at demo speeds. While the pilot flies it is the rollout that verified on the latest check; while the gate flies the escape it is the path verified before the takeover, from the takeover point on |
+| `aircraft`, `camera` | aircraft centre of gravity as drawn, camera position (world metres) |
+| `viewport` | the saved PNG's size in pixels `[w, h]` |
+| `view_proj` | the camera's view-projection, column-major 16 floats, from world coordinates (x east, y north, z up, metres: the gate's frame). A point `p` lands at pixel `((c.x/c.w + 1)/2 * w, (1 - c.y/c.w)/2 * h)` with `c = view_proj * [p, 1]`, in front of the camera when `c.w > 0`. The photoreal renderer's depth is reversed and infinite |
+
 ## Photoreal renderer (Metal)
 
 On macOS the demo runs on Metal and starts in a photoreal renderer; `--classic`

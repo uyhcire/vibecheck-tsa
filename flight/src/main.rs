@@ -1578,6 +1578,7 @@ struct Recorder {
     from: u32,
     scale: u32,
     csv: std::io::BufWriter<std::fs::File>,
+    trace: std::io::BufWriter<std::fs::File>,
     tx: Option<std::sync::mpsc::SyncSender<(std::path::PathBuf, u32, u32, Vec<u8>)>>,
     writer: Option<std::thread::JoinHandle<()>>,
     saved: u32,
@@ -1592,6 +1593,7 @@ impl Recorder {
         std::fs::write(dir.join("args.txt"), args.join(" ") + "\n").expect("--record: cannot write args.txt");
         let mut csv = std::io::BufWriter::new(std::fs::File::create(dir.join("frames.csv")).expect("--record: cannot write frames.csv"));
         writeln!(csv, "frame,png,t,sim_t,clear,min_clear,mode,filter_on,crashed").unwrap();
+        let trace = std::io::BufWriter::new(std::fs::File::create(dir.join("trace.jsonl")).expect("--record: cannot write trace.jsonl"));
         let (tx, rx) = std::sync::mpsc::sync_channel::<(std::path::PathBuf, u32, u32, Vec<u8>)>(4);
         let scale = scale.max(1);
         let writer = std::thread::spawn(move || {
@@ -1600,11 +1602,12 @@ impl Recorder {
                 image::save_buffer(&path, &px, w, h, image::ColorType::Rgba8).expect("--record: cannot write a frame");
             }
         });
-        Recorder { dir, every: every.max(1), from, scale, csv, tx: Some(tx), writer: Some(writer), saved: 0 }
+        Recorder { dir, every: every.max(1), from, scale, csv, trace, tx: Some(tx), writer: Some(writer), saved: 0 }
     }
 
-    /// The flight state as drawn in rendered frame `frame` (`t` = frame / 60 s; `sim_t` stops at a crash).
-    fn log(&mut self, app: &App, frame: u32) {
+    /// The flight state as drawn in rendered frame `frame` (`t` = frame / 60 s; `sim_t` stops at a crash), as a
+    /// `frames.csv` row and a `trace.jsonl` line (format in `flight/README.md`).
+    fn log(&mut self, app: &App, frame: u32, cam: &Camera3D) {
         use std::io::Write;
         let mode = match (app.sim.cfg.filter_on, app.sim.fs.mode) {
             (false, _) | (_, Mode::Off) => "off",
@@ -1624,6 +1627,59 @@ impl Recorder {
             app.sim.crashed as u8
         )
         .unwrap();
+        // Camera: the view-projection the frame was drawn with (world metres, z up, the gate's frame) and the
+        // saved frame's size in pixels.
+        let (sw, sh) = mq::window::screen_size();
+        let vp = if app.renderer >= 1 {
+            let near = if app.cam_mode == 1 { 0.05 } else { 0.5 };
+            Mat4::perspective_infinite_reverse_rh(cam.fovy, sw / sh, near) * Mat4::look_at_rh(cam.position, cam.target, cam.up)
+        } else {
+            cam.matrix()
+        };
+        let f3 = |v: &[f64; 3]| format!("[{:.2},{:.2},{:.2}]", v[0], v[1], v[2]);
+        let mode = match (app.sim.cfg.filter_on, app.sim.fs.mode) {
+            (false, _) | (_, Mode::Off) => "off",
+            (_, Mode::Free) => "pilot",
+            (_, Mode::Blend) => "blend",
+            (_, Mode::Commit) => "escape",
+        };
+        // The gate's escape: the one it is flying, else the one it holds as verified, and its verified path
+        // (rollout plus terminal continuation), thinned to points at least 20 m apart (about 2 Hz at 40-50 m/s).
+        #[cfg_attr(not(feature = "jsb"), allow(unused_mut))]
+        let (mut esc, mut verified, mut path): (Option<&str>, bool, Vec<[f64; 3]>) = (None, false, Vec::new());
+        #[cfg(feature = "jsb")]
+        if let Some(g) = &app.sim.env_gate {
+            esc = g.law.or(g.witness).map(|l| cityflight::envfilter::ESCAPES[l.esc].name);
+            verified = g.witness.is_some() || g.law.is_some();
+            let full = if g.law.is_some() { &g.committed_path } else { &g.witness_path };
+            for (i, q) in full.iter().enumerate() {
+                let far = path.last().map_or(true, |p: &[f64; 3]| (q[0] - p[0]).hypot(q[1] - p[1]).hypot(q[2] - p[2]) >= 20.0);
+                if far || i + 1 == full.len() {
+                    path.push(*q);
+                }
+            }
+        }
+        let d = app.drawn_state();
+        writeln!(
+            self.trace,
+            "{{\"frame\":{frame},\"png\":\"frame_{:05}.png\",\"t\":{:.4},\"sim_t\":{:.4},\"clear\":{:.4},\"min_clear\":{:.4},\"crashed\":{},\"mode\":\"{mode}\",\"escape\":{},\"escape_verified\":{verified},\"aircraft\":{},\"camera\":[{:.3},{:.3},{:.3}],\"viewport\":[{},{}],\"view_proj\":[{}],\"escape_path\":[{}]}}",
+            self.saved,
+            frame as f64 / 60.0,
+            app.sim.time(),
+            app.sim.true_clear.min(9999.0),
+            app.sim.min_true_clear.min(9999.0),
+            app.sim.crashed,
+            esc.map_or("null".to_string(), |e| format!("\"{e}\"")),
+            f3(&[d[X], d[Y], d[Z]]),
+            cam.position.x,
+            cam.position.y,
+            cam.position.z,
+            sw as u32 / self.scale,
+            sh as u32 / self.scale,
+            vp.to_cols_array().iter().map(|x| format!("{x:.7e}")).collect::<Vec<_>>().join(","),
+            path.iter().map(f3).collect::<Vec<_>>().join(",")
+        )
+        .unwrap();
     }
 
     fn save(&mut self, w: u32, h: u32, px: Vec<u8>) {
@@ -1635,6 +1691,7 @@ impl Recorder {
     fn finish(&mut self) {
         use std::io::Write;
         self.csv.flush().unwrap();
+        self.trace.flush().unwrap();
         drop(self.tx.take());
         self.writer.take().unwrap().join().expect("--record: frame writer panicked");
         eprintln!("recorded {} frames (every {}, from frame {}, scale 1/{}) to {}", self.saved, self.every, self.from, self.scale, self.dir.display());
@@ -1987,7 +2044,7 @@ async fn main() {
         if let Some(rec) = recorder.as_mut() {
             let keep = frame > rec.from && (frame - 1 - rec.from) % rec.every == 0;
             if keep {
-                rec.log(&app, frame - 1);
+                rec.log(&app, frame - 1, &cam);
                 if metal {
                     unsafe { get_internal_gl() }.quad_context.as_metal().unwrap().request_capture();
                 }
