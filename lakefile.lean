@@ -9,6 +9,7 @@ lean_lib Tools
 lean_lib Jsb
 lean_lib Envelope
 lean_lib GateSafety
+lean_lib CityGate
 lean_lib JsbExact
 lean_lib VcFilter
 lean_lib CityJsb
