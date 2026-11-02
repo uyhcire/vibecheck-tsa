@@ -1,0 +1,11 @@
+name = "exp_safety_filter"
+defaultTargets = ["ExpVibecheck", "ExpEnvelope", "Filters"]
+
+[[lean_lib]]
+name = "ExpVibecheck"
+
+[[lean_lib]]
+name = "ExpEnvelope"
+
+[[lean_lib]]
+name = "Filters"

@@ -57,6 +57,11 @@ name = "drawstep"
 path = "src/bin/drawstep.rs"
 required-features = ["jsb"]
 
+[[bin]]
+name = "proofdump"
+path = "src/bin/proofdump.rs"
+required-features = ["jsb"]
+
 # miniquad 0.4.11 with its Metal backend completed (render-target formats, MSAA resolve,
 # 32-bit indices, capture, raw handles); diff against the crates.io 0.4.11 source.
 [patch.crates-io]

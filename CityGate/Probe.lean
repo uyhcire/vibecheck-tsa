@@ -30,12 +30,10 @@ def rayWork (px py pz psi grad : Float) : Bool × Nat × Nat := Id.run do
     d := d + 0.5 * CELL
   return (false, k, n)
 
-/-- `helixClear`, also returning the raster cells visited. -/
-def helixWork (cx cy r m z : Float) : Bool × Nat := Id.run do
+/-- `helixClearAnn`, also returning the raster cells visited. -/
+def helixWork (cx cy r0 r1 z : Float) : Bool × Nat := Id.run do
   let floor := z - R_BODY - MARGIN
   if floor > top then return (true, 0)
-  let r0 := fmax (r - m - R_BODY) 0.0
-  let r1 := r + m + R_BODY
   if !onMap (cx - r1) (cy - r1) || !onMap (cx + r1) (cy + r1) then return (false, 0)
   let pad := CELL * FRAC_1_SQRT_2
   let lo2 := let d := fmax (r0 - pad) 0.0; d * d
@@ -54,11 +52,12 @@ def helixWork (cx cy r m z : Float) : Bool × Nat := Id.run do
 
 /-- `terminalOK` with its scan's work: the verdict, the kind of scan (0 none, 1 ray, 2 helix), ray steps, and
 lookups or cells. -/
-def terminalWork (dir : Float) (hist : Array Hist) : Bool × Nat × Nat × Nat := Id.run do
+def terminalWork (dir : Float) (kind : Nat) (hist : Array Hist) : Bool × Nat × Nat × Nat := Id.run do
   if hist.size < 2 * HALF + 1 then return (false, 0, 0, 0)
   let n := hist.size
   let a := seg (hist.extract (n - 2 * HALF - 1) (n - HALF))
   let b := seg (hist.extract (n - HALF - 1) n)
+  if fmin a.zMin b.zMin ≥ Z_LEVEL && b.vMean ≥ V_LEVEL then return (true, 0, 0, 0)
   if fmin a.vzMin b.vzMin < VZ_MIN then return (false, 0, 0, 0)
   let e := b.e
   if dir == 0.0 then
@@ -70,6 +69,8 @@ def terminalWork (dir : Float) (hist : Array Hist) : Bool × Nat × Nat × Nat :
   else
     let want := -dir
     if a.omega * want ≤ 0.02 || b.omega * want ≤ 0.02 then return (false, 0, 0, 0)
+    if b.vMean < V_HELIX_MIN[kind]! || (a.vMean - b.vMean).abs > V_SETTLED || a.de < 0.0 || b.de < 0.0 then
+      return (false, 0, 0, 0)
     let circ := fun (s : Seg) =>
       let rr := s.vh / s.omega
       (rr.abs, s.e.x - rr * s.e.psi.sin, s.e.y + rr * s.e.psi.cos)
@@ -77,9 +78,10 @@ def terminalWork (dir : Float) (hist : Array Hist) : Bool × Nat × Nat × Nat :
     let (rb, cbx, cby) := circ b
     let dR := (ra - rb).abs
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
-    if dR > 0.1 * rb || dC > 0.1 * rb then return (false, 0, 0, 0)
+    if dR > R_SETTLED * rb || dC > C_SETTLED * rb then return (false, 0, 0, 0)
     let m := 5.0 + 3.0 * (dR + dC)
-    let (ok, w) := helixWork cbx cby rb m e.z
+    let grow := if e.z < top then rb * (rhoT e.z / rhoT top - 1.0) else 0.0
+    let (ok, w) := helixWork cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + grow + E_AIR) e.z
     return (ok, 2, 0, w)
 
 end CityGate.Esc
@@ -131,7 +133,7 @@ def probeE (g : Plane × (Mem × Ctl)) (elev ail rud thr : Float) : IO FloatArra
       let cc := x.1
       if cc.pf == 0 && cc.lk % SAMPLE == 0 && cc.lk ≥ 768 && cc.lk % TERM_EVERY == 0 && cc.law.turning then
         calls := calls + 1
-        let (okW, kind, steps, work) := terminalWork cc.law.dir (cc.record x.2).hist
+        let (okW, kind, steps, work) := terminalWork cc.law.dir cc.law.kind (cc.record x.2).hist
         if okW != tm then bad := bad + 1
         maxWork := max maxWork work
         if kind == 1 then
