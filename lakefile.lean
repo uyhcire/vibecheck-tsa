@@ -175,3 +175,11 @@ extern_lib jxmath pkg := do
 lean_lib SpecBridgeNative where
   precompileModules := true
   precompileImports := true
+
+lean_exe termhunt where
+  root := `Tools.TermHunt
+  moreLinkObjs := #[jxmath.o]
+
+lean_exe sweepcheck where
+  root := `Tools.SweepCheck
+  moreLinkObjs := #[jxmath.o]

@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase profile profile-lean crashes crashes-lean adversary harness regimes plantcheck termhunt termhunt-lean sweepcheck export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -108,6 +108,15 @@ regimes:
 	$(CITY) $(CARGO_HEADLESS) regimes -- run $(ARGS) && $(CARGO_HEADLESS) regimes -- index
 
 # Plant and Lean-gate spot checks: the JsbExact plant, state import, the Lean gate's street escape, the 4 spec starts.
+# End-test falsifier: escapes that pass the end-of-escape test, flown on; exits 1 on any contact.
+termhunt:
+	$(CITY) $(CARGO_HEADLESS) termhunt -- $(ARGS)
+termhunt-lean:
+	lake build $(LAKE_OPTS) termhunt
+	.lake/build/bin/termhunt $(ARGS)
+sweepcheck:
+	lake build $(LAKE_OPTS) sweepcheck
+	.lake/build/bin/sweepcheck $(ARGS)
 plantcheck:
 	lake build $(LAKE_OPTS) cityplanttest cityimporttest citygatespot specbridgeinit
 	.lake/build/bin/cityplanttest
@@ -127,6 +136,7 @@ pdf:
 help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | test   (N=..., OUT=...)"
+	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck   (ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"
