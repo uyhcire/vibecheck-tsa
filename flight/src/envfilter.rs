@@ -15,7 +15,7 @@
 
 use crate::jsb::*;
 use crate::model::*;
-use crate::world::{World, CELL, MAP_HALF, NC, R_BODY};
+use crate::world::{World, CELL, R_BODY};
 use std::f64::consts::{FRAC_PI_2, PI};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -675,8 +675,8 @@ pub fn top(world: &World) -> f64 {
     world.raw_top
 }
 
-fn on_map(x: f64, y: f64) -> bool {
-    x.abs() < MAP_HALF && y.abs() < MAP_HALF
+fn on_map(world: &World, x: f64, y: f64) -> bool {
+    x > world.x0 && x < world.x1 && y > world.y0 && y < world.y1
 }
 
 /// Fly escape `esc` from `p` for at most `max_frames` frames and check it.
@@ -930,23 +930,24 @@ pub fn helix_check_annulus(world: &World, c: [f64; 2], r0: f64, r1: f64, gk: f64
     let rz = rho_of(z);
     let r1_at = |h: f64| r1 + gk * (rz / rho_of((h + R_BODY + margin).min(top)) - 1.0);
     let r1m = if gk > 0.0 { r1_at(top) } else { r1 };
-    if !on_map(c[0] - r1m, c[1] - r1m) || !on_map(c[0] + r1m, c[1] + r1m) {
+    if !on_map(world, c[0] - r1m, c[1] - r1m) || !on_map(world, c[0] + r1m, c[1] + r1m) {
         return Err(TermFail::HelixOffMap);
     }
     // Cell centres within half a cell diagonal of the annulus.
     let pad = CELL * std::f64::consts::FRAC_1_SQRT_2;
     let (lo2, hi2, hi2m) = ((r0 - pad).max(0.0).powi(2), (r1 + pad).powi(2), (r1m + pad).powi(2));
-    let ci = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
-    let (i0, i1, j0, j1) = (ci(c[0] - r1m - pad), ci(c[0] + r1m + pad), ci(c[1] - r1m - pad), ci(c[1] + r1m + pad));
+    let raw = &world.raw;
+    let (i0, j0) = raw.cell(c[0] - r1m - pad, c[1] - r1m - pad);
+    let (i1, j1) = raw.cell(c[0] + r1m + pad, c[1] + r1m + pad);
     let floor = floor as f32;
     for j in j0..=j1 {
-        let dy = -MAP_HALF + (j as f64 + 0.5) * CELL - c[1];
-        let row = &world.raw[j * NC..(j + 1) * NC];
+        let dy = raw.y0 + (j as f64 + 0.5) * CELL - c[1];
+        let row = &raw.v[j * raw.nx..(j + 1) * raw.nx];
         for i in i0..=i1 {
             if row[i] <= floor {
                 continue;
             }
-            let dx = -MAP_HALF + (i as f64 + 0.5) * CELL - c[0];
+            let dx = raw.x0 + (i as f64 + 0.5) * CELL - c[0];
             let d2 = dx * dx + dy * dy;
             if d2 >= lo2 && (d2 <= hi2 || (d2 <= hi2m && d2 <= (r1_at(row[i] as f64) + pad).powi(2))) {
                 return Err(TermFail::HelixBlocked { x: c[0] + dx, y: c[1] + dy, h: row[i] as f64 });
@@ -1083,7 +1084,7 @@ pub fn predict_fitted(world: &World, s: &State, margin: f64) -> (Vec<[f64; 3]>, 
         .map(|&[a, r, dz]| [s[X] + a * c + r * sn, s[Y] + a * sn - r * c, s[Z] + if dz < 0.0 { dz * (1.0 + margin) } else { dz }])
         .collect();
     let last = *path.last().unwrap();
-    let ok = path.iter().all(|q| !on_map(q[0], q[1]) || world.true_clearance(*q) > MARGIN)
+    let ok = path.iter().all(|q| !on_map(world, q[0], q[1]) || world.true_clearance(*q) > MARGIN)
         && ray_clear(world, last, s[PSI] + fin[1], 0.8 * fin[2] / fin[0].max(1.0), top(world)).is_some();
     (path, ok)
 }

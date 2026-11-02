@@ -19,14 +19,18 @@ Everything is a one-word `make` target; `make help` lists them.
 
 | Target | What it does |
 |---|---|
-| `make fly` / `fly-lean` / `fly-off` | The city flight demo with the exact-rollout gate (Rust), its Lean implementation, or no filter |
+| `make fly` / `fly-rust` / `fly-off` | The city flight demo with the Lean exact-rollout gate (the default; `fly-lean` is the same), its Rust implementation, or no filter |
+| `make fly-san-francisco` | The San Francisco map with the Rust exact-rollout gate (the Lean gate covers only the default city) |
 | `make showcase` | Tower gap with the scripted showcase pilot and the cinematic camera |
 | `make record` | Record the demo frame by frame into `OUT` (PNGs plus a per-frame clearance and camera log), deterministic; see `flight/README.md` |
 | `make proofdump` | Replay a run headless and log the gate's verified paths, failed rollouts and end sets per tick (`RUN=showcase` or `ep<N>`), for drawing over recordings |
 | `make crashes` / `crashes-lean` | Headless crash test (N hostile episodes plus the kamikaze scenarios) |
 | `make adversary`, `make harness`, `make regimes` | Gap-guided adversary; point-mass acceptance harness; boundary-regime slices |
+| `make dome` | The circle-safe dome: the altitude at which the gate's circle test passes at each centre, for r = 143 m and 250 m, as grids, heat-map PNGs and stats in `OUT`; see `docs/dome.md` |
 | `make plantcheck` | Plant, state-import and Lean-gate spot checks, plus the 4 spec starts |
 | `make termcheck` | The `TermSoundR` skeleton's certified sets (`Geo`, `Conf`) at the 4 spec starts' settled states (a run, not a proof) |
+| `make termhunt` / `termhunt-lean` | End-test falsifier for the Rust / Lean gate: escapes that pass the end-of-escape test, flown on; exits 1 on any contact (`witnesses/termsound-lean.txt`, `flight/witnesses/termsound-rust.txt`) |
+| `make sweepcheck` | `AirframeNear` margins and escape outputs on extreme manoeuvres (`ARGS=steady`: each escape's settled climb) |
 | `make verify` / `make proofs` | Build the Lean proofs and audit their axioms / the Mathlib proofs |
 | `make gate`, `gate-example`, `gate-check`, `export` | libgate for JSBSim hosts; the city as plain files for other simulators |
 | `make pdf` | The informal TermSound proof (`docs/termsound-proof.pdf`) |

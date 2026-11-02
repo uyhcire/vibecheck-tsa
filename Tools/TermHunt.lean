@@ -1,7 +1,6 @@
 import CityGate.SpecBridge
 
-/-! `termhunt hunt SEED N [SECS] | trace SEED I [SECS] | witnesses FILE [SECS]`: counterexamples to the restricted
-`TermSound` of `cityGate` (rollouts that pass the end test, then make contact when continued). -/
+/-! `termhunt`: search for end-test passes of `cityGate` followed by contact (`TermSoundR`); exits 1 if any. -/
 
 open CityGate CityGate.Esc GateSafety
 
@@ -173,7 +172,7 @@ def runCase (c : Case) (maxF : Nat) : Option Res :=
 
 def fmtP (p : Float × Float × Float) : String := s!"[{p.1}, {p.2.1}, {p.2.2}]"
 
-def hunt (seed : Nat) (n : Nat) (maxF : Nat) (esc kind : Option Nat := none) : IO Unit := do
+def hunt (seed : Nat) (n : Nat) (maxF : Nat) (esc kind : Option Nat := none) : IO Nat := do
   let mut r : Rng := ⟨(seed.toUInt64 + 1) * 0x9E3779B97F4A7C15⟩
   let mut passed := 0
   let mut best := 1.0e9
@@ -201,6 +200,53 @@ def hunt (seed : Nat) (n : Nat) (maxF : Nat) (esc kind : Option Nat := none) : I
     if (i + 1) % 50 == 0 then
       IO.eprintln s!"seed {seed}: {i + 1} cases, {passed} passed, best {best}, {(← IO.monoMsNow) - t0} ms"
   IO.println s!"seed {seed}: {n} cases, {passed} rollouts passed the end test ({eOK} also pass an energy-rate check), {hits} hit ({hitsEOK} of them pass it), closest continuation {best}"
+  return hits
+
+/-- A made-up controller (a settled 2 m helix history) that passes `term` beside a tower 17 m ahead. -/
+def unres : IO Unit := do
+  for b in tall do
+    for face in [0:4] do
+      let (cx, cy) := ((b.xmin + b.xmax) / 2.0, (b.ymin + b.ymax) / 2.0)
+      let (x, y, psiE) :=
+        if face == 0 then (b.xmin - 17.0, cy, 0.0) else if face == 1 then (b.xmax + 17.0, cy, PI)
+        else if face == 2 then (cx, b.ymin - 17.0, FRAC_PI_2) else (cx, b.ymax + 17.0, -FRAC_PI_2)
+      let mut hi := 0.0
+      for i in [0:13] do
+        for j in [0:13] do
+          hi := fmax hi (surface (x - 15.0 + 2.5 * i.toFloat) (y - 15.0 + 2.5 * j.toFloat))
+      let z := fmax (hi + 10.0) (Esc.terrainAt x y + 30.0)
+      if z > b.zmax - 30.0 then continue
+      let p := startPlane x y z 40.0 0.04 psiE 0.0 1.0 1.0
+      let o := p.ob
+      let psi0 := Float.atan2 (obN o) (obE o)
+      let vh := (obN o * obN o + obE o * obE o).sqrt
+      if -(obD o) < 1.0 then continue
+      let (px, py, _) := p.pos
+      let lk := 768
+      let omega := -20.0
+      let rr := vh / omega
+      let cbx := px - rr * psi0.sin
+      let cby := py + rr * psi0.cos
+      let psiAt := fun (i : Nat) => psi0 + omega * ((i.toFloat - 64.0) * 8.0 * DT_JSB)
+      let hist : Array Hist := (List.range 64).toArray.map fun i =>
+        let ps := psiAt i
+        { t := (lk.toFloat - 8.0 * (64.0 - i.toFloat)) * DT_JSB, x := cbx + rr * ps.sin, y := cby - rr * ps.cos,
+          z := z - 0.1 * (64.0 - i.toFloat), psi := ps, vh, vz := 2.0, v := vh }
+      let law := { Law.new 2 with t := 6.0, psiRef := psi0 }
+      let c : Ctl := { pilot := ⟨0, 0, 0, 0⟩, pf := 0, law, lk, hist, psiPrev := psi0, extra := 0.0, cap := HORIZON_FRAMES }
+      if !cityGate.term (c, p) then continue
+      let mut x := (c, p)
+      for k in [0:400] do
+        let m := cubeMargin x.2
+        if m ≤ 0.0 then
+          IO.println s!"term (c, p) = true; contact after {k} frames at {fmtP x.2.pos}, cube margin {m}"
+          IO.println s!"tower x [{b.xmin}, {b.xmax}] y [{b.ymin}, {b.ymax}] z [{b.zmin}, {b.zmax}]; start {fmtP p.pos}, heading {psiE}"
+          let mut y := x
+          for _ in [0:40] do y := cityGate.fly y
+          IO.println s!"40 frames later: {fmtP y.2.pos}, cube margin {cubeMargin y.2}"
+          return
+        x := cityGate.fly x
+  IO.println "no unrestricted witness found"
 
 def traceCase (c : Case) (secs : Nat) : IO Unit := do
   let ctl := Ctl.fresh c.uc CHECK_EVERY (Law.new c.esc) 0.0 HORIZON_FRAMES
@@ -219,6 +265,119 @@ def traceCase (c : Case) (secs : Nat) : IO Unit := do
         IO.println s!"t {f / 128} pos {fmtP x.2.pos} vt {o[6]!} vz {-(obD o)} phi {o[7]!} theta {o[8]!} alpha {o[13]!} rpm {o[18]!} ia {x.1.law.ia} ib {x.1.law.ib} iphi {x.1.law.iphi} elev {(x.1.law.step x.2).1.elev} margin {cubeMargin x.2}"
       x := cityGate.fly x
 
+def apSurf (o : FloatArray) (thetaC phiC thr : Float) : Surf :=
+  ⟨clamp (-2.0 * (thetaC - o[8]!) + 0.6 * o[11]!) (-1.0) 1.0, clamp (2.0 * (phiC - o[7]!) - 0.4 * o[10]!) (-1.0) 1.0,
+   clamp (1.5 * o[14]!) (-1.0) 1.0, thr⟩
+
+/-- Closed loop through `cityGate.frame` from spec start `si`: fly at `(tx, ty)` descending to `ha`, then hold `uf`. -/
+def closed (si : Nat) (tx ty ha dB : Float) (uf : Option Surf) (secs : Nat) : IO Unit := do
+  let some c := CitySafety.startConds[si]? | return
+  let pl := SpecBridge.firstPlane c.state
+  let mut g : Plane × (Mem × Ctl) := (pl, (cityGate.m₀, cityGate.start pl))
+  IO.println s!"start {si}: init check {cityGate.rolloutOK cityGate.horizon (g.2.2, g.1)}"
+  let mut best := 1.0e9
+  let mut final := false
+  let mut commits := 0
+  for f in [0:128 * secs] do
+    let o := g.1.ob
+    let (x, y, z) := g.1.pos
+    if !final && ((tx - x) * (tx - x) + (ty - y) * (ty - y)).sqrt < dB then
+      final := true
+      IO.println s!"t {f.toFloat / 128.0}: final phase at {fmtP g.1.pos}, vt {o[6]!}"
+    let brg := Float.atan2 (tx - x) (ty - y)
+    let track := Float.atan2 (obE o) (obN o)
+    let u := match final, uf with
+      | true, some w => w
+      | _, _ => apSurf o (clamp (0.01 * (ha - z)) (-0.3) 0.12) (clamp (wrap (brg - track)) (-0.5) 0.5) (if z > ha + 20.0 then 0.0 else 0.6)
+    let wasC := g.2.1.committed
+    g := cityGate.frame g u
+    if g.2.1.committed && !wasC then commits := commits + 1
+    if f % 4 == 0 then
+      let m := cubeMargin g.1
+      best := fmin best m
+      if f % 1280 == 0 then
+        IO.println s!"t {f.toFloat / 128.0} pos {fmtP g.1.pos} vt {g.1.ob[6]!} vz {-(obD g.1.ob)} committed {g.2.1.committed} esc {g.2.2.law.esc} margin {m}"
+        (← IO.getStdout).flush
+      if m ≤ 0.0 then
+        IO.println s!"CONTACT t {f.toFloat / 128.0} pos {fmtP g.1.pos} margin {m}; {if g.2.1.committed then "gate escape" else "pilot"} in control (escape {g.2.2.law.esc}, law t {g.2.2.law.t}); commits {commits}"
+        return
+  IO.println s!"no contact in {secs} s; closest cube margin {best}; commits {commits}"
+
+/-- Closed loop from a spec start: fly to a random city point and height, then random raw-surface holds (slow flight,
+stalls, rolls) for `secs` s. -/
+def closedRand (seed : Nat) (secs : Nat) (edge : Bool := false) : IO Unit := do
+  let mut r : Rng := ⟨(seed.toUInt64 + 7) * 0x9E3779B97F4A7C15⟩
+  let (si, r1) := r.unif 0.0 4.0; r := r1
+  let (bi, r1) := r.unif 0.0 tall.size.toFloat; r := r1
+  let b := tall[bi.toUInt64.toNat]!
+  let (a, r1) := r.unif (-PI) PI; r := r1
+  let (d, r1) := r.unif 60.0 400.0; r := r1
+  let (m, r1) := r.unif 2450.0 2950.0; r := r1
+  let (along, r1) := r.unif (-2500.0) 2500.0; r := r1
+  let (agl, r1) := r.unif 40.0 250.0; r := r1
+  let side := (a + PI) * 2.0 / PI
+  let (ex, ey) := if side < 1.0 then (m, along) else if side < 2.0 then (-m, along) else if side < 3.0 then (along, m) else (along, -m)
+  let tx := if edge then ex else (b.xmin + b.xmax) / 2.0 + d * a.cos
+  let ty := if edge then ey else (b.ymin + b.ymax) / 2.0 + d * a.sin
+  let (hf, r1) := r.unif 0.6 1.2; r := r1
+  let ha := if edge then Esc.terrainAt ex ey + agl else fmax (b.zmax * hf) 150.0
+  let mut segs : Array (Nat × Surf) := #[]
+  for _ in [0:20] do
+    let (dur, r1) := r.unif 0.2 4.0; r := r1
+    let (kind, r1) := r.unif 0.0 4.0; r := r1
+    let (q1, r1) := r.unif (-1.0) 1.0; r := r1
+    let (q2, r1) := r.unif (-1.0) 1.0; r := r1
+    let (q3, r1) := r.unif 0.0 1.0; r := r1
+    let u : Surf := if kind < 1.0 then ⟨-1.0, q1 * 0.3, 0.0, 0.0⟩ else if kind < 2.0 then ⟨q1, (if q2 < 0.0 then -1.0 else 1.0), q2, q3⟩
+      else if kind < 3.0 then ⟨-0.3 + 0.2 * q1, 0.0, 0.0, 0.0⟩ else ⟨q1, q2, (q3 - 0.5) * 2.0, q3⟩
+    segs := segs.push ((dur * 128.0).toUInt64.toNat, u)
+  let some c := CitySafety.startConds[si.toUInt64.toNat]? | return
+  let pl := SpecBridge.firstPlane c.state
+  let mut g : Plane × (Mem × Ctl) := (pl, (cityGate.m₀, cityGate.start pl))
+  let mut fArrive : Option Nat := none
+  let mut best := 1.0e9
+  let mut commits := 0
+  IO.println s!"seed {seed}: start {si.toUInt64}, target ({tx}, {ty}) at {ha} m beside tower top {b.zmax}"
+  (← IO.getStdout).flush
+  for f in [0:128 * (secs + 240)] do
+    let o := g.1.ob
+    let (x, y, z) := g.1.pos
+    if fArrive.isNone && ((tx - x) * (tx - x) + (ty - y) * (ty - y)).sqrt < 150.0 && (z - ha).abs < 40.0 then
+      fArrive := some f
+      IO.println s!"arrived t {f.toFloat / 128.0} at {fmtP g.1.pos} vt {o[6]!}"
+      (← IO.getStdout).flush
+    let u := match fArrive with
+      | none =>
+        let brg := Float.atan2 (tx - x) (ty - y)
+        let track := Float.atan2 (obE o) (obN o)
+        let dist := ((tx - x) * (tx - x) + (ty - y) * (ty - y)).sqrt
+        let phiC := if dist < 150.0 then 0.5 else clamp (wrap (brg - track)) (-0.5) 0.5
+        apSurf o (clamp (0.01 * (ha - z)) (-0.3) 0.12) phiC (if z > ha + 20.0 then 0.0 else 0.5)
+      | some f0 => Id.run do
+        let mut acc := f0
+        let mut w : Surf := ⟨-1.0, 0.0, 0.0, 0.0⟩
+        for (n, s) in segs do
+          if f < acc + n then
+            w := s
+            break
+          acc := acc + n
+        return w
+    if let some f0 := fArrive then
+      if f > f0 + 128 * secs then break
+    let wasC := g.2.1.committed
+    g := cityGate.frame g u
+    if g.2.1.committed && !wasC then commits := commits + 1
+    if f % 4 == 0 then
+      let m := cubeMargin g.1
+      best := fmin best m
+      if m ≤ 0.0 then
+        IO.println s!"CONTACT t {f.toFloat / 128.0} pos {fmtP g.1.pos} margin {m}; {if g.2.1.committed then "gate escape" else "pilot"} in control (escape {g.2.2.law.esc}, law t {g.2.2.law.t}); commits {commits}"
+        (← IO.getStdout).flush
+        return
+  IO.println s!"seed {seed}: no contact; arrived {fArrive.isSome}; closest cube margin {best}; commits {commits}"
+  (← IO.getStdout).flush
+
+/-- Exit status 1 if any end-test pass was followed by contact. -/
 def caseAt (seed i : Nat) : Case := Id.run do
   let mut r : Rng := ⟨(seed.toUInt64 + 1) * 0x9E3779B97F4A7C15⟩
   let mut c : Case := (sample r).1
@@ -274,18 +433,48 @@ def specStarts : IO Unit := do
         x := cityGate.fly x
       IO.println s!"  escape {e}: {out}; at the end v {x.2.ob[6]!}, law t {x.1.law.t}"
 
-def main (args : List String) : IO Unit := do
+def huntExit (h : Nat) : IO UInt32 := do
+  if h > 0 then IO.eprintln s!"termhunt: {h} end-test passes followed by contact"
+  return if h > 0 then 1 else 0
+
+def main (args : List String) : IO UInt32 := do
   match args with
-  | ["witnesses", path] => witnesses path (128 * 400)
-  | ["witnesses", path, secs] => witnesses path (128 * secs.toNat!)
-  | ["pass", seed, n] => passCount seed.toNat! n.toNat!
-  | ["starts"] => specStarts
-  | ["hunt", seed, n] => hunt seed.toNat! n.toNat! (128 * 400)
-  | ["hunt", seed, n, secs] => hunt seed.toNat! n.toNat! (128 * secs.toNat!)
+  | [] => huntExit (← hunt 12 3000 (128 * 400))
+  | ["unres"] => unres; return 0
+  | ["witnesses", path] => witnesses path (128 * 400); return 0
+  | ["witnesses", path, secs] => witnesses path (128 * secs.toNat!); return 0
+  | ["pass", seed, n] => passCount seed.toNat! n.toNat!; return 0
+  | ["starts"] => specStarts; return 0
+  | ["hunt", seed, n] => huntExit (← hunt seed.toNat! n.toNat! (128 * 400))
+  | ["hunt", seed, n, secs] => huntExit (← hunt seed.toNat! n.toNat! (128 * secs.toNat!))
   | ["hunt", seed, n, secs, esc, kind] =>
-    hunt seed.toNat! n.toNat! (128 * secs.toNat!) esc.toNat? kind.toNat?
+    huntExit (← hunt seed.toNat! n.toNat! (128 * secs.toNat!) esc.toNat? kind.toNat?)
   | ["trace", seed, i] | ["trace", seed, i, _] =>
-    let c := caseAt seed.toNat! i.toNat!
+    let mut r : Rng := ⟨(seed.toNat!.toUInt64 + 1) * 0x9E3779B97F4A7C15⟩
+    let mut c : Case := (sample r).1
+    for _ in [0:i.toNat! + 1] do
+      let (c1, r1) := sample r
+      c := c1
+      r := r1
     IO.println c.show
     traceCase c ((args[3]? >>= String.toNat?).getD 200)
-  | _ => IO.println "usage: termhunt hunt SEED N [SECS] | trace SEED I [SECS] | witnesses FILE [SECS] | pass SEED N | starts"
+    return 0
+  | ["closed", si, tx, ty, ha, dB, fin, secs] =>
+    let pf := fun (s : String) => (s.toInt?.map Float.ofInt).getD 0.0
+    let uf : Option Surf := match fin with
+      | "dive" => some ⟨1.0, 0.0, 0.0, 0.0⟩
+      | "spiral" => some ⟨0.3, 1.0, 0.0, 0.0⟩
+      | "stall" => some ⟨-1.0, 0.0, 0.0, 0.0⟩
+      | "stallturn" => some ⟨-1.0, 1.0, 1.0, 0.0⟩
+      | _ => none
+    closed si.toNat! (pf tx) (pf ty) (pf ha) (pf dB) uf secs.toNat!
+    return 0
+  | ["closedrand", seed0, n, secs] => do
+    for k in [0:n.toNat!] do closedRand (seed0.toNat! + k) secs.toNat!
+    return 0
+  | ["closedrand", seed0, n, secs, "edge"] => do
+    for k in [0:n.toNat!] do closedRand (seed0.toNat! + k) secs.toNat! true
+    return 0
+  | _ =>
+    IO.println "usage: termhunt [hunt SEED N [SECS [ESC KIND]] | trace SEED I [SECS] | unres | closed ... | closedrand SEED N SECS [edge]]"
+    return 2

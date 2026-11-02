@@ -1,9 +1,11 @@
 # Backup-CBF City Flight
 
-Fly a light aircraft through a procedural city with the keyboard. A backup
-control barrier function (bCBF) safety filter stays silent far from obstacles,
-takes over near buildings and terrain, then hands control back. Space toggles
-the filter, so you can fly the same crash attempt with and without it.
+Fly a light aircraft through a city with the keyboard: a procedural grid city
+or San Francisco from downtown to Ocean Beach and the Golden Gate, built from
+real data. A backup control barrier
+function (bCBF) safety filter stays silent far from obstacles, takes over near
+buildings and terrain, then hands control back. Space toggles the filter, so
+you can fly the same crash attempt with and without it.
 
 Native Rust: the simulation, filter and harness are a GUI-free library; the
 demo renders with macroquad, with terrain and buildings held in static GPU
@@ -13,18 +15,67 @@ buffers through raw miniquad (about 120 fps at 2880×1800 with 4× MSAA on an M3
 
 ```sh
 cd flight
-cargo run --release                                   # the demo
+cargo run --release                                   # the demo (grid city)
+cargo run --release -- --map sf                       # the demo in San Francisco
 cargo run --release --no-default-features --bin harness              # acceptance harness (200 episodes)
+cargo run --release --no-default-features --bin harness -- --map sf  # the same in San Francisco
 cargo run --release --no-default-features --bin harness -- --extended  # + Phase 2 / Phase 3 rows
 cargo run --release --no-default-features --bin harness -- --coverage  # street coverage only
 ```
 
-Harness flags: `[episodes] [--threads N] [--quick] [--extended] [--coverage]`. `--quick`
+Harness flags: `[episodes] [--map grid|sf] [--threads N] [--quick] [--extended] [--coverage] [--only NAME]`. `--quick`
 shortens the kamikaze endurance runs from 300 s to 60 s. The harness exits
 non-zero if any acceptance check fails.
 
-Demo flags (handy for screenshots): `--scenario 1..5`, `--off`, `--kamikaze`, `--showcase`,
-`--paths`, `--cam 0..4`, `--shot out.png --frames N`.
+Demo flags (handy for screenshots): `--map grid|sf`, `--scenario 1..5` (1..4 in San Francisco),
+`--at x,y,agl,heading` (start anywhere, map metres and degrees), `--off`, `--kamikaze`, `--showcase`,
+`--paths`, `--cam 0..4`, `--fire` (hold the guns' trigger), `--shot out.png --frames N`.
+
+## Maps
+
+- **Grid city** (default): procedural, 2,145 boxes on a street grid, with a
+  ridge and a mountain rim.
+- **San Francisco** (`--map sf`, or Tab in flight): a 12.6 × 9.4 km
+  rectangle from Ocean Beach and Lands End to Yerba Buena Island, and from
+  Noe Valley and Twin Peaks to the Golden Gate: downtown, the Richmond, the
+  Sunset north of Taraval, Golden Gate Park, the Presidio and the Golden Gate
+  Bridge. About 132,000 building pieces come from DataSF footprints and their
+  LiDAR peak heights, plus OpenStreetMap for everything built after the 2010
+  LiDAR (Salesforce Tower is 326 m; Sutro Tower stands 298 m on its 254 m
+  hill). Terrain is USGS 3DEP, and the Bay Bridge West Span and the elevated
+  freeways are included. Buildings are convex prisms
+  checked exactly, like the grid city's boxes. All of it is in
+  `data/sf/sf_world.bin`, compiled into the binary, so nothing downloads at
+  run time. `data/sf/README.md` covers the sources, the frame, and how every
+  step only ever enlarges obstacles.
+  - **Aerial photo:** with `data/sf/sf_naip.jpg` (USDA NAIP, public
+    domain, 1 m per pixel), the ground shows the real city, scaled from photo
+    brightness to albedo because the renderer lights it again. Without it, streets are
+    painted from OpenStreetMap.
+  - **Bay Area backdrop:** with `data/sf/backdrop.jpg`, the 80 km around the
+    map is drawn with real terrain and imagery (Mt Tam, the Marin Headlands,
+    the East Bay hills). It's visual only; you fly inside the rectangle.
+  - **Offline:** both load from disk at start, so the demo needs no network.
+    `data/sf/README.md` explains how to re-download them.
+  - **Bay Bridge and freeways:** drawn as the bridge (towers, deck, cables)
+    and as decks on pillars. Their collision curtains are conservative (no
+    flying under them) and not drawn.
+  - **Golden Gate Bridge:** inside the map, and you can fly under it.
+    `src/golden_gate.rs` describes it once; the renderer draws it from that
+    and `world.rs` builds its obstacles from the same numbers, so everything
+    drawn lies inside an obstacle. The towers are OpenStreetMap's tower parts
+    (both towers agree to 5 cm); the deck, stiffening truss, main cables,
+    suspenders, anchorage pylons, the Fort Point arch and the San Francisco
+    approach follow the published dimensions (1,280 m main span, 343 m side
+    spans, 227 m towers, 67 m clearance). Obstacles: the towers and piers,
+    the deck in 10 m slices up to its railings, a thin wall in each cable
+    plane from the roadway up past the main cable (cable plus suspenders),
+    and the pylons, the arch (filled to the ground) and the approach piers.
+    The space under the deck between the towers is open.
+  - **Renderers:** the photoreal renderer draws San Francisco with the grid
+    city's materials (`src/sfscene.rs`): a facade per footprint edge, light
+    stone and stucco below the towers, pastel rowhouses. The classic renderer
+    draws plain footprints on the OpenStreetMap-painted ground.
 
 Recording: `--record DIR` writes rendered frames as `DIR/frame_NNNNN.png` and exits after `--frames N`
 (default 1800). Like `--shot`, it steps a fixed 1/60 s of simulated time per rendered frame and runs animations
@@ -253,27 +304,55 @@ require, not budget starvation.
 | A/D or ←/→ | roll. Release to hold flight path and bank (fly-by-wire) |
 | Q / E | throttle down / up |
 | Space | safety filter on/off |
+| Shift (hold) | guns: tracers, muzzle flashes, sparks and dust where rounds hit (cosmetic, see below) |
 | F | filter: P1 blend+commit → P2 closed-form → permissive |
-| G | Phase 3 robust margins on/off (works with any filter) |
+| G | Phase 3 robust margins for model error, on/off (works with any filter) |
 | B | escape paths (green valid, red invalid, yellow = committed plan) |
-| M | model mismatch: wind + gusts, weaker and slower aircraft |
+| M | model mismatch: wind + gusts (the filter knows the envelope), and a weaker, slower aircraft |
 | 7 | wingtip strobes on/off (off by default; `--strobes` to start with them on) |
 | C | camera: chase, cockpit, orbit, overhead, fly-by |
-| 1–5 | scenarios: tower run, dive, ridge, slow and low, tower gap |
-| Y | tower gap with the scripted showcase pilot |
+| 1–5 | scenarios: tower run (Salesforce run in SF), dive, ridge (Nob Hill in SF), slow and low, tower gap (grid only) |
+| Y | tower gap with the scripted showcase pilot (grid only) |
 | K | kamikaze autopilot |
 | T | run the 200-episode harness in the background |
+| Tab | switch map: grid city ↔ San Francisco |
 | R / H | reset / help |
+
+**HOTAS** (Thrustmaster T.Flight HOTAS One, base switch on **PC** before plugging in; setup notes in
+[`hardware/hotas-one/`](../hardware/hotas-one/)): read straight over HID by `src/hotas.rs`, a port of John's
+`sidecar/hotas_hid.py`. It takes over once any control moves (the bottom bar then shows `HOTAS`).
+The stick sets pitch and roll (10% dead zone; `I` inverts pitch), a held key still wins for that frame;
+the lever sets the throttle whenever it moves, so `Q`/`E` and a reset's throttle hold until then.
+The trigger (USB button 1) fires the guns while held, like Shift.
+The stick button labelled 2 (USB button 4) toggles the filter, USB button 3 the kamikaze autopilot, as in
+John's sidecar. To see raw values: `cargo test --release --bin cityflight hotas::tests::live -- --ignored --nocapture`
+and move the controls.
 
 The trail is coloured by what the filter was doing: blue = pilot in control,
 orange = blending, red = committed escape, white = filter off.
 
+**Guns** (`src/gun.rs`; Shift, the HOTAS trigger, or `--fire`): two wing guns at 800 rounds a minute each,
+870 m/s on top of the aircraft's velocity along the nose, toed in to cross 350 m ahead. Every third round
+is a tracer; rounds fall under gravity and burn out after 2.4 s. Where one meets a building (the exact
+segment distance `world.rs` checks the aircraft with) or the true terrain, it leaves a flash, sparks and a puff of dust
+(spray on San Francisco's water). It is all drawn, nothing more: the guns step once per frame from the
+aircraft as drawn, outside `Sim::tick`, so the flight, the filter and the harness are unchanged.
+
+**Crash explosion** (`Guns::explode`): where the aircraft crashes, a flash, a fireball, burning debris and
+a smoke column that rises for several seconds; the aircraft is gone once the fireball takes it. Drawn
+only, like the guns.
+
 ## How it works
 
 **Clearance checks** (`world.rs`). **Buildings are checked exactly:** each
-predicted path segment's distance to every nearby box (exact segment-to-box
-distance, found through a bucket grid) must exceed the aircraft's 4.5 m
-radius plus 1 m. New plans need another 0.5 m plus 0.5 m of overall slack, so
+predicted path segment's distance to every nearby building must exceed the
+aircraft's 4.5 m radius plus 1 m. Buildings are found through a bucket grid.
+Boxes use exact segment-to-box distance. San Francisco's convex prisms use
+exact segment-to-prism distance (`seg_prism_dist2`): along the segment, the
+squared distance is a quadratic in each interval between the parameters where
+the ground track crosses an edge line or an edge-end perpendicular, or the
+height crosses the floor or roof. Unit tests check it against dense sampling
+and against the box distance. New plans need another 0.5 m plus 0.5 m of overall slack, so
 a verified plan can pass about 2 m from a wall. **Terrain** (piecewise-linear
 over a 20 m grid, the same triangles the renderer draws) uses a 2.5 m
 max-height map dilated sideways by 7.5 m and raised by 6.5 m. Each path
@@ -287,19 +366,20 @@ own), and first-order lags on load factor, roll rate and throttle. The numbers
 are light-sport: stall 25 m/s, cruise 50 m/s. Physics runs at 100 Hz with RK4
 and the filter at 50 Hz. The predictor uses the same equations.
 
-**Escapes** (`escape.rs`). Ten Auto-GCAS-style maneuvers, all at full power:
-a pull-up of 0, 3, 6, 10 or 15 s (up and out of a street canyon), then a
-climbing turn left or right at up to 45° bank. During the pull-up the escape
-steers onto the nearest street direction if the nose is within 25° of it.
-That direction is fixed by the heading when the escape begins, so the
-predictor and the aircraft fly the same path. Each escape gets 40 s after its
-pull-up to reach the terminal helix. The climb angle comes from a speed-hold through pitch, so
-a slow aircraft trades less energy. Bank is limited so load factor stays under
-85% of the stall limit. Each escape is valid only once it reaches a *steady
-climbing helix after 360° of turn* whose ground circle is clear at the current
-height. From then on it only gains height over the same ground.
-`h_i(x)` is the worst clearance along escape `i` (−∞ if it never reaches the
-helix in time); `h(x) = max_i h_i(x)`.
+**Escapes** (`escape.rs`). Ten Auto-GCAS-style maneuvers, all at full power,
+with the climb angle from a speed-hold through pitch (a slow aircraft trades
+less energy) and bank limited to keep the load factor under 85% of the stall
+limit. When an escape begins it fixes a path over the ground: a straight climb
+line for 0, 3, 6, 10 or 15 s along the nearest street direction (if the track
+is within 25° of it), then an orbit left or right around a fixed point. It
+follows that path with a crab angle into the measured wind, so a gust causes
+a small, bounded wobble instead of a drift that grows with time. An escape
+ends once the predicted flight has stayed settled on its orbit for 3 s
+(radius, course, bank, roll rate, speed and climb all steady), climbing faster
+than the worst downdraft, with the whole circle clear at the current height. From then on
+it stays near the same ground circle at ever greater height, so it is safe
+forever. `h_i(x)` is the worst clearance along escape `i` (−∞ if it doesn't
+settle within 40 s of its pull-up); `h(x) = max_i h_i(x)`.
 
 **Phase 1 filter** (`filter.rs`, default). Each tick it asks how long the
 pilot could keep the current command and still escape. If the answer is at
@@ -323,9 +403,21 @@ and committed fallback still run underneath as a safety net.
 "pilot for one tick, then the best escape" verifies, and otherwise flies the
 committed escape. It's the most permissive option, but it intervenes abruptly.
 
-**Phase 3 robustness**. The predictor uses the worst-case (mismatch)
-aircraft and an estimated mean wind. The required clearance grows along the
-prediction: 1 m/s laterally (via wider maps) and 0.25 m/s vertically.
+**Wind.** With full state knowledge the wind is measured (ground velocity
+minus air velocity). The filter predicts with the steady wind and is given a
+gust envelope: at most 2.5 m/s per horizontal axis and 0.5 m/s vertically,
+which the simulator's gusts respect. Margins follow from it:
+- Laterally: gust × 1.5 s of path-following error, plus gust × the time the
+  pilot's (uncorrected) command is held. New plans pay the tracking term
+  twice, so a re-check after a gust still passes.
+- Vertically: the predicted path is checked lowered by the worst downdraft so
+  far.
+
+In calm air all of these margins are zero.
+
+**Phase 3 robustness (model error)**. The predictor assumes the worst-case
+weaker aircraft, and the required clearance grows along the prediction:
+1 m/s laterally and 0.25 m/s vertically.
 
 The filter only ever changes the commands sent to the aircraft. Collisions are
 always checked against the true geometry (an aircraft sphere of radius 4.5 m
@@ -333,24 +425,55 @@ against boxes and terrain), never against the inflated map.
 
 ## Results (`harness 200 --extended`, M3 Max)
 
-| Config | Crashes / 200 | Invariant violations | Min true clearance | Filter active | Commit | ms / tick |
+| Config | Crashes | Invariant violations | Min true clearance | Filter active | Commit | ms / tick |
 |---|---|---|---|---|---|---|
-| **P1 filter ON** | **0** | **0** | 2.0 m | 64% | 0.3% | 1.72 |
-| filter OFF | 199 | – | crash | – | – | – |
-| P1 + mismatch | 106 | 151 eps | crash | 64% | 5.0% | 1.68 |
-| OFF + mismatch | 200 | – | crash | – | – | – |
-| P2 closed-form | 0 | 0 | 2.8 m | 51% | 0.1% | 1.85 |
-| Permissive | 0 | 0 | 2.0 m | 32% | 32% | 0.63 |
-| P1+P3 robust + mismatch | 10 | 73 eps | crash | 68% | 5.1% | 2.23 |
-| P2+P3 robust + mismatch | 1 | 51 eps | crash | 54% | 3.4% | 2.15 |
+| **P1 filter ON (calm)** | **0 / 200** | **0** | 2.0 m | 64% | 0.6% | 2.2 |
+| filter OFF | 199 / 200 | – | crash | – | – | – |
+| **P1 + gusty wind** | **0 / 199** | **0** | 10.9 m | 68% | 2.5% | 2.2 |
+| OFF + gusty wind | 199 / 200 | – | crash | – | – | – |
+| P1 + model error | 1 / 200 | 7 eps | crash | 66% | 1.2% | 2.1 |
+| P2 closed-form | 0 / 200 | 0 | 2.0 m | 51% | 0.1% | 2.4 |
+| Permissive | 0 / 200 | 0 | 2.0 m | 32% | 32% | 0.8 |
+| P1+P3 + model error | 0 / 198 | 0 | 2.6 m | 69% | 0.9% | 2.5 |
+| P1 + wind + model error | 1 / 199 | 1 ep | crash | 69% | 3.4% | 2.3 |
+| P1+P3 + wind + model error | 0 / 195 | 0 | 12.4 m | 72% | 1.8% | 2.4 |
+
+Every configuration uses the same 200 random starts. With the filter on, a
+start counts only if it has a verified escape under that configuration (no
+filter can rescue an aircraft that starts outside its safe set). That
+excludes 1 start in wind, and up to 5 with Phase 3's extra margins.
 
 Minimum true clearance is the gap between the aircraft's 4.5 m sphere and
 the nearest building or terrain surface. The 2.0 m floor is exactly the
 margin new plans must keep (1 m + 0.5 m + 0.5 m slack), which shows the
 predictor and the aircraft agree.
 
+**San Francisco** (`harness 200 --quick --map sf`, the 12.6 × 9.4 km map, about 133,000 obstacles):
+
+| Config | Crashes | Invariant violations | Min true clearance | Filter active | ms / tick |
+|---|---|---|---|---|---|
+| **P1 filter ON** | **0 / 200** | **0** | 2.0 m | 66% | 2.52 |
+| filter OFF | 200 / 200 | – | crash | – | – |
+| P1 ON + gusty wind | 0 / 196 | 0 | 8.7 m | 70% | 2.66 |
+| P1 ON + model error | 5 / 200 | 13 eps | crash | 68% | 2.44 |
+
+- **Kamikaze:** survives all four SF scenarios (minimum clearance 2.2 to 2.4 m).
+- **Street coverage:** 98.0% of street states have a verified escape, and
+  82.5% of the 143 below rooftop height (73.4% with the nose 4° off the
+  street). The grid city's are 98% and 93%. Most of the larger map is
+  low-rise, so few street states lie below the rooftops at all.
+- **Gusty wind passes acceptance on the larger map** (0 of 196 episodes lost
+  their verified escape). On the old 6 km map two episodes did; a third of the
+  random starts now spread over the larger map, so this is not the same test,
+  and that earlier failure is not shown fixed.
+- **Flying under the Golden Gate:** the filter lets you pass under the deck
+  low (about 12–16 m above the water) and turns you away higher up (30 m):
+  every escape starts climbing at once, and a climb begun under the deck hits
+  it. An escape that holds its height before climbing would let higher
+  passes verify.
+
 **Flying between buildings.** Of 2,000 random states on street centrelines
-20–90 m above the ground, 92% of those below rooftop height have a verified
+20–90 m above the ground, 93% of those below rooftop height have a verified
 escape, even with the nose 4° off the street axis. (It was 5.9% with the
 original margins and four escapes.) A street-following autopilot holding
 40 m on six streets spends this share of its time below rooftops:
@@ -358,9 +481,9 @@ original margins and four escapes.) A street-following autopilot holding
 | Filter | Below rooftops | Mean intervention |
 |---|---|---|
 | off | 44.4% | – |
-| P1 (time margin) | 41.0% | 0.04 |
-| Permissive | 43.2% | 0.03 |
-| P2 | 17.7% | 0.23 |
+| P1 (time margin) | 40.3% | 0.11 |
+| Permissive | 42.2% | 0.05 |
+| P2 | 18.4% | 0.26 |
 
 P2 keeps the barrier above a 12 m floor, which is conservative in streets.
 
@@ -371,8 +494,8 @@ safe set. Pilots are a nose-down-biased random stick, with a kamikaze
 autopilot in a quarter of the episodes. Every configuration uses the same seeds.
 
 Timing: the `ms max` column in the harness (~100 ms) comes from 16 threads
-sharing the CPU. Single-threaded (`--threads 1`) P1 averages 1.3 ms and its
-worst tick is 5.2 ms, well inside the 20 ms filter period.
+sharing the CPU. Single-threaded (`--threads 1`) P1 averages 1.6 ms and its
+worst tick is 7 ms in calm air and 14 ms in wind, inside the 20 ms filter period.
 
 ## The trusted core
 
@@ -382,9 +505,11 @@ The safety claim rests only on:
    reaches the terminal helix.
 2. **If that check fails, the aircraft flies the last verified plan**
    (gatekeeper), so a verified escape always exists.
-3. **The clearance checks are conservative:** exact segment-to-box distance
-   for buildings; a dilated, swept height map for terrain.
+3. **The clearance checks are conservative:** exact segment-to-box and
+   segment-to-convex-prism distance for buildings; a dilated, swept height
+   map for terrain.
 4. **The predictor uses the same equations as the aircraft.**
+5. **Wind is the steady wind plus gusts within the stated envelope.**
 
 The blending rules (P1, P2, permissive), the GUI and the autopilots only
 choose which candidate command to try. They sit outside the trusted core, so
@@ -397,10 +522,16 @@ they can be tuned for feel without touching what needs certifying.
   equations; RK4 at 0.1 s vs 0.01 s differs by millimetres, and by about 1 m on
   the pull-up escapes. The 1 m acceptance margin and the one-cell (2.5 m)
   wider acceptance map absorb that and the sampling-phase effects.
-- With mismatch on, the guarantee no longer strictly holds. The harness
-  measures it: 106/200 crashes with P1, and 10/200 (P1) or 1/200 (P2) with
-  Phase 3 margins (G). A 1 m building margin leaves no room for model error,
-  so turn on G whenever mismatch (M) is on.
-- The Phase 3 terminal check under wind clears one drifting lap, not "forever".
+- **Wind is covered** up to the gust envelope (2.5 m/s per horizontal axis,
+  0.5 m/s vertical) with the steady wind known: 0 crashes in gusty wind.
+  Before escapes followed ground paths and the predictor used the measured
+  wind, the same test crashed 89 times in 200.
+- **Model error (M) is not covered:** a weaker aircraft than the filter
+  assumes crashed 1/200 times. Phase 3 margins (G) cover it: 0/198.
+- **San Francisco's geometry is only as good as its data:** 2010 LiDAR plus
+  OpenStreetMap, and conservative estimates for the bridge and freeways (see
+  `data/sf/README.md`). Each footprint is one prism at its highest LiDAR
+  return, so tapered towers such as the Transamerica Pyramid are boxes:
+  safe, but blockier than the real building.
 - The safety argument is engineering-level and tested, not machine-checked.
   The trusted core above is the part to prove formally.

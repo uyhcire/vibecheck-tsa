@@ -26,12 +26,13 @@ fn tightest(world: &World, e: &EndSet) -> (f64, [f64; 3]) {
     match *e {
         EndSet::Level { z_min, .. } => best = (z_min - under - world.raw_top, [0.0, 0.0, world.raw_top]),
         EndSet::Helix { c, r0, r1, z, .. } => {
-            let cell = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
-            for j in cell(c[1] - r1)..=cell(c[1] + r1) {
-                for i in cell(c[0] - r1)..=cell(c[0] + r1) {
-                    let (x, y) = (-MAP_HALF + (i as f64 + 0.5) * CELL, -MAP_HALF + (j as f64 + 0.5) * CELL);
+            let raw = &world.raw;
+            let ((i0, j0), (i1, j1)) = (raw.cell(c[0] - r1, c[1] - r1), raw.cell(c[0] + r1, c[1] + r1));
+            for j in j0..=j1 {
+                for i in i0..=i1 {
+                    let (x, y) = (raw.x0 + (i as f64 + 0.5) * CELL, raw.y0 + (j as f64 + 0.5) * CELL);
                     let d = (x - c[0]).hypot(y - c[1]);
-                    let h = world.raw[j * NC + i] as f64;
+                    let h = raw.v[j * raw.nx + i] as f64;
                     if d >= r0 && d <= r1 && z - under - h < best.0 {
                         best = (z - under - h, [x, y, h]);
                     }
@@ -145,7 +146,7 @@ fn main() {
             (s0, e, if e % 4 == 3 { P::Kamikaze(Kamikaze::new(e)) } else { P::Hostile(Hostile::new(e)) })
         }
     };
-    let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed };
+    let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, wind: false, model_error: false, seed };
     let mut sim = Sim::new(&world, s0, cfg);
     if args.iter().any(|a| a == "--off") {
         sim.set_filter(false);

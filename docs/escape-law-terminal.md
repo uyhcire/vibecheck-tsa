@@ -267,8 +267,8 @@ both laws.
 ## Turning escapes
 
 The terminal phase applies to every escape once its pull-up ends, with an EAS reference per kind of ending: 35.2 m/s
-straight (and for the street escape while it follows its street), 37.8 m/s in the 30° turns, 40.3 m/s in the 40° turns
-and the street escape's helix. The turn values are 35.2/√cos φ, so the turns trim at the straight climb's α (about
+straight, 37.8 m/s in the 30° turns, 40.3 m/s in the 40° turns and in the street escape (on its street too, so its
+roll-in needs no acceleration). The turn values are 35.2/√cos φ, so the turns trim at the straight climb's α (about
 0.08). `termhunt trim` (Rust):
 
 - **The gate law's turns lock into a post-stall branch.** The α integral saturates at −0.4 while the pitch-rate
@@ -283,3 +283,68 @@ and the street escape's helix. The turn values are 35.2/√cos φ, so the turns 
 
 The helix end test's airspeed floor (37.5 m/s at 30°, 39.5 m/s at 40°) sits above the post-stall band and below the
 terminal trims (true airspeed rises above the EAS reference with altitude).
+
+## Speed-scheduled heading hold (adopted)
+
+Status: implemented in both gates, bit-identical (`make gatefaith` checks the reference hashes below); measured first in the harness (`Tools/termsound/TsMap.lean`, `Cand.kpsiV`).
+
+**Why.** The straight escape holds its track with a bank target `phiT = clamp(KPSI · wrap(psiRef − track), ±0.15)`, `KPSI = 1`. For a bank φ the turn rate is `g·tan φ / V`, so the heading mode's rate is about `g·KPSI / V`:
+- 0.28 /s at the climb speed of 35 m/s;
+- only 0.14 /s at the level-off speed of 70.8 m/s.
+
+That slow lateral mode is what made both certificate families of #58 need very thin roll, heading and cross-track boxes (`lateral.py`, `docs/termsound-proof.tex` §9).
+
+**Change.** In `controls`, the straight escape's bank target once turning (`dir == 0`) becomes:
+
+```
+ks   := max(1, v / V_KPSI)                          -- NEW, V_KPSI = 35.2 (m/s, the law's v = max(vt, 10))
+phiT := clamp(KPSI * ks * wrap(psiRef - track), -0.15, 0.15)   -- was clamp(KPSI * wrap(psiRef - track), ...)
+```
+
+- **Lean:** `let ks := fmax 1.0 (v / V_KPSI)`, then `clamp (KPSI * ks * wrap (l.psiRef - track)) (-0.15) 0.15`. The product is `(KPSI * ks) * wrap(...)`.
+- **Rust:** `let ks = (v / V_KPSI).max(1.0);` then `(p.kpsi * ks * wrap(self.psi_ref - track)).clamp(-0.15, 0.15)`.
+- **Where it applies:** at or below 35.2 m/s true airspeed nothing changes. It stiffens the hold in proportion to speed above that, which keeps the heading mode's rate at about `g·KPSI/35.2 ≈ 0.28 /s` at any speed.
+
+**Measured effect** at the level trim (`lateral.py`; 1,000.22 m, 70.78 m/s, flying east):
+
+| | slowest lateral mode | settling after a 3° bank + 3° heading + 1 m/s sideslip upset | cross-track displacement |
+|---|---|---|---|
+| gate (`KPSI = 1`) | 0.134 /s | 15.6 s | 7.7 m |
+| proposed (`KPSI·max(1, V/35.2)`) | 0.235 /s | 5.3 s | 3.9 m |
+
+Settling is to within 0.2° in bank and heading and 0.1 m/s in sideslip. Stiffer roll gains (`KPHI = 4`, `KP = 1.2`) or a faster roll integrator (`KI_PHI = 2`) do not settle the upset sooner: 4.6–7.8 s with peak bank up to 3.2°.
+
+**Effect on the certificate** (`membership_lat.py`; `docs/termsound-proof.tex` §9). The schedule doubles the lateral room of the surviving k-step set: about ±4.8° roll and heading and ±2 m/s cross-track speed, against ±2.4° and ±1 m/s under the gate's law.
+
+**Effect on the climb.** None measured. Settling from the 48 representative starts is unchanged (`lateral_climb.py`): median 10.0 s, p90 13.9 s.
+
+**Reference trajectories** (`reftraj_lat.py`; same format and hash as above, every 512 frames):
+
+```
+## start B, proposed law, 5120 frames: startPlane(0.0, 0.0, 950.0, 40.0, 0.1, 1.570796, 0.0, 1.0, 1.0)
+512 3fa565aa03fa4703 3fbb7125f80201ea bf9b16855775bb3c 3ff0000000000000 c001746f909a7fa2 406317d7923d1dd6 408e856801960f91
+1024 3fae80e0d186a1f0 3fb382c6a58cdcb3 bf960fa751ec0a07 3ff0000000000000 c0157652b9287c44 407378ae0b6d4bb1 408ef00ac7eb3262
+1536 3fba7ecebec978d8 3fb06077b6a17903 bf93160c5bd60abb 3ff0000000000000 c01fdf240ede0c83 407e694d6fd8ba2e 408f1f8547043262
+2048 3fc325f61f73e9b4 3faa7d64204117f8 bf8da3fb2fe9750e 3ff0000000000000 c0251b4637e40efa 408550ea5397e8fc 408f32c7e3557dda
+2560 3fc811c13f467891 3fa66eca2766fc1f bf864d21c755e7f6 3ff0000000000000 c02a9b50fdb4df13 408c0c31bece7a64 408f39ec82dd2f9e
+3072 3fcbdde24357a781 3fa3babdbc046984 bf808afb4845e690 3ff0000000000000 c0304ea2dc9f1b42 4091a79e7e7c10ed 408f3cc1e5b934f1
+3584 3fce9c1a4bfb087c 3fa1f5c478bc6875 bf78c198442e336a 3ff0000000000000 c0338b9be4ec9855 40957ed4b50b6508 408f3e435b32e910
+4096 3fd04b42a850ba6b 3fa0c13545595ee0 bf72d82d2cf6dde6 3ff0000000000000 c036f8522c319579 40997f503f3da713 408f3f3f014fdb09
+4608 3fd0fe2b2c5a8c17 3f9fe56395c8f686 bf6d3e137a3fcb78 3ff0000000000000 c03a877d6675b47e 409d9e9e8ac42f0a 408f3ff3a2547cee
+5120 3fd17bd270e808e3 3f9ecc3a3fe440ef bf675454cc69d9ed 3ff0000000000000 c03e2ed7f40db1b6 40a0ea30b54cf0a7 408f40730f4c7ec6
+HASH 7e1fb4f97ce2425f
+## start C, proposed law, 6400 frames: startPlane(0.0, 0.0, 950.0, 40.0, 0.1, 1.570796, 0.3, 1.0, 1.0)
+512 3fa438933b82439a 3fa54a3ce54dfe24 bf9ac0aa0bfe89b4 3ff0000000000000 c02193b762c4c6f6 4063005f45540841 408e84fd30e8dad5
+1024 3fad1714de836d27 3fb7a1af541d3de2 bf96163c733a116f 3ff0000000000000 c031958939d94d48 40735d35e3b86d8e 408eef7eedcec6f7
+1536 3fb9eab365914042 3fb08b2224c36b82 bf933af9b88b248a 3ff0000000000000 c03d6f592aa13491 407e39c7be196eca 408f1f28b52260df
+2048 3fc2ea8fe0ed6107 3fab01cae98e80ef bf8dcc8ef016b4aa 3ff0000000000000 c04595731f2f9711 40852e9f1bf418ba 408f3297d9663766
+2560 3fc7e51d6a7dab30 3fa6ac0fec15a633 bf86821c653d8a9f 3ff0000000000000 c04d51a5ee69d3f8 408bdfb3cf84abd5 408f39d427558588
+3072 3fcbbd24fc0a107a 3fa3daf385cf9aa0 bf80b6a92022c571 3ff0000000000000 c052e3edf9e01940 40918c9d5a26da6b 408f3cb1d43a02aa
+3584 3fce84d973981869 3fa2085ffba3d228 bf7902916c85875d 3ff0000000000000 c0576714cceb2022 40955f6e0919d9df 408f3e373ce23d3d
+4096 3fd042d358c3c966 3fa0ccb5b759aac8 bf7308bfe0dc09f8 3ff0000000000000 c05c208c8e9e67cd 40995bd2839de9e0 408f3f3562241774
+4608 3fd0f840aa77d1b9 3f9ff3e212b06afc bf6d8375fdbe3de7 3ff0000000000000 c06080dce441d3af 409d7750420e394f 408f3fec488fe5e4
+5120 3fd1779b02bdd790 3f9ed5e32dd0a0ed bf678672144686d4 3ff0000000000000 c062ffaef6c34890 40a0d4bc803d3710 408f406d4eb8a7a1
+5632 3fd1d052d6e848d0 3f9e14238df04009 bf634a880a75f25d 3ff0000000000000 c065889641700158 40a2f5f56ddc8f1b 408f40c9548fbeac
+6144 3fd20dbe629f1eef 3f9d9055ff0ccfe6 bf605bc0523f6495 3ff0000000000000 c068188d5e889346 40a51cf16fbf3950 408f41095c43ae2f
+HASH cb2aae7e29b013a5
+```

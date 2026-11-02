@@ -96,7 +96,7 @@ enum PilotKind {
 }
 
 fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<Rec>, Vec<(f64, Vec<[f32; 3]>)>, Stats) {
-    let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed: e };
+    let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, wind: false, model_error: false, seed: e };
     let mut sim = Sim::new(world, s0, cfg);
     let mut fbw = Fbw::from_state(&s0);
     let mut hostile = Hostile::new(e);
@@ -152,7 +152,7 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
                 let pred = Pred { accept: false, ..sim.pred() };
                 let mut p = Vec::new();
                 let (hold, te) = pl.tail(sim.k);
-                pred.rollout(&sim.s, hold, pl.esc, te, pl.psi0, f64::NEG_INFINITY, Some(&mut p));
+                pred.rollout(&sim.s, hold, pl.esc, te, pl.eref, f64::NEG_INFINITY, Some(&mut p));
                 plans.push((sim.time(), p));
             }
         }
@@ -347,7 +347,7 @@ fn main() {
             if let Some(p) = st.probe.take() {
                 std::fs::write(format!("{out}/{name}.probe"), p).unwrap();
             }
-            let off = recs.iter().any(|r| r.s[X].abs() > MAP_HALF || r.s[Y].abs() > MAP_HALF);
+            let off = recs.iter().any(|r| !world.inside(r.s[X], r.s[Y]));
             (name.clone(), crashed, recs.last().map_or(0.0, |r| r.t), st, off)
         },
         |_, _| {},

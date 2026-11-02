@@ -82,6 +82,8 @@ gate-check: gate
 # The city flight demo (flight/, cityflight). FILTER picks the safety filter (exact-rollout, exact-rollout-lean,
 # exact, fitted, fitted25); ARGS adds flags, e.g. `make fly ARGS="--episode 59 --paths"`.
 FILTER ?= exact-rollout
+# `make fly*` flies the Lean gate unless FILTER is given on the command line (headless tests keep FILTER's default).
+FLY_FILTER ?= $(if $(filter command line,$(origin FILTER)),$(FILTER),exact-rollout-lean)
 ARGS ?=
 N ?= 20
 OUT ?= /tmp/$@
@@ -90,10 +92,18 @@ CARGO_HEADLESS = cargo run --release --no-default-features --features jsb --bin
 
 .PHONY: fly
 fly:
-	$(CITY) cargo run --release --features jsb -- --safety-filter $(FILTER) $(ARGS)
+	$(CITY) cargo run --release --features jsb -- --safety-filter $(FLY_FILTER) $(ARGS)
 .PHONY: fly-lean
 fly-lean:
-	$(MAKE) fly FILTER=exact-rollout-lean
+	$(MAKE) fly FLY_FILTER=exact-rollout-lean
+# The Rust implementation of the same gate.
+.PHONY: fly-rust
+fly-rust:
+	$(MAKE) fly FLY_FILTER=exact-rollout
+# San Francisco (Luis Pabon's map) with the Rust exact-rollout gate: the Lean gate covers only the default city.
+.PHONY: fly-san-francisco
+fly-san-francisco:
+	$(MAKE) fly FLY_FILTER=exact-rollout ARGS="--map sf $(ARGS)"
 .PHONY: fly-off
 fly-off:
 	$(MAKE) fly ARGS="--off $(ARGS)"
@@ -106,7 +116,7 @@ showcase:
 # `make record OUT=/tmp/dive ARGS="--showcase --cinematic --frames 1800 --record-every 2 --record-scale 2"`.
 .PHONY: record
 record:
-	$(MAKE) fly ARGS="--record $(OUT) $(ARGS)"
+	$(MAKE) fly FLY_FILTER=$(FILTER) ARGS="--record $(OUT) $(ARGS)"
 
 # Replay a run headless and log, per tick, the gate's verified path, failed rollout and end set, to draw over
 # `make record` footage of the same run: RUN=showcase or ep<N> (as --episode N), results in OUT.
@@ -144,12 +154,33 @@ harness:
 regimes:
 	$(CITY) $(CARGO_HEADLESS) regimes -- run $(ARGS) && $(CARGO_HEADLESS) regimes -- index
 
+# The circle-safe dome: the city gate's terminal set (altitude at which a circle of radius r passes) over the city
+# as f32 grids, JSON headers, heat-map PNGs and stats in OUT; see docs/dome.md.
+.PHONY: dome
+dome:
+	$(CITY) $(CARGO_HEADLESS) dome -- $(OUT) $(ARGS)
+
 # Plant and Lean-gate spot checks: the JsbExact plant, state import, the Lean gate's street escape, the 4 spec starts.
 # Run, not proof: the TermSoundR skeleton's Geo and Conf halves hold at the 4 spec starts' settled states.
 .PHONY: termcheck
 termcheck:
 	lake build $(LAKE_OPTS) termskelcheck
 	.lake/build/bin/termskelcheck
+
+# End-test falsifier: escapes that pass the end-of-escape test, flown on; exits 1 on any contact.
+.PHONY: termhunt
+termhunt:
+	$(CITY) $(CARGO_HEADLESS) termhunt -- $(ARGS)
+
+.PHONY: termhunt-lean
+termhunt-lean:
+	lake build $(LAKE_OPTS) termhunt
+	.lake/build/bin/termhunt $(ARGS)
+
+.PHONY: sweepcheck
+sweepcheck:
+	lake build $(LAKE_OPTS) sweepcheck
+	.lake/build/bin/sweepcheck $(ARGS)
 
 .PHONY: plantcheck
 plantcheck:
@@ -176,15 +207,11 @@ gatefaith:
 	cmp $(GF)/ref-rust.txt $(GF)/ref-lean.txt && grep -q 2947c707944678e9 $(GF)/ref-lean.txt && grep -q dd0d6deef038f51a $(GF)/ref-lean.txt \
 	  && echo "reference trajectories: both match the spec"
 
-# End-test falsifiers: verified escapes flown on past their verdict (Rust: `termhunt N`, `trace I SEED ESC`, `trim`,
-# `high`; Lean: `hunt SEED N`, `trace SEED I`, `witnesses FILE`, `pass SEED N`, `starts`).
-.PHONY: termhunt
-termhunt:
-	$(CITY) $(CARGO_HEADLESS) termhunt -- $(ARGS)
-.PHONY: termhunt-lean
-termhunt-lean:
-	lake build $(LAKE_OPTS) termhunt
-	.lake/build/bin/termhunt $(ARGS)
+# Helix-round lab (Rust): `N [--seed K]` verified escapes from perturbed starts flown on past their verdict,
+# `trace I K ESC`, `trim` (escape-law trims, post-stall recovery), `high` (level-off ending), `why`, `scen ID`, `ep N`.
+.PHONY: helixlab
+helixlab:
+	$(CITY) $(CARGO_HEADLESS) helixlab -- $(ARGS)
 
 # The city as plain files for other simulators (docs/xplane-integration.md), checked bit for bit.
 .PHONY: export
@@ -215,12 +242,13 @@ experiments:
 
 .PHONY: help
 help:
-	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
+	@echo "Fly:      make fly | fly-lean | fly-rust | fly-san-francisco | fly-off | showcase | profile | profile-lean   (Lean gate by default; FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
-	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
-	@echo "Gate:     make gatefaith | termhunt | termhunt-lean   (N=..., ARGS=\"...\")"
+	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
+	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck | gatefaith | helixlab   (N=..., ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs | safe-region"
+	@echo "Numerics: make certify | barrier   (K=\"128 512\")"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf | abstractions"
 	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
@@ -237,4 +265,15 @@ TSVENV ?= .lake/tsvenv
 certify:
 	lake build tsmap
 	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
-	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
+	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify lateral membership_lat lateral_climb reftraj_lat; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
+
+# Energy-barrier family for level-flight terminal safety (docs/termsound/barrier.md, issue #58): sizes the region's
+# boxes and searches conditions C1-C3 adversarially on the real loop for each k; prints the theta table. K="128 512"
+# picks the step counts (default 1 16 64 128 512; all five take about 40 min on 4 cores).
+K ?= 1 16 64 128 512
+.PHONY: barrier
+barrier:
+	lake build tsmap
+	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
+	cd Tools/termsound && nice -n 10 ../../$(TSVENV)/bin/python barrier_run.py $(K)
+
