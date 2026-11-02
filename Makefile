@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record profile profile-lean crashes crashes-lean adversary harness regimes plantcheck termcheck export pdf help clean
+.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record profile profile-lean crashes crashes-lean adversary harness regimes plantcheck termcheck export pdf abstractions help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -138,13 +138,17 @@ export:
 pdf:
 	cd docs && tectonic termsound-proof.tex
 
+# Sufficiency of the plant-abstraction families of issue #58 (docs/termsound/abstractions.tex) as PDF; needs tectonic.
+abstractions:
+	cd docs/termsound && tectonic abstractions.tex
+
 help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
-	@echo "Docs:     make pdf"
+	@echo "Docs:     make pdf | abstractions"
 	@echo "Lean app: make install | build | run | clean"
 
 clean:
