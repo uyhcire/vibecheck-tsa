@@ -30,6 +30,7 @@ Everything is a one-word `make` target; `make help` lists them.
 | `make verify` / `make proofs` | Build the Lean proofs and audit their axioms / the Mathlib proofs |
 | `make gate`, `gate-example`, `gate-check`, `export` | libgate for JSBSim hosts; the city as plain files for other simulators |
 | `make pdf` | The informal TermSound proof (`docs/termsound-proof.pdf`) |
+| `make experiments` | **Slow.** Build and axiom-audit every archived, superseded Lean experiment under `experiments/` (not part of `make verify`); see `experiments/README.md` |
 
 Variables: `FILTER` (`exact-rollout`, `exact-rollout-lean`, `exact`, `fitted`, `fitted25`), `ARGS` (extra flags, e.g.
 `make fly ARGS="--episode 59 --paths"`), `N` and `OUT` for the headless runs.

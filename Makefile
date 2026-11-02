@@ -171,6 +171,17 @@ export:
 pdf:
 	cd docs && tectonic termsound-proof.tex
 
+# SLOW (tens of minutes, several GB of Mathlib per Mathlib-based project): build every archived experiment
+# (experiments/README.md) from its own folder and print the axioms of the theorems each README names.
+.PHONY: experiments
+experiments:
+	for d in continuous-pilot ci-proof; do \
+	  (cd experiments/$$d && lake exe cache get && nice -n 10 lake build && lake env lean Audit.lean) || exit 1; \
+	done
+	for d in envelope-3d safety-filter; do \
+	  (cd experiments/$$d && nice -n 10 lake build && lake env lean Audit.lean) || exit 1; \
+	done
+
 .PHONY: help
 help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
@@ -180,6 +191,7 @@ help:
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"
+	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
 	@echo "Lean app: make install | build | run | clean"
 
 .PHONY: clean
