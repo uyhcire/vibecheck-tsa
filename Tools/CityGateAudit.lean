@@ -7,3 +7,6 @@ import CityGate
 #print axioms CityGate.frameOut_fst
 #print axioms CityGate.clearAt_eq_fast
 #print axioms GateSafety.Gate.chooseR_eq
+#print axioms CityGate.site_safe
+#print axioms CityGate.clear_sound_on
+#print axioms CityGate.ratF_eq_fast

@@ -1,7 +1,7 @@
 //! Records the crashes of the hostile-pilot harness episodes (P1 filter on) as JSON for plotting.
 //! `cargo run --release --no-default-features --features jsb --bin crashes -- OUT_DIR [episodes] [--pm]
 //!   [--safety-filter exact|fitted|fitted25|exact-rollout|exact-rollout-lean] [--escapes 3|5|6] [--law cegis1|cegis2|lawfirst] [--budget FRAMES] [--time-cap MS] [--threads N] [--only EPISODE]
-//!   [--check-threads N [--verify-seeds]] [--margin M [--check-every K]] [--swept] [--handback-extra M] [--scenario K [--pilot hostile|kamikaze|mixed]]`
+//!   [--check-threads N [--verify-seeds]] [--margin M [--check-every K]] [--swept] [--handback-extra M] [--scenario K [--pilot hostile|kamikaze|mixed]] [--map grid|sf]`
 //! (`--pm` flies the point-mass model instead of JSBSim.) `--scenario K` starts every episode at scenario K
 //! (1-5) instead of a random start; with K = 5 (Tower gap) the scripted showcase pilot flies one more.
 //! `--check-threads N` (N ≥ 1) has the gate check every escape to its full horizon on N threads
@@ -295,8 +295,10 @@ fn main() {
         cityflight::envfilter::VERIFY_SEEDS.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     std::fs::create_dir_all(&out).unwrap();
-    let world = World::new(1337);
-    let scen: Option<usize> = args.iter().position(|a| a == "--scenario").and_then(|i| args.get(i + 1)?.parse::<usize>().ok()).map(|k| k.clamp(1, SCENARIOS.len()) - 1);
+    let map = args.iter().position(|a| a == "--map").map_or(MapId::Grid, |i| MapId::parse(args.get(i + 1).map_or("", |s| s.as_str())).expect("--map takes grid or sf"));
+    let world = World::load(map);
+    let names = scenario_names(map);
+    let scen: Option<usize> = args.iter().position(|a| a == "--scenario").and_then(|i| args.get(i + 1)?.parse::<usize>().ok()).map(|k| k.clamp(1, names.len()) - 1);
     let pilot_arg = args.iter().position(|a| a == "--pilot").and_then(|i| args.get(i + 1)).map_or("mixed", |s| s.as_str());
     let mut jobs: Vec<(String, u64, State, PilotKind, f64)> = Vec::new();
     match scen {
@@ -306,8 +308,8 @@ fn main() {
                 let pk = if e % 4 == 3 { PilotKind::Kamikaze } else { PilotKind::Hostile };
                 jobs.push((format!("ep{e:03}"), e, random_start(&world, &mut rng), pk, secs));
             }
-            for id in 0..SCENARIOS.len() {
-                jobs.push((format!("kamikaze-{}", SCENARIOS[id].replace(' ', "_")), 1000 + id as u64, scenario_start(&world, id), PilotKind::Kamikaze, secs));
+            for id in 0..names.len() {
+                jobs.push((format!("kamikaze-{}", names[id].replace(' ', "_")), 1000 + id as u64, scenario_start(&world, id), PilotKind::Kamikaze, secs));
             }
         }
         Some(id) => {
@@ -322,7 +324,7 @@ fn main() {
                 let tag = if pk == PilotKind::Kamikaze { "kamikaze" } else { "ep" };
                 jobs.push((format!("{tag}-s{}-{e:03}", id + 1), 2000 + e, s0, pk, secs));
             }
-            if id == 4 {
+            if id == 4 && map == MapId::Grid {
                 jobs.push(("showcase".into(), 3000, s0, PilotKind::Showcase, secs));
             }
         }

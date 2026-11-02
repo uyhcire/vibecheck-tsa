@@ -89,3 +89,8 @@ required-features = ["jsb"]
 name = "termhunt"
 path = "src/bin/termhunt.rs"
 required-features = ["jsb"]
+
+[[bin]]
+name = "leanspot"
+path = "src/bin/leanspot.rs"
+required-features = ["jsb"]

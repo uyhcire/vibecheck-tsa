@@ -105,6 +105,10 @@ fly-rust:
 .PHONY: fly-san-francisco
 fly-san-francisco:
 	$(MAKE) fly FLY_FILTER=exact-rollout ARGS="--map sf $(ARGS)"
+# San Francisco with the Lean gate, checking escapes against San Francisco's own buildings (as boxes covering them).
+.PHONY: fly-san-francisco-lean
+fly-san-francisco-lean:
+	$(MAKE) fly FLY_FILTER=exact-rollout-lean ARGS="--map sf $(ARGS)"
 .PHONY: fly-off
 fly-off:
 	$(MAKE) fly ARGS="--off $(ARGS)"
@@ -197,6 +201,18 @@ export:
 	cargo run --release --manifest-path Tools/city-export/Cargo.toml -- map city-map
 	cargo run --release --manifest-path Tools/city-export/Cargo.toml -- check city-map
 
+# Lean gate against Rust gate on a map (MAP=sf or grid): every escape from the scenario starts and N random starts.
+MAP ?= sf
+.PHONY: leanspot
+leanspot:
+	$(CITY) $(CARGO_HEADLESS) leanspot -- $(N) --map $(MAP) $(ARGS)
+
+# San Francisco as plain files (terrain, prisms, the boxes covering them for the Lean gate) in OUT, checked bit for bit.
+.PHONY: export-sf
+export-sf:
+	cargo run --release --manifest-path Tools/city-export/Cargo.toml -- map-sf $(OUT)
+	cargo run --release --manifest-path Tools/city-export/Cargo.toml -- check-sf $(OUT)
+
 # The informal TermSound proof (docs/termsound-proof.tex) as PDF; needs tectonic.
 .PHONY: pdf
 pdf:
@@ -220,14 +236,14 @@ experiments:
 
 .PHONY: help
 help:
-	@echo "Fly:      make fly | fly-lean | fly-rust | fly-san-francisco | fly-off | showcase | profile | profile-lean   (Lean gate by default; FILTER=..., ARGS=\"...\")"
+	@echo "Fly:      make fly | fly-lean | fly-rust | fly-san-francisco | fly-san-francisco-lean | fly-off | showcase | profile | profile-lean   (Lean gate by default; FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
-	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
+	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | leanspot | termcheck | test   (N=..., OUT=...)"
 	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck   (ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Numerics: make certify | barrier   (K=\"128 512\")"
-	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
+	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export | export-sf"
 	@echo "Docs:     make pdf | abstractions"
 	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
 	@echo "Lean app: make install | build | run | clean"

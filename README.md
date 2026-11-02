@@ -20,7 +20,7 @@ Everything is a one-word `make` target; `make help` lists them.
 | Target | What it does |
 |---|---|
 | `make fly` / `fly-rust` / `fly-off` | The city flight demo with the Lean exact-rollout gate (the default; `fly-lean` is the same), its Rust implementation, or no filter |
-| `make fly-san-francisco` | The San Francisco map with the Rust exact-rollout gate (the Lean gate covers only the default city) |
+| `make fly-san-francisco` / `fly-san-francisco-lean` | The San Francisco map with the Rust exact-rollout gate / the Lean gate, which checks against San Francisco's buildings as boxes covering them (`notes/lean-city-gate.md`) |
 | `make showcase` | Tower gap with the scripted showcase pilot and the cinematic camera |
 | `make record` | Record the demo frame by frame into `OUT` (PNGs plus a per-frame clearance and camera log), deterministic; see `flight/README.md` |
 | `make proofdump` | Replay a run headless and log the gate's verified paths, failed rollouts and end sets per tick (`RUN=showcase` or `ep<N>`), for drawing over recordings |
@@ -28,11 +28,12 @@ Everything is a one-word `make` target; `make help` lists them.
 | `make adversary`, `make harness`, `make regimes` | Gap-guided adversary; point-mass acceptance harness; boundary-regime slices |
 | `make dome` | The circle-safe dome: the altitude at which the gate's circle test passes at each centre, for r = 143 m and 250 m, as grids, heat-map PNGs and stats in `OUT`; see `docs/dome.md` |
 | `make plantcheck` | Plant, state-import and Lean-gate spot checks, plus the 4 spec starts |
+| `make leanspot` | Lean gate against Rust gate on San Francisco (`MAP=grid` for the default city): every escape from the scenario starts and N random starts, paths compared bit for bit, verdicts side by side |
 | `make termcheck` | The `TermSoundR` skeleton's certified sets (`Geo`, `Conf`) at the 4 spec starts' settled states (a run, not a proof) |
 | `make termhunt` / `termhunt-lean` | End-test falsifier for the Rust / Lean gate: escapes that pass the end-of-escape test, flown on; exits 1 on any contact (`witnesses/termsound-lean.txt`, `flight/witnesses/termsound-rust.txt`) |
 | `make sweepcheck` | `AirframeNear` margins and escape outputs on extreme manoeuvres (`ARGS=steady`: each escape's settled climb) |
 | `make verify` / `make proofs` | Build the Lean proofs and audit their axioms / the Mathlib proofs |
-| `make gate`, `gate-example`, `gate-check`, `export` | libgate for JSBSim hosts; the city as plain files for other simulators |
+| `make gate`, `gate-example`, `gate-check`, `export`, `export-sf` | libgate for JSBSim hosts; the city (or San Francisco, into `OUT`) as plain files for other simulators |
 | `make pdf` | The informal TermSound proof (`docs/termsound-proof.pdf`) |
 | `make experiments` | **Slow.** Build and axiom-audit every archived, superseded Lean experiment under `experiments/` (not part of `make verify`); see `experiments/README.md` |
 
@@ -243,3 +244,9 @@ latitude, longitude and altitude for a given origin.
 cargo run --release --manifest-path Tools/city-export/Cargo.toml -- map city-map        # seed 1337
 cargo run --release --manifest-path Tools/city-export/Cargo.toml -- check city-map
 ```
+
+`map-sf` / `check-sf` (`make export-sf OUT=dir`) do the same for San Francisco: its terrain (631 × 471 from
+(-9600, -5000)), its buildings as convex prisms (`footprints.csv`, 132,958 of them), and the 1.2 million
+axis-aligned boxes covering them that the Lean gate checks against (`buildings.csv`, `flight/src/covering.rs`).
+The check also confirms every prism lies inside its boxes, in interval arithmetic, and prints how much larger the
+boxes are. The files come to about 190 MB, so they are not committed.

@@ -22,21 +22,28 @@ def cityMap : CitySafety.CityMap where
   boxes := boxes.toList.map toBox
 
 theorem cityMap_terrain (x y : Rat) : cityMap.terrain x y = terrainAt x y := by
-  have hx : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((x + 3000) / 20) = gridCoord gridX0 x := by
-    simp only [CitySafety.clampR, gridCoord, gridX0, gridStep]
+  have hx : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((x + 3000) / 20) = gridCoordN gridN gridX0 x := by
+    simp only [CitySafety.clampR, gridCoordN, gridX0, gridStep]
     congr 2; grind
-  have hy : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((y + 3000) / 20) = gridCoord gridY0 y := by
-    simp only [CitySafety.clampR, gridCoord, gridY0, gridStep]
+  have hy : CitySafety.clampR 0 ((gridN - 1 : Nat) : Rat) ((y + 3000) / 20) = gridCoordN gridN gridY0 y := by
+    simp only [CitySafety.clampR, gridCoordN, gridY0, gridStep]
     congr 2; grind
-  simp only [CitySafety.CityMap.terrain, cityMap, terrainAt, hx, hy, square]
+  simp only [CitySafety.CityMap.terrain, cityMap, terrainAt, GateMap.terrainAt, gridMap, hx, hy, squareN, node,
+    GateMap.node]
   rfl
 
 /-- A point solid in the spec's sense is solid in the gate's sense. -/
 theorem solid_of_spec (q : CitySafety.Pt) (h : CitySafety.Solid cityMap q) : Solid q.x q.y q.z := by
   rcases h with ht | ⟨b, hb, hc⟩
-  · exact Or.inr (by rw [← cityMap_terrain]; exact ht)
+  · exact Or.inr (show q.z ≤ terrainAt q.x q.y by rw [← cityMap_terrain]; exact ht)
   · obtain ⟨b', hb', rfl⟩ := List.mem_map.mp hb
-    exact Or.inl ⟨b', Array.mem_toList_iff.mp hb', hc⟩
+    obtain ⟨k, hk, rfl⟩ := Array.mem_iff_getElem.mp (Array.mem_toList_iff.mp hb')
+    have e : boxes.getD k default = boxes[k] := by simp [Array.getD, hk]
+    refine Or.inl ⟨k, hk, ?_⟩
+    show (boxes.getD k default).xmin ≤ q.x ∧ q.x ≤ (boxes.getD k default).xmax ∧ (boxes.getD k default).ymin ≤ q.y ∧
+      q.y ≤ (boxes.getD k default).ymax ∧ (boxes.getD k default).zmin ≤ q.z ∧ q.z ≤ (boxes.getD k default).zmax
+    rw [e]
+    exact hc
 
 /-! ## The filter -/
 
@@ -107,7 +114,7 @@ theorem windowH (q d h : Rat) (k : Int) (hd1 : -h ≤ d) (hd2 : d ≤ h) (hk : h
 
 theorem clear_soundH {h : Rat} (hh : h ≤ 17 / 2) (e : Float) (p : Plane) : clearAt e p = true → ¬ CrashH h p := by
   intro hc hcr
-  unfold clearAt at hc
+  unfold clearAt clearAtOn at hc
   unfold CrashH at hcr
   cases hp : exactPos p with
   | none => simp [hp] at hc
@@ -124,9 +131,10 @@ theorem clear_soundH {h : Rat} (hh : h ≤ 17 / 2) (e : Float) (p : Plane) : cle
     obtain ⟨wx1, wx2⟩ := windowH x dx h _ h1 h2 hk
     obtain ⟨wy1, wy2⟩ := windowH y dy h _ h3 h4 hk
     obtain ⟨wz1, wz2⟩ := windowH z dz h _ h5 h6 hk
-    rcases hs with ⟨b, hbm, b1, b2, b3, b4, b5, b6⟩ | hter
-    · exact box_case hb wx1 wx2 wy1 wy2 wz1 wz2 hbm b1 b2 b3 b4 b5 b6
-    · exact terrain_case ht wx1 wx2 wy1 wy2 wz1 hter
+    unfold Solid GateMap.Solid at hs
+    rcases hs with ⟨kb, hkb, b1, b2, b3, b4, b5, b6⟩ | hter
+    · exact box_case (G := gridGeo) hb wx1 wx2 wy1 wy2 wz1 wz2 hkb b1 b2 b3 b4 b5 b6
+    · exact terrain_case (G := gridGeo) ht wx1 wx2 wy1 wy2 wz1 hter
 
 /-! ## The assumptions -/
 
