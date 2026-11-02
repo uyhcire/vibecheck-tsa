@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf experiments help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -133,6 +133,16 @@ export:
 pdf:
 	cd docs && tectonic termsound-proof.tex
 
+# SLOW (tens of minutes, several GB of Mathlib per Mathlib-based project): build every archived experiment
+# (experiments/README.md) from its own folder and print the axioms of the theorems each README names.
+experiments:
+	for d in continuous-pilot ci-proof; do \
+	  (cd experiments/$$d && lake exe cache get && nice -n 10 lake build && lake env lean Audit.lean) || exit 1; \
+	done
+	for d in envelope-3d safety-filter; do \
+	  (cd experiments/$$d && nice -n 10 lake build && lake env lean Audit.lean) || exit 1; \
+	done
+
 help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
@@ -140,6 +150,7 @@ help:
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"
+	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
 	@echo "Lean app: make install | build | run | clean"
 
 clean:
