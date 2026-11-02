@@ -7,8 +7,8 @@
 //! airframe (body sphere and wing, `World::airframe_clearance`) keeps `MARGIN` of true clearance at every
 //! path sample until it reaches a terminal set, checked numerically on the settled rollout:
 //! - straight: a climbing ray (with a widening corridor) above everything, the terrain continuing the edge profile off the map;
-//! - turns: a steady climbing helix whose ground circle (with margin for radius and centre drift) is clear
-//!   at the current height, so climbing around it from here on never meets anything.
+//! - turns: a steady climbing helix, settled at its terminal airspeed with energy not falling, whose ground annulus
+//!   (widened for radius drift and the airframe) is clear at the current height; or, for any escape, the level-off band.
 //!
 //! `--safety-filter exact-rollout` schedules the checks gatekeeper-style (see `Gate`): either sequentially under a per-tick
 //! frame budget, or (`CHECK_THREADS` ≥ 1) every escape to its full horizon, in parallel (`verify_first`).

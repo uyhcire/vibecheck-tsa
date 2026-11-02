@@ -35,13 +35,14 @@ struct After {
     min: f64,
     t_min: f64,
     end: &'static str,
+    z_min: f64,
     side: (f64, f64),
 }
 
 fn continue_escape(world: &World, p: &JsbPlant, esc: usize, t_ok: f64, secs: f64, every: Option<usize>, stop_above: bool) -> After {
     let mut q = p.fork();
     let mut law = Law::new(esc);
-    let mut a = After { min: f64::INFINITY, t_min: 0.0, end: "timeout", side: (0.0, 0.0) };
+    let mut a = After { min: f64::INFINITY, t_min: 0.0, end: "timeout", z_min: f64::INFINITY, side: (0.0, 0.0) };
     for k in 1..=(secs / DT_JSB) as usize {
         law.step(world, &mut q);
         let s = q.state();
@@ -62,6 +63,7 @@ fn continue_escape(world: &World, p: &JsbPlant, esc: usize, t_ok: f64, secs: f64
             break;
         }
         if t > t_ok {
+            a.z_min = a.z_min.min(s[Z]);
             let c = world.airframe_clearance(&s, 200.0);
             if c < a.min {
                 (a.min, a.t_min) = (c, t);
@@ -195,7 +197,11 @@ fn high(world: &World, n: u64, secs: f64, threads: usize) {
     );
     let all: Vec<_> = res.into_iter().flatten().collect();
     let worst = all.iter().min_by(|a, b| a.3.min.total_cmp(&b.3.min));
-    println!("{} verified escapes from {n} starts above 960 m; lowest clearance after a verdict: {:?}", all.len(), worst.map(|w| (w.0, ESCAPES[w.1].name, w.2, w.3.min, w.3.t_min)));
+    let low = all.iter().map(|a| a.3.z_min).fold(f64::INFINITY, f64::min);
+    println!("{} verified escapes from {n} starts above 960 m; lowest altitude after a verdict {low:.1} m (map top {:.1} m)", all.len(), world.raw_top);
+    if let Some(w) = worst {
+        println!("lowest clearance after a verdict: {:.2} m (random {}, {}, verdict {:.1} s, at {:.1} s)", w.3.min, w.0, ESCAPES[w.1].name, w.2, w.3.t_min);
+    }
 }
 
 fn arg<T: std::str::FromStr>(args: &[String], name: &str) -> Option<T> {
