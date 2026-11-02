@@ -19,3 +19,4 @@ Tools/city-export/target/
 # Explainer media: built locally by `make present-media` from docs/explainer/clips.json, not committed.
 docs/explainer/media/*
 !docs/explainer/media/proof-*.js
+!docs/explainer/media/slides-data.js
