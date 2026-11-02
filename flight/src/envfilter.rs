@@ -1010,6 +1010,22 @@ pub fn check(world: &World, kind: Kind, p: &JsbPlant) -> (Option<usize>, Vec<[f6
 /// (`verify_first`), on N threads (this one and N - 1 pool workers). The verdict does not depend on N: it is the
 /// one the sequential check reaches with an unlimited budget.
 pub static CHECK_THREADS: AtomicUsize = AtomicUsize::new(0);
+/// Display only (`proofdump --fan`): on each tick, also fly every candidate to its own verdict and keep them all in
+/// `Gate::fan`. The gate's decision does not read it.
+pub static FAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Every candidate of one tick, flown to its own verdict (`FAN`), in the order the gate tries them.
+#[derive(Clone, Debug)]
+pub struct Fan {
+    pub laws: Vec<Law>,
+    pub rolls: Vec<Roll>,
+    /// No check this tick: the commit hold, or the pilot's own tick touching something.
+    pub holding: bool,
+    pub cand_clear: bool,
+    /// The candidate the gate's check found (its index in `laws`), and whether the pilot's input was accepted.
+    pub found: Option<usize>,
+    pub accepted: bool,
+}
 /// Debug: re-run every rollout a pool worker flew on the calling thread's plant and panic unless the two agree
 /// bit for bit (checks that a `Seed` rebuilds the plant exactly).
 pub static VERIFY_SEEDS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1288,6 +1304,7 @@ pub struct Gate {
     /// The end sets of `committed_path` and `witness_path`, as their terminal tests accepted them.
     pub committed_end: Option<EndSet>,
     pub witness_end: Option<EndSet>,
+    pub fan: Option<Fan>,
     /// The first tick accepted the pilot's command.
     pub first_accept: Option<bool>,
     /// Ticks committed although no escape had ever verified (no witness).
@@ -1330,6 +1347,7 @@ impl Gate {
             witness_path: Vec::new(),
             committed_end: None,
             witness_end: None,
+            fan: None,
             first_accept: None,
             blind_ticks: 0,
             outcomes: [[0; 4]; N_ESC],
@@ -1445,6 +1463,14 @@ impl Gate {
         // After the hold, hand back only with `HANDBACK_EXTRA` of spare clearance.
         let committed = self.law.is_some();
         let mut v = if holding || !cand_clear { Verdict::empty(f0) } else { verify_first(world, &cands, f0, deadline) };
+        self.fan = FAN.load(Ordering::Relaxed).then(|| Fan {
+            laws: laws.clone(),
+            rolls: laws.iter().map(|&law| rollout_cfg(world, &cand, law, law_cap(&law), None, &RollCfg::filter())).collect(),
+            holding,
+            cand_clear,
+            found: v.found.as_ref().map(|(i, _)| *i),
+            accepted: false,
+        });
         if committed && v.found.as_ref().is_some_and(|(_, r)| r.min_clear < margin + f64::from_bits(HANDBACK.load(Ordering::Relaxed))) {
             v.last = v.found.take().map(|(_, r)| r);
         }
@@ -1462,6 +1488,9 @@ impl Gate {
             self.shown = r.path.iter().chain(&r.tail).copied().collect();
         }
         let found_end = v.found.as_ref().and_then(|(_, r)| r.end_set);
+        if let Some(f) = self.fan.as_mut() {
+            f.accepted = v.found.is_some();
+        }
         let accept = if let Some((i, _)) = v.found {
             if self.law.is_some() {
                 if self.run_len <= SHORT_RUN {

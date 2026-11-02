@@ -123,6 +123,8 @@ fn main() {
     let (dur, settle_secs) = (num("--secs", 60.0), num("--settle-secs", 40.0));
     // The footprint scan in `tightest` is slow for long rays, so only ticks from `--detail-from` (s) get it.
     let detail_from = num("--detail-from", 0.0);
+    // `--fan T1,T2,...`: at those tick times, every candidate flown to its own verdict, in `fan.jsonl`.
+    let fan_at: Vec<f64> = args.iter().position(|a| a == "--fan").and_then(|i| args.get(i + 1)).map_or(Vec::new(), |s| s.split(',').filter_map(|x| x.parse().ok()).collect());
     cityflight::jsb::parse_fuel_args(&args);
     cityflight::jsb::JSB_PLANT.store(true, std::sync::atomic::Ordering::Relaxed);
     cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse("exact-rollout"), std::sync::atomic::Ordering::Relaxed);
@@ -144,6 +146,12 @@ fn main() {
             (s0, e, if e % 4 == 3 { P::Kamikaze(Kamikaze::new(e)) } else { P::Hostile(Hostile::new(e)) })
         }
     };
+    // `--pilot hostile:N` or `kamikaze:N`: the run's start with another pilot (one start, many pilots).
+    if let Some(p) = args.iter().position(|a| a == "--pilot").and_then(|i| args.get(i + 1)) {
+        let (kind, n) = p.split_once(':').expect("--pilot hostile:N or kamikaze:N");
+        let n: u64 = n.parse().expect("--pilot KIND:N");
+        pilot = if kind == "kamikaze" { P::Kamikaze(Kamikaze::new(n)) } else { P::Hostile(Hostile::new(n)) };
+    }
     let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed };
     let mut sim = Sim::new(&world, s0, cfg);
     if args.iter().any(|a| a == "--off") {
@@ -154,6 +162,7 @@ fn main() {
     std::fs::create_dir_all(&out).expect("proofdump: cannot create OUT");
     let open = |f: &str| std::io::BufWriter::new(std::fs::File::create(out.join(f)).expect("proofdump: cannot write"));
     let (mut ticks, mut paths, mut settles) = (open("ticks.jsonl"), open("paths.jsonl"), open("settle.jsonl"));
+    let mut fans = open("fan.jsonl");
     let bx: Vec<String> = world.boxes.iter().map(|b| format!("[{:.1},{:.1},{:.1},{:.1},{:.1},{:.1}]", b.x0, b.x1, b.y0, b.y1, b.z0, b.z1)).collect();
     std::fs::write(out.join("boxes.json"), format!("[{}]\n", bx.join(","))).expect("proofdump: cannot write boxes.json");
     let mut last_path: Vec<[f64; 3]> = Vec::new();
@@ -171,7 +180,42 @@ fn main() {
             P::Hostile(p) => p.update(&mut fbw, DT_F),
         }
         let u = fbw.cmd(&sim.prm_ctrl, &sim.s);
+        let t_next = (k + 1) as f64 * DT_F;
+        cityflight::envfilter::FAN.store(fan_at.iter().any(|t| (t - t_next).abs() < 0.005), std::sync::atomic::Ordering::Relaxed);
         sim.tick(u);
+        if let Some(f) = sim.env_gate.as_ref().and_then(|g| g.fan.as_ref()).filter(|_| cityflight::envfilter::FAN.load(std::sync::atomic::Ordering::Relaxed)) {
+            let cands: Vec<String> = f
+                .laws
+                .iter()
+                .zip(&f.rolls)
+                .enumerate()
+                .map(|(i, (l, r))| {
+                    let pts: Vec<String> = r.path.iter().chain(&r.tail).map(|q| format!("[{:.1},{:.1},{:.1}]", q[0], q[1], q[2])).collect();
+                    format!(
+                        "{{\"order\":{i},\"escape\":\"{}\",\"resumed\":{},\"outcome\":\"{:?}\",\"min_clear\":{:.3},\"t\":{:.3},\"tail\":{},\"path\":[{}]}}",
+                        ESCAPES[l.esc].name,
+                        l.t > 0.0,
+                        r.outcome,
+                        r.min_clear.min(9999.0),
+                        r.t,
+                        r.tail.len(),
+                        pts.join(",")
+                    )
+                })
+                .collect();
+            writeln!(
+                fans,
+                "{{\"t\":{:.2},\"holding\":{},\"cand_clear\":{},\"found\":{},\"accepted\":{},\"mode\":\"{}\",\"cands\":[{}]}}",
+                sim.time(),
+                f.holding,
+                f.cand_clear,
+                f.found.map_or("null".into(), |i| i.to_string()),
+                f.accepted,
+                if sim.fs.mode == Mode::Commit { "escape" } else { "pilot" },
+                cands.join(",")
+            )
+            .unwrap();
+        }
         fbw.resync(&sim.s, sim.fs.lam, DT_F);
         let Some(g) = sim.env_gate.as_ref() else {
             let s = &sim.s;
@@ -255,7 +299,7 @@ fn main() {
             break;
         }
     }
-    for w in [&mut ticks, &mut paths, &mut settles] {
+    for w in [&mut ticks, &mut paths, &mut settles, &mut fans] {
         w.flush().unwrap();
     }
     eprintln!(
