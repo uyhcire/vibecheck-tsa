@@ -204,7 +204,7 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   by `max(1, V/35.2)`, keeping its heading mode's rate at any speed. Every escape levels off at 1,000 m (gradient capped at `0.005·(1000 − h)`), 66 m above
   the map's top. The gate's earlier law locked into a post-stall descent (α ≈ 0.28, α integral at its
   clamp) at 32-37 m/s in the turns; the terminal law recovers from every such state found
-  (`make termhunt ARGS=trim`).
+  (`make helixlab ARGS=trim`).
 - **Escapes.** A straight climb-out, and climbing turns left and right at 30° and 40° bank, after a pull-up
   of at least 1.5 s. A street escape captures the nearest street axis when the track is within 25° of one
   (bank ≤ 20° while capturing), climbs wings level along it, and every 0.25 s looks for a 40° helix whose
@@ -220,13 +220,15 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   settled climb (the two 2 s windows' mean climb rates agree within 1 m/s), then a climbing ray (80% of the
   settled gradient, at most 0.11 so the pull-up's zoom climb cannot set it, in a corridor widening 2% of
   distance) that clears every raw cell until it is above the map's top. A turn needs a steady helix: radius
-  and centre within 10% of the radius across two 2 s windows, climbing ≥ 1 m/s, airspeed settled
-  (the windows' means within 1 m/s) above the post-stall band (≥ 37.5 m/s at 30°, ≥ 39.5 m/s at 40°), and
-  specific energy `z + v²/2g` not falling in either window. Its ground annulus must be clear at the current
-  height and lie within the map: the fitted radius ± (5 m + 3 × the fit disagreement), widened outward by the
-  growth of a constant-EAS turn's radius up to the map's top (radius ∝ 1/ρ) and on both sides by the
-  airframe's 7 m half-size. Any escape in its terminal phase also ends when its whole 4 s window is above
-  980 m at ≥ 30 m/s: from there the level-off keeps it above the map's top (`make termhunt ARGS=high`). Beyond the map edge the terrain continues
+  and centre within 10% of the radius across two 2 s windows, climbing ≥ 1 m/s, airspeed above the
+  post-stall band (≥ 37.5 m/s at 30°, ≥ 39.5 m/s at 40°), and specific energy `z + v²/2g` not falling in
+  either window. Its ground annulus must be clear at the current height and lie within the map: the fitted
+  radius scaled over the radii the turn passes through on its way to the law's trim speed (radius ∝ v² at a
+  fixed bank; the trim's true airspeed −1 to +2 m/s), ± (5 m + 3 × the fit disagreement), widened outward,
+  per obstacle height, by the growth of a constant-EAS turn's radius on the climb (radius ∝ 1/ρ) and on both
+  sides by the airframe's 7 m half-size. Any escape in its terminal phase also ends when its whole 4 s window
+  is above 980 m at ≥ 30 m/s: from there the level-off keeps it above the map's top (`make helixlab
+  ARGS=high`). Beyond the map edge the terrain continues
   the edge profile (731-927 m), so the ray (at most 12.5 km) and the crash test are checked against it. Every path
   sample (every 8th frame) keeps 4 m of true clearance. `--swept` checks every frame instead, including the
   frames of the pilot's candidate tick, each keeping `--margin M` (default 4 m) plus half a frame of travel

@@ -269,7 +269,7 @@ both laws.
 The terminal phase applies to every escape once its pull-up ends, with an EAS reference per kind of ending: 35.2 m/s
 straight, 37.8 m/s in the 30° turns, 40.3 m/s in the 40° turns and in the street escape (on its street too, so its
 roll-in needs no acceleration). The turn values are 35.2/√cos φ, so the turns trim at the straight climb's α (about
-0.08). `termhunt trim` (Rust):
+0.08). `make helixlab ARGS=trim` (Rust):
 
 - **The gate law's turns lock into a post-stall branch.** The α integral saturates at −0.4 while the pitch-rate
   feedforward keeps commanding the load factor the capped α would give unstalled, so the aircraft holds α ≈ 0.25–0.28
@@ -282,7 +282,9 @@ roll-in needs no acceleration). The turn values are 35.2/√cos φ, so the turns
   no α cap), from 1.1–2.6 m/s at 30 m/s to 6.4–6.9 m/s at 50 m/s: the descent is the law's, not the aircraft's.
 
 The helix end test's airspeed floor (37.5 m/s at 30°, 39.5 m/s at 40°) sits above the post-stall band and below the
-terminal trims (true airspeed rises above the EAS reference with altitude).
+terminal trims (true airspeed rises above the EAS reference with altitude). The turns settle 0.5–1.0 m/s above the
+true airspeed of their EAS reference, so the end test's annulus spans the radii from the current airspeed to that
+speed −1 to +2 m/s instead of waiting for the airspeed to settle.
 
 ## Speed-scheduled heading hold (adopted)
 
