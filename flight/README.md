@@ -47,6 +47,25 @@ frame (time, simulated time, airframe clearance and its running minimum, filter 
 | `viewport` | the saved PNG's size in pixels `[w, h]` |
 | `view_proj` | the camera's view-projection, column-major 16 floats, from world coordinates (x east, y north, z up, metres: the gate's frame). A point `p` lands at pixel `((c.x/c.w + 1)/2 * w, (1 - c.y/c.w)/2 * h)` with `c = view_proj * [p, 1]`, in front of the camera when `c.w > 0`. The photoreal renderer's depth is reversed and infinite |
 
+`--no-paths` keeps the escape paths out of the frame (`--showcase` turns them on), for footage that is drawn on
+afterwards.
+
+`make proofdump OUT=dir RUN=showcase|ep<N>` (`src/bin/proofdump.rs`) replays the same run headless, with the GUI's
+start, seed, pilot and gate settings, so its ticks are the ones a recording of that run flies, and writes:
+
+| file | one line per | contents |
+|---|---|---|
+| `ticks.jsonl` | 20 ms tick | time, gate mode (`pilot`, `blend`, `escape`), position, airspeed, climb rate, bank, track, clearance, the escape the gate flies or holds as verified, the ids of that verified path and of the rollout that failed on this tick (`-1` if none), and its end set |
+| `paths.jsonl` | distinct path | the rollout every 8 JSBSim frames, then the end set's continuation (`failed` marks rollouts that did not verify) |
+| `settle.jsonl` | takeover | the committed escape flown on from the takeover with no checks for `--settle-secs` (default 40), every 1/16 s |
+| `boxes.json` | run | every building box |
+
+The end set is `envfilter::EndSet`, as the gate's terminal test computed it: a ray (start, track, gradient, where it
+ends) or a helix (centre, radius, drift margin, entry height, climb rate, horizontal speed, direction), plus `gap`,
+the smallest gap between the floor the test requires (`R_BODY + MARGIN` below the climb) and any raw cell under the
+footprint, and that cell. The scan is slow for long rays, so `--detail-from S` limits it to ticks from S seconds on.
+`--secs` sets the run length (default 60).
+
 ## Photoreal renderer (Metal)
 
 On macOS the demo runs on Metal and starts in a photoreal renderer; `--classic`

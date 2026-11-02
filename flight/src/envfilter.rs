@@ -471,6 +471,22 @@ pub struct Roll {
     pub lim: [u32; 2],
     pub v_min: f64,
     pub nz_max: f64,
+    /// The end set the terminal test accepted (`Outcome::Ok` by a terminal test only), for display and analysis.
+    pub end_set: Option<EndSet>,
+}
+
+/// The end set a rollout's terminal test accepted, with the parameters the test computed (display and
+/// analysis only; the verdict does not read it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EndSet {
+    /// Straight escape: a climbing ray from `p` along track `psi` (rad, counter-clockwise from +x) at gradient
+    /// `grad`, inside a corridor of half-width `R_BODY + 5 m + 2%` of the distance, clear up to `end` (where the
+    /// ray is far enough above the map's top, or leaves the map).
+    Ray { p: [f64; 3], psi: f64, grad: f64, end: [f64; 3] },
+    /// Turning escapes: a climbing helix around `c` of radius `r`, entered at height `z`, whose ground annulus
+    /// `r ± (m + R_BODY)` is clear below `z - R_BODY - margin`; `vz` and `vh` are the climb rate and horizontal
+    /// speed of the last 2 s, `dir` the turn direction (JSBSim convention, +1 = right).
+    Helix { c: [f64; 2], r: f64, m: f64, z: f64, vz: f64, vh: f64, dir: f64 },
 }
 
 /// Why a terminal test failed (diagnostics only; the verdict is the same either way).
@@ -597,6 +613,7 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
         lim: [0; 2],
         v_min: q.obs.vt,
         nz_max: q.obs.nz,
+        end_set: None,
     };
     if esc == STREET && law.axis.is_nan() && k_law == 0 {
         return r;
@@ -678,8 +695,9 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
                     r.why = Some(TermFail::NotTurning);
                 } else {
                     match terminal(world, law.dir(), &hist, cfg.term_margin, cfg.offmap_clear) {
-                        Ok(tail) => {
+                        Ok((tail, end_set)) => {
                             r.tail = tail;
+                            r.end_set = Some(end_set);
                             return finish(r, &q, &law, Outcome::Ok);
                         }
                         Err(w) => r.why = Some(w),
@@ -714,7 +732,7 @@ fn seg(h: &[Hist]) -> Seg {
 
 /// Terminal test on the rollout so far: `Some(continuation points)` if the escape has settled into its
 /// terminal set and that set is clear.
-fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: bool) -> Result<Vec<[f64; 3]>, TermFail> {
+fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: bool) -> Result<(Vec<[f64; 3]>, EndSet), TermFail> {
     if hist.len() < 2 * HALF + 1 {
         return Err(TermFail::Unsettled);
     }
@@ -732,7 +750,9 @@ fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: b
             return Err(TermFail::Wobble);
         }
         let grad = 0.8 * (a.vz_mean / a.vh.max(1.0)).min(b.vz_mean / b.vh.max(1.0));
-        ray_clear_m(world, [e.x, e.y, e.z], e.psi, grad, top, margin, offmap_clear)
+        let tail = ray_clear_m(world, [e.x, e.y, e.z], e.psi, grad, top, margin, offmap_clear)?;
+        let end = tail[tail.len() - 1];
+        Ok((tail, EndSet::Ray { p: [e.x, e.y, e.z], psi: e.psi, grad, end }))
     } else {
         // Turn: radius and centre from each half; both must agree closely.
         let want = -dir; // a right turn (JSBSim +) turns clockwise, i.e. negative omega here
@@ -752,10 +772,11 @@ fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: b
         }
         let m = 5.0 + 3.0 * (d_r + d_c);
         helix_check(world, cb, rb, m, e.z, top, margin)?;
-        Ok((0..=72).map(|i| {
+        let tail = (0..=72).map(|i| {
             let th = i as f64 * PI / 36.0;
             [cb[0] + rb * th.cos(), cb[1] + rb * th.sin(), e.z + b.vz_mean * (i as f64 / 72.0) * 2.0 * PI * rb / b.vh.max(1.0)]
-        }).collect())
+        }).collect();
+        Ok((tail, EndSet::Helix { c: cb, r: rb, m, z: e.z, vz: b.vz_mean, vh: b.vh, dir }))
     }
 }
 
@@ -1227,6 +1248,9 @@ pub struct Gate {
     pub shown_ok: bool,
     pub committed_path: Vec<[f64; 3]>,
     pub witness_path: Vec<[f64; 3]>,
+    /// The end sets of `committed_path` and `witness_path`, as their terminal tests accepted them.
+    pub committed_end: Option<EndSet>,
+    pub witness_end: Option<EndSet>,
     /// The first tick accepted the pilot's command.
     pub first_accept: Option<bool>,
     /// Ticks committed although no escape had ever verified (no witness).
@@ -1267,6 +1291,8 @@ impl Gate {
             shown_ok: false,
             committed_path: Vec::new(),
             witness_path: Vec::new(),
+            committed_end: None,
+            witness_end: None,
             first_accept: None,
             blind_ticks: 0,
             outcomes: [[0; 4]; N_ESC],
@@ -1289,6 +1315,7 @@ impl Gate {
                 g.witness = Some(Law::new(esc));
                 g.last = esc;
                 g.witness_path = r.path.iter().chain(&r.tail).copied().collect();
+                g.witness_end = r.end_set;
                 best = Some(r);
                 break;
             }
@@ -1389,6 +1416,7 @@ impl Gate {
             self.shown_ok = r.ok();
             self.shown = r.path.iter().chain(&r.tail).copied().collect();
         }
+        let found_end = v.found.as_ref().and_then(|(_, r)| r.end_set);
         let accept = if let Some((i, _)) = v.found {
             if self.law.is_some() {
                 if self.run_len <= SHORT_RUN {
@@ -1403,8 +1431,10 @@ impl Gate {
             self.last = laws[i].esc;
             self.witness = Some(laws[i]);
             self.witness_path = self.shown.clone();
+            self.witness_end = found_end;
             self.law = None;
             self.committed_path.clear();
+            self.committed_end = None;
             true
         } else {
             if self.law.is_none() {
@@ -1420,6 +1450,7 @@ impl Gate {
                 }
                 self.law = Some(law);
                 self.committed_path = std::mem::take(&mut self.witness_path);
+                self.committed_end = self.witness_end.take();
                 self.runs += 1;
                 self.run_len = 0;
             } else if self.witness.is_none() {
