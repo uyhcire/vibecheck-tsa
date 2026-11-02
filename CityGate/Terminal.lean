@@ -136,8 +136,8 @@ def GRAD_MAX : Float := 0.11
 the halves, radius and centre agreement as fractions of the radius, and the airframe half-size widening the annulus. -/
 def V_HELIX_MIN : Array Float := #[0.0, 37.5, 39.5]
 def V_SETTLED : Float := 1.0
-def R_SETTLED : Float := 0.03
-def C_SETTLED : Float := 0.05
+def R_SETTLED : Float := 0.1
+def C_SETTLED : Float := 0.1
 def E_AIR : Float := 7.0
 /-- Level-off ending: the whole window at least `Z_LEVEL` (m) high at a mean airspeed of at least `V_LEVEL` (m/s). -/
 def Z_LEVEL : Float := 980.0

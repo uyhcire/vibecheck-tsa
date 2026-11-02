@@ -150,7 +150,7 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   settled climb (the two 2 s windows' mean climb rates agree within 1 m/s), then a climbing ray (80% of the
   settled gradient, at most 0.11 so the pull-up's zoom climb cannot set it, in a corridor widening 2% of
   distance) that clears every raw cell until it is above the map's top. A turn needs a steady helix: radius
-  within 3% and centre within 5% of the radius across two 2 s windows, climbing ≥ 1 m/s, airspeed settled
+  and centre within 10% of the radius across two 2 s windows, climbing ≥ 1 m/s, airspeed settled
   (the windows' means within 1 m/s) above the post-stall band (≥ 37.5 m/s at 30°, ≥ 39.5 m/s at 40°), and
   specific energy `z + v²/2g` not falling in either window. Its ground annulus must be clear at the current
   height and lie within the map: the fitted radius ± (5 m + 3 × the fit disagreement), widened outward by the

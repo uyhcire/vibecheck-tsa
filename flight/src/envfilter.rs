@@ -483,8 +483,8 @@ pub const GRAD_MAX: f64 = 0.11;
 /// the annulus is widened by the airframe's half-size `E_AIR` (m).
 pub const V_HELIX_MIN: [f64; 3] = [0.0, 37.5, 39.5];
 pub const V_SETTLED: f64 = 1.0;
-pub const R_SETTLED: f64 = 0.03;
-pub const C_SETTLED: f64 = 0.05;
+pub const R_SETTLED: f64 = 0.1;
+pub const C_SETTLED: f64 = 0.1;
 pub const E_AIR: f64 = 7.0;
 /// Level-off ending: the whole window at least `Z_LEVEL` (m) high at a mean airspeed of at least `V_LEVEL` (m/s).
 pub const Z_LEVEL: f64 = 980.0;

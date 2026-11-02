@@ -204,6 +204,32 @@ fn high(world: &World, n: u64, secs: f64, threads: usize) {
     }
 }
 
+/// Rollout outcomes per escape from the perturbed starts, failures by the end test's last reason.
+fn why(world: &World, n: u64, seed: u64, threads: usize) {
+    let res = par_map(
+        (0..n).collect(),
+        threads,
+        |&i| {
+            let p = perturbed(world, i, seed);
+            (0..ESCAPES.len())
+                .map(|esc| {
+                    let r = rollout(world, &p, esc, usize::MAX);
+                    let w = format!("{:?}", r.why);
+                    (esc, format!("{:?} {}", r.outcome, w.split(|c| c == ' ' || c == '{').next().unwrap_or("")))
+                })
+                .collect::<Vec<_>>()
+        },
+        |_, _| {},
+    );
+    let mut tally = std::collections::BTreeMap::new();
+    for (esc, k) in res.into_iter().flatten() {
+        *tally.entry((ESCAPES[esc].name, k)).or_insert(0) += 1;
+    }
+    for ((e, k), c) in tally {
+        println!("{e:8} {k:30} {c}");
+    }
+}
+
 fn arg<T: std::str::FromStr>(args: &[String], name: &str) -> Option<T> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)?.parse().ok())
 }
@@ -217,6 +243,9 @@ fn main() {
     }
     if args.first().map(|s| s.as_str()) == Some("trim") {
         return trim_cmd(&args);
+    }
+    if args.first().map(|s| s.as_str()) == Some("why") {
+        return why(&world, arg(&args, "--n").unwrap_or(150), arg(&args, "--seed").unwrap_or(1), arg(&args, "--threads").unwrap_or(3));
     }
     if args.first().map(|s| s.as_str()) == Some("trace") {
         let (i, seed, esc): (u64, u64, usize) = (args[1].parse().unwrap(), args[2].parse().unwrap(), args[3].parse().unwrap());
