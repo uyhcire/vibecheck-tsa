@@ -1919,6 +1919,10 @@ async fn main() {
     if args.iter().any(|a| a == "--showcase") {
         app.start_showcase(true);
     }
+    // Footage for overlays drawn afterwards (the explainer's proof section): no escape paths in the frame.
+    if args.iter().any(|a| a == "--no-paths") {
+        app.show_paths = false;
+    }
     // Same start, seed and pilot as the harness: episodes 0.. are random starts (every fourth a kamikaze
     // pilot), 1000 + i is scenario i + 1 with a kamikaze pilot.
     if let Some(e) = arg("--episode").and_then(|s| s.parse::<u64>().ok()) {

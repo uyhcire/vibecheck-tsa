@@ -1,0 +1,9 @@
+name = "exp_envelope_3d"
+defaultTargets = ["ExpEnvelope", "Envelope3D"]
+
+[[lean_lib]]
+name = "ExpEnvelope"
+globs = ["ExpEnvelope.+"]
+
+[[lean_lib]]
+name = "Envelope3D"
