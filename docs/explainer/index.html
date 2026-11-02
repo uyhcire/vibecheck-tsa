@@ -402,8 +402,8 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
   <p class="sub">After the pilot's next input, it test-flies its escapes in order. The first that gets away clean is kept and the pilot flies on; if none does, it flies the last one that passed.</p>
   <figure class="plate pf" id="pf-fan">
     <div class="pf-body side">
-      <div class="cc-stage pf-stage" data-clip="towergap" data-view="fan" data-start="45">
-        <video src="media/proof-towergap.mp4" poster="media/proof-towergap.jpg" muted playsinline preload="metadata" aria-label="Chase view of the Tower gap run with the gate's candidate escapes drawn ahead of the aircraft."></video>
+      <div class="cc-stage pf-stage" data-clip="fan" data-view="fan" data-start="5">
+        <video src="media/proof-fan.mp4" poster="media/proof-fan.jpg" muted playsinline preload="metadata" aria-label="View from above and behind the aircraft in the Tower gap street, with the gate's candidate escapes drawn from it."></video>
         <svg class="pf-ov" aria-hidden="true"></svg>
         <span class="pf-tag" hidden></span>
       </div>
@@ -1031,6 +1031,7 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
 <script src="media/proof-towergap.js"></script>
 <script src="media/proof-towergap-high.js"></script>
 <script src="media/proof-dive.js"></script>
+<script src="media/proof-fan.js"></script>
 <script src="media/slides-data.js"></script>
 <script>
 // Recorded clips with the gate's verified path, failed rollout and end set drawn per frame.
@@ -1222,15 +1223,18 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
       const boxes = sc.boxesFor(all.slice(0, 400));
       let svg = "";
       const tags = [];
-      F.cands.forEach((k, j) => {
+      // Passing paths drawn last, so the one that is kept is on top.
+      const order = F.cands.map((k, j) => j).sort((a, b) => (F.cands[a].outcome === "Ok") - (F.cands[b].outcome === "Ok"));
+      order.forEach((j) => {
+        const k = F.cands[j];
         const col = FANCOL[k.outcome] || "var(--off)";
         const [v, h] = sc.line(k.path, boxes);
         const won = F.found === j;
-        svg += path(h, `fill:none;stroke:${col};stroke-width:${won ? 4 : 3};opacity:.35;stroke-dasharray:6 6`) + path(v, `fill:none;stroke:${col};stroke-width:${won ? 6 : 3.5}`);
+        svg += path(h, `fill:none;stroke:${col};stroke-width:${won ? 7 : 5};opacity:.45;stroke-dasharray:10 8`) + path(v, `fill:none;stroke:${col};stroke-width:${won ? 10 : 6};stroke-linecap:round`);
         const e = sc.P(k.path[k.path.length - 1]);
         if (e && k.outcome === "Hit") svg += `<path d="M${e[0] - 9} ${e[1] - 9}l18 18m0 -18l-18 18" style="stroke:var(--red);stroke-width:5"/>`;
         // Labels on their own paths, at heights staggered by order so they do not stack.
-        const want = sc.H * (0.62 - 0.075 * j);
+        const want = sc.H * (0.6 - 0.08 * j);
         let lab = null;
         for (const q of k.path) { const p = sc.P(q); if (p && p[0] > 60 && p[0] < sc.W - 60 && p[1] > 70 && p[1] < sc.H - 20 && (!lab || Math.abs(p[1] - want) < Math.abs(lab[1] - want))) lab = p; }
         if (lab) tags.push({ at: lab, text: `${j + 1}. ${k.label}${k.resumed ? " (continued)" : ""}`, color: col });

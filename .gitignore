@@ -20,3 +20,4 @@ Tools/city-export/target/
 docs/explainer/media/*
 !docs/explainer/media/proof-*.js
 !docs/explainer/media/slides-data.js
+!docs/explainer/media/proof-fan.js
