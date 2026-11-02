@@ -18,7 +18,6 @@ DUMP = pathlib.Path(os.environ.get("PROOF_DUMP", "/tmp/explainer-dump"))
 BIN = ROOT / "flight" / "target" / "release"
 FFMPEG = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 WINDOW_KEYS = ("viewport", "view_proj")
-CODE_CACHE = pathlib.Path(os.environ.get("CODE_CACHE", "/tmp/explainer-code"))
 
 
 def sha(data: bytes) -> str:
@@ -42,25 +41,6 @@ def run(cmd: list, log: pathlib.Path, cwd: pathlib.Path) -> None:
             sys.exit(f"failed: {' '.join(map(str, cmd))} (log: {log})")
 
 
-def build_pinned(sha_: str, ref: str) -> pathlib.Path:
-    """The flight binary at a pinned commit, built once into CODE_CACHE from `git archive` (no worktree registered)."""
-    d = CODE_CACHE / sha_[:12]
-    exe = d / "flight" / "target" / "release" / "cityflight"
-    if exe.exists():
-        return d
-    if subprocess.run(["git", "cat-file", "-e", sha_ + "^{commit}"], cwd=ROOT, capture_output=True).returncode != 0:
-        subprocess.run(["git", "fetch", "-q", "origin", ref], cwd=ROOT, check=True)
-    shutil.rmtree(d, ignore_errors=True)
-    d.mkdir(parents=True)
-    tar = subprocess.run(["git", "archive", sha_], cwd=ROOT, capture_output=True, check=True).stdout
-    subprocess.run(["tar", "-x", "-C", d], input=tar, check=True)
-    sdl = subprocess.run(["brew", "--prefix", "sdl3"], capture_output=True, text=True).stdout.strip() or "/opt/homebrew/opt/sdl3"
-    print(f"building the pinned code {sha_[:10]} in {d} (once)", flush=True)
-    run(["lake", "build", "-K", f"sdl={sdl}", "libcityjsb"], d / "build-lake.log", d)
-    run(["cargo", "build", "--release", "--features", "jsb", "--bin", "cityflight"], d / "build-cargo.log", d / "flight")
-    return d
-
-
 def record(r: dict) -> dict:
     out = REC / r["name"]
     shutil.rmtree(out, ignore_errors=True)
@@ -68,10 +48,9 @@ def record(r: dict) -> dict:
     args = ["--safety-filter", "exact-rollout", *r["args"], "--record", str(out), "--frames", str(r["frames"]),
             "--record-from", str(r["from"]), "--record-every", str(r["every"]), "--record-scale", str(r["scale"])]
     t0 = time.time()
-    tree = ROOT if r["code"] == "HEAD" else PINNED[r["code"]]
-    run(["nice", "-n", "5", str(tree / "flight" / "target" / "release" / "cityflight"), *args], REC / f"{r['name']}.log", tree / "flight")
+    run(["nice", "-n", "5", str(BIN / "cityflight"), *args], REC / f"{r['name']}.log", ROOT / "flight")
     print(f"  recorded {r['name']} in {time.time() - t0:.0f} s", flush=True)
-    return {"frames_csv": sha((out / "frames.csv").read_bytes()), "trace": trace_hash(out / "trace.jsonl"), "code": CODE[r["code"]]}
+    return {"frames_csv": sha((out / "frames.csv").read_bytes()), "trace": trace_hash(out / "trace.jsonl"), "code": CODE["HEAD"]}
 
 
 def dump(d: dict) -> dict:
@@ -103,7 +82,6 @@ def hero(r: dict) -> None:
     ffmpeg("-i", REC / r["name"] / "frame_00000.png", "-vf", f"crop={cwid}:{ch}:{ox}:{oy},scale=1600:900:flags=lanczos", "-q:v", "3", MEDIA / "hero-tower-gap.jpg")
 
 
-PINNED: dict = {}
 CODE: dict = {}
 
 
@@ -123,9 +101,6 @@ def main() -> None:
     dumps = [d for d in spec["dumps"] if not only or d["name"] in only]
     t_start = time.time()
     CODE["HEAD"] = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    for c in {r["code"] for r in recs} - {"HEAD"}:
-        PINNED[c] = build_pinned(c, spec["code"]["pinned"][c]["fetch"])
-        CODE[c] = c
     print(f"recording {len(recs)} clips and replaying {len(dumps)} runs ({jobs} at a time) into {REC} and {DUMP}", flush=True)
     with concurrent.futures.ThreadPoolExecutor(jobs) as pool:
         got = dict(zip([r["name"] for r in recs], pool.map(record, recs)))

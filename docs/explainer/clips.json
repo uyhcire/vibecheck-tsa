@@ -1,5 +1,5 @@
 {
- "about": "Every clip on the page, as the exact recording or replay that makes it. `make present-media` re-runs them, checks the hashes in clips.lock.json, and encodes. Recordings step a fixed 1/60 s per rendered frame, so frames.csv and the trace (less its viewport-dependent keys) reproduce bit for bit; pixels may differ by GPU. Each recording names the code it is made with: HEAD (this checkout) or a pinned commit, which present-media fetches and builds in a cache directory.",
+ "about": "Every clip on the page, as the exact recording or replay that makes it. `make present-media` re-runs them, checks the hashes in clips.lock.json, and encodes. Recordings step a fixed 1/60 s per rendered frame, so frames.csv and the trace (less its viewport-dependent keys) reproduce bit for bit; pixels may differ by GPU.",
  "filter": "--safety-filter exact-rollout (make fly's default)",
  "encode": {
   "close-call": "cc_data.py: H.264 at 1280 px wide, CRF 28, keyframe every 15 frames, faststart; poster at the closest moment",
@@ -26,7 +26,7 @@
  },
  "recordings": [
   {
-   "name": "streetdive",
+   "name": "parkdive",
    "group": "close-call",
    "args": [
     "--time-cap",
@@ -36,23 +36,22 @@
     "--check-every",
     "1",
     "--start",
-    "-120.00,-150.00,37.11,50.00,-30.000,90.000,0.000,0.60",
+    "-360.00,260.00,36.14,50.00,-35.000,90.000,0.000,0.60",
     "--lead",
     "3",
     "--cinematic",
     "--paths",
     "--label",
-    "Street dive: closest saved start, zero-margin gate"
+    "Park dive: closest saved start, zero-margin gate"
    ],
    "frames": 1200,
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/streetdive ARGS='--time-cap 0 --margin 0 --check-every 1 --start -120.00,-150.00,37.11,50.00,-30.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label '\"'\"'Street dive: closest saved start, zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/parkdive ARGS='--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,36.14,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label '\"'\"'Park dive: closest saved start, zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
-   "name": "streetdive-twin",
+   "name": "parkdive-twin",
    "group": "close-call",
    "args": [
     "--time-cap",
@@ -62,40 +61,38 @@
     "--check-every",
     "1",
     "--start",
-    "-120.00,-150.00,29.11,50.00,-30.000,90.000,0.000,0.60",
+    "-360.00,260.00,35.64,50.00,-35.000,90.000,0.000,0.60",
     "--cinematic",
     "--paths",
     "--label",
-    "Street dive twin: 8 m lower, zero-margin gate"
+    "Park dive twin: 0.5 m lower, zero-margin gate"
    ],
    "frames": 600,
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/streetdive-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -120.00,-150.00,29.11,50.00,-30.000,90.000,0.000,0.60 --cinematic --paths --label '\"'\"'Street dive twin: 8 m lower, zero-margin gate'\"'\"' --frames 600 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/parkdive-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,35.64,50.00,-35.000,90.000,0.000,0.60 --cinematic --paths --label '\"'\"'Park dive twin: 0.5 m lower, zero-margin gate'\"'\"' --frames 600 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
-   "name": "streetdive-deployed",
+   "name": "parkdive-deployed",
    "group": "close-call",
    "args": [
     "--time-cap",
     "0",
     "--start",
-    "-120.00,-150.00,40.98,50.00,-30.000,90.000,0.000,0.60",
+    "-360.00,260.00,40.40,50.00,-35.000,90.000,0.000,0.60",
     "--lead",
     "3",
     "--cinematic",
     "--paths",
     "--label",
-    "Street dive: closest saved start, deployed gate (4 m margin)"
+    "Park dive: closest accepted start, deployed gate (4 m margin)"
    ],
    "frames": 1200,
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/streetdive-deployed ARGS='--time-cap 0 --start -120.00,-150.00,40.98,50.00,-30.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label '\"'\"'Street dive: closest saved start, deployed gate (4 m margin)'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/parkdive-deployed ARGS='--time-cap 0 --start -360.00,260.00,40.40,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label '\"'\"'Park dive: closest accepted start, deployed gate (4 m margin)'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "wallbeside",
@@ -122,8 +119,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/wallbeside ARGS='--time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths --label '\"'\"'Wingtip against the glass: zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/wallbeside ARGS='--time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths --label '\"'\"'Wingtip against the glass: zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "wallbeside-twin",
@@ -148,8 +144,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/wallbeside-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --label '\"'\"'Wingtip twin: 0.5 m closer, zero-margin gate'\"'\"' --frames 600 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/wallbeside-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths --label '\"'\"'Wingtip twin: 0.5 m closer, zero-margin gate'\"'\"' --frames 600 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "fastdive",
@@ -174,8 +169,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/fastdive ARGS='--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,66.88,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label '\"'\"'67 m/s park dive: zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/fastdive ARGS='--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,66.88,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths --label '\"'\"'67 m/s park dive: zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "fastdive-twin",
@@ -198,8 +192,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/fastdive-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,67.38,-35.000,90.000,0.000,0.60 --cinematic --paths --label '\"'\"'Fast dive twin: 0.5 m/s faster, zero-margin gate'\"'\"' --frames 600 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/fastdive-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,67.38,-35.000,90.000,0.000,0.60 --cinematic --paths --label '\"'\"'Fast dive twin: 0.5 m/s faster, zero-margin gate'\"'\"' --frames 600 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "wallahead",
@@ -226,8 +219,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/wallahead ARGS='--time-cap 0 --margin 0 --check-every 1 --start -399.19,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --lead 2 --cinematic --cam 0 --paths --label '\"'\"'Head-on at the tower: zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/wallahead ARGS='--time-cap 0 --margin 0 --check-every 1 --start -399.19,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --lead 2 --cinematic --cam 0 --paths --label '\"'\"'Head-on at the tower: zero-margin gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "wallahead-twin",
@@ -252,8 +244,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/wallahead-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -398.69,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths --label '\"'\"'Head-on twin: 0.5 m closer, zero-margin gate'\"'\"' --frames 720 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/wallahead-twin ARGS='--time-cap 0 --margin 0 --check-every 1 --start -398.69,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths --label '\"'\"'Head-on twin: 0.5 m closer, zero-margin gate'\"'\"' --frames 720 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "towergap",
@@ -271,8 +262,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/towergap ARGS='--time-cap 0 --showcase --cinematic --paths --label '\"'\"'Tower gap: scripted showcase pilot, deployed gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/towergap ARGS='--time-cap 0 --showcase --cinematic --paths --label '\"'\"'Tower gap: scripted showcase pilot, deployed gate'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "towergap-off",
@@ -291,8 +281,7 @@
    "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/towergap-off ARGS='--time-cap 0 --showcase --cinematic --paths --off --label '\"'\"'Tower gap: same pilot, filter off'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/towergap-off ARGS='--time-cap 0 --showcase --cinematic --paths --off --label '\"'\"'Tower gap: same pilot, filter off'\"'\"' --frames 1200 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "kamikaze",
@@ -309,12 +298,11 @@
     "--label",
     "Kamikaze autopilot, Tower gap start, deployed gate"
    ],
-   "frames": 3120,
-   "from": 1680,
+   "frames": 1440,
+   "from": 0,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/kamikaze ARGS='--time-cap 0 --episode 1004 --cinematic --cam 0 --paths --label '\"'\"'Kamikaze autopilot, Tower gap start, deployed gate'\"'\"' --frames 3120 --record-from 1680 --record-every 2 --record-scale 2'",
-   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131"
+   "make": "make record OUT=$REC/kamikaze ARGS='--time-cap 0 --episode 1004 --cinematic --cam 0 --paths --label '\"'\"'Kamikaze autopilot, Tower gap start, deployed gate'\"'\"' --frames 1440 --record-from 0 --record-every 2 --record-scale 2'"
   },
   {
    "name": "proof-towergap",
@@ -330,8 +318,7 @@
    "from": 60,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/proof-towergap ARGS='--showcase --cinematic --cam 0 --no-paths --frames 600 --record-from 60 --record-every 2 --record-scale 2'",
-   "code": "HEAD"
+   "make": "make record OUT=$REC/proof-towergap ARGS='--showcase --cinematic --cam 0 --no-paths --frames 600 --record-from 60 --record-every 2 --record-scale 2'"
   },
   {
    "name": "proof-towergap-high",
@@ -349,8 +336,7 @@
    "from": 60,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/proof-towergap-high ARGS='--showcase --cinematic --cam 3 --lens 0 --no-paths --frames 600 --record-from 60 --record-every 2 --record-scale 2'",
-   "code": "HEAD"
+   "make": "make record OUT=$REC/proof-towergap-high ARGS='--showcase --cinematic --cam 3 --lens 0 --no-paths --frames 600 --record-from 60 --record-every 2 --record-scale 2'"
   },
   {
    "name": "proof-dive",
@@ -367,8 +353,7 @@
    "from": 3150,
    "every": 2,
    "scale": 2,
-   "make": "make record OUT=$REC/proof-dive ARGS='--episode 1001 --cinematic --cam 0 --no-paths --frames 3600 --record-from 3150 --record-every 2 --record-scale 2'",
-   "code": "HEAD"
+   "make": "make record OUT=$REC/proof-dive ARGS='--episode 1001 --cinematic --cam 0 --no-paths --frames 3600 --record-from 3150 --record-every 2 --record-scale 2'"
   },
   {
    "name": "paths",
@@ -384,8 +369,7 @@
     "paths-verified.jpg": "frame_00010.png",
     "paths-committed.jpg": "frame_00029.png"
    },
-   "make": "make record OUT=$REC/paths ARGS='--showcase --frames 175 --record-from 140 --record-every 1 --record-scale 2'",
-   "code": "HEAD"
+   "make": "make record OUT=$REC/paths ARGS='--showcase --frames 175 --record-from 140 --record-every 1 --record-scale 2'"
   },
   {
    "name": "hero",
@@ -402,8 +386,7 @@
    "stills": {
     "hero-tower-gap.jpg": "frame_00000.png"
    },
-   "make": "make record OUT=$REC/hero ARGS='--showcase --cinematic --paths --frames 200 --record-from 199 --record-every 1 --record-scale 1'",
-   "code": "HEAD"
+   "make": "make record OUT=$REC/hero ARGS='--showcase --cinematic --paths --frames 200 --record-from 199 --record-every 1 --record-scale 1'"
   }
  ],
  "dumps": [
@@ -444,14 +427,5 @@
    "make": "make proofdump OUT=$DUMP/ep1001 RUN=ep1001 ARGS='--secs 60 --settle-secs 90 --detail-from 52'",
    "code": "HEAD"
   }
- ],
- "code": {
-  "HEAD": "this checkout",
-  "pinned": {
-   "1fe678e78a2b14f1c72a6c55bb47257afa3f0131": {
-    "fetch": "refs/pull/53/head",
-    "why": "the close-call clips were found and described for the gate as it was before #34 (settled straight ending, continued terrain off the map); recorded at the commit that added --record"
-   }
-  }
- }
+ ]
 }
