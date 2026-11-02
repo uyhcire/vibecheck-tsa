@@ -200,7 +200,8 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   terminal phase), the default law climbs at a constant equivalent airspeed: 35.2 m/s straight, 37.8 m/s in
   the 30° turns and 40.3 m/s in the 40° turns, the same α (about 0.08) in each, with a stiffer speed loop
   (0.06 rad per m/s, gradient 0 to 0.5) and α integral (6/s) (`docs/escape-law-terminal.md`; the turns extend it at
-  the same α). Every escape levels off at 1,000 m (gradient capped at `0.005·(1000 − h)`), 66 m above
+  the same α; the street escape flies 40.3 m/s on its street too). The straight escape's heading gain scales
+  by `max(1, V/35.2)`, keeping its heading mode's rate at any speed. Every escape levels off at 1,000 m (gradient capped at `0.005·(1000 − h)`), 66 m above
   the map's top. The gate's earlier law locked into a post-stall descent (α ≈ 0.28, α integral at its
   clamp) at 32-37 m/s in the turns; the terminal law recovers from every such state found
   (`make termhunt ARGS=trim`).
