@@ -1,5 +1,5 @@
 //! `proofdump OUT RUN`: what the gate holds as verified, per tick, for drawing over `--record` footage (flight/README.md).
-use cityflight::envfilter::{EndSet, Gate, Law, ESCAPES};
+use cityflight::envfilter::{EndSet, Law, ESCAPES};
 use cityflight::filter::*;
 use cityflight::model::*;
 use cityflight::pilot::*;
@@ -146,6 +146,9 @@ fn main() {
     };
     let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed };
     let mut sim = Sim::new(&world, s0, cfg);
+    if args.iter().any(|a| a == "--off") {
+        sim.set_filter(false);
+    }
     let mut fbw = Fbw::from_state(&s0);
 
     std::fs::create_dir_all(&out).expect("proofdump: cannot create OUT");
@@ -170,7 +173,23 @@ fn main() {
         let u = fbw.cmd(&sim.prm_ctrl, &sim.s);
         sim.tick(u);
         fbw.resync(&sim.s, sim.fs.lam, DT_F);
-        let g: &Gate = sim.env_gate.as_ref().expect("proofdump: the exact-rollout gate is not running");
+        let Some(g) = sim.env_gate.as_ref() else {
+            let s = &sim.s;
+            writeln!(
+                ticks,
+                "{{\"k\":{k},\"t\":{:.2},\"mode\":\"off\",\"pos\":{},\"phi\":{:.4},\"clear\":{:.3},\"crashed\":{},\"escape\":null,\"path\":-1,\"failed\":-1,\"end\":null}}",
+                sim.time(),
+                f3(&[s[X], s[Y], s[Z]]),
+                s[PHI],
+                sim.true_clear.min(9999.0),
+                sim.crashed
+            )
+            .unwrap();
+            if sim.crashed {
+                break;
+            }
+            continue;
+        };
         let mode = sim.fs.mode;
         let committed = g.law.is_some();
         let (path, end) = if committed { (&g.committed_path, g.committed_end) } else { (&g.witness_path, g.witness_end) };
