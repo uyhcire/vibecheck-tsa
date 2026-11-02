@@ -125,6 +125,22 @@ record:
 proofdump:
 	$(CITY) $(CARGO_HEADLESS) proofdump -- $(OUT) $(RUN) $(ARGS)
 
+# The explainer page (docs/explainer): serve it with HTTP Range support (its videos seek) and open it. Its media is not
+# committed: `make present-media` builds it once (slow) from the recordings in docs/explainer/clips.json.
+PORT ?= 8763
+.PHONY: present
+present:
+	PORT=$(PORT) PRESENT_MEDIA_MINUTES=$(PRESENT_MEDIA_MINUTES) docs/explainer/present.sh
+
+# Re-record every clip and replay in docs/explainer/clips.json, check them against clips.lock.json (the simulation
+# is deterministic, so a mismatch means the code changed), then encode. JOBS recordings run at once.
+JOBS ?= 2
+PRESENT_MEDIA_MINUTES = 12
+.PHONY: present-media
+present-media:
+	$(CITY) cargo build --release --features jsb --bin cityflight && cargo build --release --no-default-features --features jsb --bin proofdump
+	python3 -I docs/explainer/media.py --jobs $(JOBS)
+
 # Fly while sampling the process (macOS `sample`) and logging tick times, for later analysis: results in OUT.
 .PHONY: profile
 profile:
@@ -223,6 +239,7 @@ help:
 	@echo "Fly:      make fly | fly-lean | fly-rust | fly-san-francisco | fly-off | showcase | profile | profile-lean   (Lean gate by default; FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
+	@echo "Explainer: make present [PORT=8763] | present-media [JOBS=2]   (present-media builds the page's clips: about $(PRESENT_MEDIA_MINUTES) min)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck   (ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs | safe-region"

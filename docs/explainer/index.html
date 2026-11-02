@@ -1,0 +1,1716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The city flight safety filter, in pictures</title>
+<meta name="description" content="How the city flight demo's gatekeeper safety filter works, what it must guarantee, how well it is tested, and close calls it saves.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Barlow:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<!-- Triskweline Pixel is used only if it is installed locally (local() source; the font file is not shipped
+     with this page, since its redistribution terms are unknown). Elsewhere the Barlow / Source Serif stack applies. -->
+<script>
+  new FontFace("Trisk", "local('Triskweline Pixel'), local('TriskwelinePixel-Regular')").load()
+    .then((f) => { document.fonts.add(f); document.documentElement.classList.add("trisk"); window.pixelSvgs && window.pixelSvgs(); window.snapPixelFont && window.snapPixelFont(); })
+    .catch(() => {});
+</script>
+<!--
+  Sources for every number on this page:
+  - flight/README.md (results tables, Tower gap, escape and terminal-set parameters)
+  - docs/safety-objective.md (Safe F)
+  - flight/src/envfilter.rs (HORIZON 16 s, T_TERM 6 s, SAMPLE 8 frames, MARGIN 4 m, 6 escapes)
+  - flight/src/world.rs (R_BODY 4.5 m, MAP_HALF 3000 m)
+  - measured for this page: `make proofdump` (headless replays of the GUI runs on current code) and `make record`
+  - close calls: recorded with `make record` (cityflight --record, PR #53) via make present-media (clips.json); cc_data.py turns each
+    capture's frames.csv into the clip, poster and chart data (CC_DATA)
+-->
+<style>
+:root {
+  color-scheme: light;
+  --paper: #edf1ee;
+  --paper-2: #e1e8e3;
+  --ink: #17222c;
+  --ink-2: #4b5966;
+  --rule: #b7c3be;
+  --magenta: #9e1a6c;
+  --blue: #2a73c9;
+  --amber: #d98400;
+  --green: #2e8550;
+  --red: #c4372c;
+  --off: #7c8791;
+  --b1: #cfd8d3;
+  --b2: #aab7b1;
+  --b3: #7d8d87;
+  --b4: #55645f;
+  --measure: 40rem;
+  --wide: 70rem;
+  --gutter: 16px;
+  --t-sm: 13px; --t-sm-lh: 18px; --t-body: 19.5px; --t-body-lh: 27px; --t-h3: 26px; --t-h3-lh: 30px;
+  --t-h2: 39px; --t-h2-lh: 42px; --t-h1: 52px; --t-h1-lh: 56px; --t-measure: 52rem;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 1.125rem/1.68 "Source Serif 4", Georgia, serif;
+  font-optical-sizing: auto;
+}
+img, video, svg { display: block; max-width: 100%; }
+a { color: inherit; text-decoration-color: var(--magenta); text-underline-offset: 0.18em; }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--magenta); outline-offset: 3px; }
+code { font: 500 0.88em/1 "Barlow", sans-serif; letter-spacing: 0.01em; background: var(--paper-2); padding: 0.1em 0.35em; border-radius: 3px; }
+h1, h2, h3 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 600; line-height: 1.05; letter-spacing: 0.005em; margin: 0; }
+h2 { font-size: clamp(1.9rem, 4.2vw, 2.6rem); margin: 0 0 0.9rem; }
+h2.small { font-size: 1.6rem; }
+h3 { font-size: 1.4rem; margin: 1.8rem 0 0.4rem; }
+p { margin: 0 0 1rem; }
+
+.col { max-width: var(--measure); margin: 0 auto; padding: 0 var(--gutter); }
+.wide { max-width: var(--wide); margin: 2rem auto; padding: 0 var(--gutter); }
+section { padding: 3.6rem 0 1rem; }
+section + section { border-top: 1px solid var(--rule); }
+
+/* Hero: the photo carries a chart-style callout pinned to the aircraft. */
+.hero { position: relative; background: #1b2530; color: #f3f6f8; }
+.hero figure { margin: 0; position: relative; max-width: min(100rem, 140vh); margin-inline: auto; }
+.hero img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; }
+.callout { position: absolute; left: 40.5%; top: 56.4%; width: 0; height: 0; }
+.callout::before { content: ""; position: absolute; left: 0; top: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px rgba(158, 26, 108, 0.9); }
+.callout span { position: absolute; left: 18px; top: -78px; white-space: nowrap; font: 600 0.95rem/1.25 "Barlow", sans-serif; background: rgba(14, 21, 28, 0.82); padding: 0.45rem 0.65rem; border-left: 3px solid #e76bb4; }
+.callout span b { font: 600 1.35rem/1 "Barlow Condensed", sans-serif; display: block; }
+.hero-text { max-width: var(--wide); margin: 0 auto; padding: 2.2rem var(--gutter) 2.6rem; display: grid; gap: 1rem 3rem; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: end; }
+.hero h1 { font-size: clamp(2.5rem, 7vw, 4.8rem); }
+.hero .lede { font-size: 1.2rem; color: #d3dce3; margin: 0; }
+.hero .lede strong { color: #fff; font-weight: 600; }
+.hero code { background: rgba(255, 255, 255, 0.1); color: #dfe7ec; }
+.hero .credit { grid-column: 1 / -1; font: 400 0.85rem/1.4 "Barlow", sans-serif; color: #a7b4be; margin: 0; }
+
+/* Figures: approach-plate frames. */
+figure.plate { margin: 0; border: 1.5px solid var(--ink); background: var(--paper); }
+.plate-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; border-bottom: 1.5px solid var(--ink); padding: 0.4rem 0.75rem; font: 600 1rem/1.3 "Barlow Condensed", sans-serif; letter-spacing: 0.02em; }
+.plate-head span:last-child { font-weight: 500; color: var(--ink-2); }
+.plate-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+.plate-body > div { padding: 0.75rem; min-width: 0; }
+.plate-body > div + div { border-left: 1.5px solid var(--ink); }
+figcaption, .note { font: 400 0.95rem/1.5 "Barlow", sans-serif; color: var(--ink-2); padding: 0.6rem 0 0; }
+.plate figcaption { padding: 0.6rem 0.75rem 0.75rem; border-top: 1px solid var(--rule); }
+figcaption b { color: var(--ink); font-weight: 600; }
+svg.svgtext { font-family: "Barlow", sans-serif; width: 100%; height: auto; }
+html.trisk svg.svgtext { max-width: 100%; margin: 0 auto; }
+.diagram { padding: 0.75rem; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.key { display: flex; flex-wrap: wrap; gap: 0.35rem 1.1rem; font: 500 0.9rem/1.3 "Barlow", sans-serif; color: var(--ink-2); margin: 0.6rem 0 0; padding: 0; list-style: none; }
+.key li { display: flex; align-items: center; gap: 0.4rem; }
+.key i { display: inline-block; width: 22px; height: 4px; border-radius: 2px; }
+
+/* Side-by-side clips. */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.pair figure { margin: 0; }
+.pair video, .shot img { width: 100%; height: auto; border-radius: 2px; background: #1b2530; }
+.clip-label { font: 600 1.15rem/1.2 "Barlow Condensed", sans-serif; margin: 0 0 0.4rem; display: flex; align-items: baseline; gap: 0.6rem; }
+.clip-label .dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; display: inline-block; }
+.replay { font: 600 0.95rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.55rem 0.9rem; border-radius: 2px; cursor: pointer; margin-top: 0.9rem; }
+.replay:hover { background: var(--paper-2); }
+
+/* Steps of one tick: a real sequence, so numbered. */
+ol.tick { list-style: none; padding: 0; margin: 1.4rem 0; counter-reset: s; }
+ol.tick li { counter-increment: s; position: relative; padding: 0 0 1rem 3.1rem; }
+ol.tick li::before { content: counter(s); position: absolute; left: 0; top: 0.05rem; width: 2.1rem; height: 2.1rem; border: 1.5px solid var(--magenta); color: var(--magenta); border-radius: 50%; display: grid; place-items: center; font: 600 1.15rem/1 "Barlow Condensed", sans-serif; }
+ol.tick li + li::after { content: ""; position: absolute; left: 1.05rem; top: -1rem; height: 1rem; border-left: 1.5px solid var(--magenta); opacity: 0.5; }
+
+/* Close calls: scrubbable players, each synced to its clearance-over-time chart. */
+.ccs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3.2rem; }
+.cc { min-width: 0; }
+.cc { margin: 0; border: 1.5px solid var(--ink); background: var(--paper); }
+.cc-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 0.6rem 1.2rem; flex-wrap: wrap; padding: 0.7rem 0.75rem 0.6rem; border-bottom: 1.5px solid var(--ink); }
+.cc-head h3 { margin: 0; font-size: 1.45rem; }
+.cc-head .kicker { display: block; font: 500 0.85rem/1.3 "Barlow", sans-serif; color: var(--ink-2); margin-bottom: 0.2rem; }
+.mins { display: flex; align-items: stretch; gap: 0; border: 1.5px solid var(--ink); width: max-content; max-width: 100%; }
+.mins > * { padding: 0.25rem 0.6rem; }
+.mins b { font: 600 1.5rem/1.1 "Barlow Condensed", sans-serif; font-variant-numeric: tabular-nums; border-right: 1.5px solid var(--ink); display: flex; align-items: center; white-space: nowrap; }
+.mins span { font: 500 0.85rem/1.25 "Barlow", sans-serif; color: var(--ink-2); display: flex; align-items: center; }
+.cc-tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 1.5px solid var(--ink); }
+.cc-tabs:empty { display: none; }
+.cc-tabs button { font: 600 0.9rem/1.2 "Barlow", sans-serif; color: var(--ink-2); background: var(--paper-2); border: 0; border-right: 1.5px solid var(--ink); padding: 0.5rem 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 0.45rem; text-align: left; }
+.cc-tabs button[aria-selected="true"] { background: var(--paper); color: var(--ink); box-shadow: inset 0 -3px 0 var(--magenta); }
+.cc-tabs .dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex: none; }
+.cc-stage { position: relative; background: #1b2530; aspect-ratio: 1280 / 768; max-height: 64vh; width: 100%; touch-action: pan-y; cursor: ew-resize; user-select: none; -webkit-user-select: none; }
+.cc-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.cc-stage video[hidden] { display: none; }
+.cc-stage .cc-hint { position: absolute; right: 0.6rem; bottom: 0.6rem; font: 500 0.8rem/1.3 "Barlow", sans-serif; color: #e7edf1; background: rgba(14, 21, 28, 0.72); padding: 0.25rem 0.5rem; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+.cc-stage:hover .cc-hint, .cc-stage.engaged .cc-hint { opacity: 1; }
+.cc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; padding: 0.55rem 0.75rem; border-top: 1.5px solid var(--ink); }
+.cc-bar button { font: 600 0.9rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.45rem 0.75rem; border-radius: 2px; cursor: pointer; }
+.cc-bar button:hover { background: var(--paper-2); }
+.cc-bar .cc-play { min-width: 5.2rem; }
+.cc-time { font: 400 0.95rem/1 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; color: var(--ink); }
+.cc-now { font: 500 0.9rem/1.3 "Barlow", sans-serif; color: var(--ink-2); }
+.cc-chart { display: block; width: 100%; height: 166px; touch-action: pan-y; cursor: crosshair; border-top: 1px solid var(--rule); user-select: none; -webkit-user-select: none; }
+.cc-chart text { font: 500 12px "Barlow", sans-serif; }
+.cc figcaption { padding: 0.6rem 0.75rem 0.75rem; border-top: 1px solid var(--rule); }
+.cc .cc-text { font: 400 1rem/1.55 "Source Serif 4", serif; color: var(--ink); padding: 0.7rem 0.75rem 0; margin: 0; }
+.cc .repro { font: 400 0.82rem/1.5 "Barlow", sans-serif; color: var(--ink-2); padding: 0.4rem 0.75rem 0.8rem; margin: 0; }
+.cc .repro code { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+.cc code, .cc-time { -webkit-font-smoothing: antialiased; }
+.cc .repro span { display: block; margin-top: 0.25rem; }
+.cc-key { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font: 500 0.85rem/1.3 "Barlow", sans-serif; color: var(--ink-2); padding: 0.4rem 0.75rem 0; margin: 0; list-style: none; }
+.cc-key li { display: flex; align-items: center; gap: 0.35rem; }
+.cc-key i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; }
+
+/* Evidence table. */
+.tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font: 400 0.98rem/1.35 "Barlow", sans-serif; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 0.55rem 0.7rem 0.55rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; border-bottom: 1.5px solid var(--ink); }
+td.n { text-align: right; padding-right: 1.2rem; white-space: nowrap; }
+th.n { text-align: right; padding-right: 1.2rem; }
+tr.ours td { font-weight: 600; }
+.bar { display: inline-block; height: 0.6rem; background: var(--red); vertical-align: middle; margin-left: 0.5rem; border-radius: 1px; }
+.zero { display: inline-block; width: 0.6rem; height: 0.6rem; border: 1.5px solid var(--green); border-radius: 50%; vertical-align: middle; margin-left: 0.5rem; }
+
+/* Status ladder. */
+.ladder { margin: 1.6rem 0; border-left: 3px solid var(--ink); }
+.rung { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: 0 1.2rem; padding: 0.9rem 0 0.9rem 1.1rem; position: relative; }
+.rung + .rung { border-top: 1px dashed var(--rule); }
+.rung::before { content: ""; position: absolute; left: -3px; top: 1.15rem; width: 1.1rem; border-top: 3px solid var(--ink); }
+.rung h3 { margin: 0; font-size: 1.3rem; }
+.rung h3 small { display: block; font: 400 0.85rem/1.3 "Barlow", sans-serif; color: var(--ink-2); margin-top: 0.2rem; }
+.rung ul { margin: 0; padding-left: 1.1rem; font-size: 1rem; line-height: 1.55; }
+.rung li + li { margin-top: 0.35rem; }
+.rung.empty ul { color: var(--ink-2); }
+.tag { font: 600 0.8rem/1 "Barlow", sans-serif; padding: 0.15rem 0.4rem; border-radius: 2px; vertical-align: 0.1em; margin-right: 0.25rem; white-space: nowrap; }
+.tag.g { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+
+.fn { font: 600 0.72em/1 "Barlow", sans-serif; vertical-align: super; text-decoration: none; color: var(--magenta); padding-left: 0.1em; }
+.sources { font: 400 0.92rem/1.5 "Barlow", sans-serif; color: var(--ink-2); padding-left: 1.4rem; }
+.sources li { margin-bottom: 0.4rem; }
+.aside { border-left: 3px solid var(--magenta); padding: 0.2rem 0 0.2rem 1rem; font-size: 1.02rem; color: var(--ink-2); }
+footer { padding: 2rem 0 4rem; }
+
+/* How the proof works: footage players with drawn overlays. */
+.pf-body { display: grid; grid-template-columns: minmax(0, 1fr); }
+.pf-body.side { grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); }
+.pf-body.side > .pf-aside { border-left: 1.5px solid var(--ink); padding: 0.75rem; min-width: 0; }
+.pf-stage { align-self: start; }
+.pf-stage svg.pf-ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.pf-tag { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; pointer-events: none; font: 600 0.82rem/1.25 "Barlow", sans-serif; color: #fff; background: rgba(14, 21, 28, 0.82); padding: 0.25rem 0.45rem; border-left: 3px solid var(--tag, #fff); margin-top: -10px; }
+.pf-tag[hidden] { display: none; }
+.cc-bar.pf-ctl { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; }
+.pf-track { position: relative; }
+.pf-strip { position: absolute; left: 0; right: 0; top: 50%; height: 8px; margin-top: -4px; border-radius: 1px; overflow: hidden; pointer-events: none; }
+.pf-strip i { position: absolute; top: 0; bottom: 0; }
+.pf-scrub { position: relative; width: 100%; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; height: 28px; cursor: pointer; }
+.pf-scrub::-webkit-slider-runnable-track { height: 8px; background: transparent; }
+.pf-scrub::-moz-range-track { height: 8px; background: transparent; }
+.pf-scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 6px; height: 24px; margin-top: -8px; background: var(--ink); border: 2px solid var(--paper); border-radius: 1px; }
+.pf-scrub::-moz-range-thumb { width: 6px; height: 24px; background: var(--ink); border: 2px solid var(--paper); border-radius: 1px; }
+.pf-status { grid-column: 1 / -1; margin: 0; font: 500 0.95rem/1.4 "Barlow", sans-serif; color: var(--ink); min-height: 2.8em; }
+.pf-status i { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 1px; margin-right: 0.4rem; vertical-align: -0.05em; }
+.badge { margin: 0; padding: 0.5rem 0.75rem; border-top: 1px solid var(--rule); font: 500 0.92rem/1.4 "Barlow", sans-serif; color: var(--ink); display: flex; gap: 0.6rem; align-items: baseline; }
+.badge b { font-weight: 600; white-space: nowrap; padding: 0.1rem 0.45rem; border-radius: 2px; color: #fff; }
+.badge.conditional b { background: var(--amber); }
+.badge.assumed b { background: var(--red); }
+.badge.informal b { background: var(--blue); }
+.pf-aside h4 { margin: 0 0 0.4rem; font: 600 1rem/1.3 "Barlow Condensed", sans-serif; letter-spacing: 0.02em; }
+.pf-aside p { margin: 0.5rem 0 0; font: 400 0.88rem/1.45 "Barlow", sans-serif; color: var(--ink-2); }
+.pf-aside p b { color: var(--ink); font-weight: 600; }
+details.precise { padding: 0 0.75rem 0.75rem; font: 400 0.92rem/1.5 "Barlow", sans-serif; color: var(--ink-2); }
+details.precise summary { cursor: pointer; color: var(--ink); font-weight: 600; padding: 0.2rem 0; }
+details.precise p { margin: 0.4rem 0 0; }
+details.precise ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+details.precise li + li { margin-top: 0.3rem; }
+@media (max-width: 760px) {
+  .pf-body.side { grid-template-columns: minmax(0, 1fr); }
+  .pf-body.side > .pf-aside { border-left: 0; border-top: 1.5px solid var(--ink); }
+  .pf-tag { display: none; }
+  /* Controls right under the clip; the gauge or plan follows them. */
+  #proof figure.plate { display: flex; flex-direction: column; }
+  #proof .pf-body.side { display: contents; }
+  #proof .pf-ctl { order: 1; }
+  #proof .pf-aside { order: 2; border-bottom: 1.5px solid var(--ink); }
+  #proof figure.plate > :is(.badge, figcaption, details) { order: 3; }
+  .badge { flex-direction: column; gap: 0.3rem; }
+}
+html.trisk :is(.pf-tag, .pf-status, .badge, .badge b, .pf-aside h4, .pf-aside p, details.precise, details.precise summary) { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; letter-spacing: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+
+/* A clip or still that has not been built yet (make present-media) gets a placeholder, not a broken player. */
+.media-missing { display: grid; place-items: center; text-align: center; background: #1b2530; color: #e7edf1; font: 500 0.95rem/1.45 "Barlow", sans-serif; padding: 1rem; aspect-ratio: 1280 / 768; width: 100%; }
+.cc-stage > .media-missing, .pf-stage > .media-missing { position: absolute; inset: 0; aspect-ratio: auto; z-index: 2; }
+.media-missing code { background: rgba(255, 255, 255, 0.12); color: #fff; }
+html.trisk .media-missing { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+
+/* Code and notation: monospace in every mode. */
+code, .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 400; font-size: 0.85em; letter-spacing: 0; }
+
+/* Triskweline Pixel (local only). Its em is 13 design pixels on a 12 px line cell, and it has one weight.
+   Sizes are 13 px multiples (k = 1, 2, 3, 4) or 19.5 px (k = 1.5, whole device pixels on 2x displays);
+   line heights are whole multiples of the same pixel. */
+html.trisk body { font-family: "Trisk", "Source Serif 4", Georgia, serif; font-size: var(--t-body); line-height: var(--t-body-lh); font-synthesis: none; -webkit-font-smoothing: none; }
+html.trisk :is(h1, h2, h3, figcaption, .note, .plate-head, .key, .clip-label, .replay, table, .mins b, .mins span, .callout span, .callout span b, .hero .credit, .sources, .rung h3 small, .tag, .fn, .svgtext, footer p) { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; letter-spacing: 0; }
+html.trisk { --measure: var(--t-measure); }
+html.trisk h1, html.trisk .hero h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh); }
+html.trisk h2 { font-size: var(--t-h2); line-height: var(--t-h2-lh); }
+html.trisk h2.small { font-size: var(--t-h3); line-height: var(--t-h3-lh); }
+html.trisk h3, html.trisk .rung h3, html.trisk .clip-label, html.trisk .mins b, html.trisk .callout span b { font-size: var(--t-h3); line-height: var(--t-h3-lh); }
+html.trisk :is(figcaption, .note, .plate-head, .key, .replay, table, .mins span, .callout span, .hero .credit, .sources, .rung h3 small, .tag, footer p) { font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+html.trisk :is(.hero .lede, .rung ul, .aside) { font-size: var(--t-body); line-height: var(--t-body-lh); }
+html.trisk .fn { font-size: var(--t-sm); }
+html.trisk :is(.cc-head .kicker, .cc-tabs button, .cc-bar button, .cc-now, .cc .repro, .cc-key, .cc-stage .cc-hint, .cc-chart text) { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; letter-spacing: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); -webkit-font-smoothing: none; }
+html.trisk .cc-chart text { font-size: 13px; }
+html.trisk .cc-head h3 { font-size: var(--t-h3); line-height: var(--t-h3-lh); }
+html.trisk .cc .cc-text { font-family: "Trisk", "Source Serif 4", serif; font-size: var(--t-body); line-height: var(--t-body-lh); }
+html.trisk :is(strong, b, th, tr.ours td, td:first-child) { font-weight: 400; }
+html.trisk :is(p, li) strong { background: color-mix(in srgb, var(--magenta) 14%, transparent); }
+html.trisk ol.tick li::before { font: 400 var(--t-h3)/1 "Trisk", sans-serif; }
+html.trisk .svgtext text { font-family: "Trisk", "Barlow", sans-serif; font-size: 13px; font-weight: 400; }
+html.trisk .svgtext text.lg { font-size: 26px; }
+html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+@media (min-width: 761px) { html.trisk .plate-body { grid-template-columns: auto auto; justify-content: center; } }
+
+@media (max-width: 760px) {
+  body { font-size: 1.05rem; }
+  .hero-text { grid-template-columns: 1fr; }
+  .plate-body { grid-template-columns: 1fr; }
+  .plate-body > div + div { border-left: 0; border-top: 1.5px solid var(--ink); }
+  .pair { grid-template-columns: minmax(0, 1fr); }
+  .note code { white-space: normal; overflow-wrap: anywhere; }
+  .cc-chart { height: 150px; }
+  .cc-tabs button { flex: 1 1 auto; }
+  .ccs { gap: 2.4rem; }
+  html.trisk .cc .cc-text { font-size: 13px; line-height: 21px; }
+  .rung { grid-template-columns: 1fr; gap: 0.4rem; }
+  .callout span { top: -58px; font-size: 0.8rem; }
+  .callout span b { font-size: 1.1rem; }
+  td.n, th.n { padding-right: 0.6rem; }
+  .diagram svg { min-width: 600px; }
+  .bar, .zero { display: none; }
+  html.trisk h1, html.trisk .hero h1 { font-size: 39px; line-height: 42px; }
+  html.trisk h2 { font-size: 26px; line-height: 30px; }
+  html.trisk body, html.trisk :is(.hero .lede, .rung ul, .aside) { font-size: 13px; line-height: 21px; }
+  thead { display: none; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  tr { border-bottom: 1.5px solid var(--ink); padding: 0.5rem 0; }
+  td { border: 0; padding: 0.15rem 0; }
+  td:first-child { font-weight: 600; }
+  td.n { text-align: left; white-space: normal; display: flex; justify-content: space-between; gap: 1rem; }
+  td.n::before { content: attr(data-label); color: var(--ink-2); font-weight: 400; }
+}
+@media (prefers-reduced-motion: reduce) {
+  video { animation: none; }
+}
+
+/* Slides: one idea per 16:9 screen, a vertical tab index on the left. */
+html, body.deck { height: 100%; }
+body.deck { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); height: 100vh; overflow: hidden; margin: 0; }
+.deck-nav { border-right: 1.5px solid var(--ink); background: var(--paper-2); overflow-y: auto; display: flex; flex-direction: column; }
+.deck-tabs { display: flex; flex-direction: column; padding: 0.5rem 0; }
+.deck-tabs .grp { font: 600 0.75rem/1.2 "Barlow", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); padding: 0.7rem 0.9rem 0.25rem; }
+.deck-tabs button { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 0.4rem 0.9rem 0.4rem 1.1rem; font: 500 0.92rem/1.3 "Barlow", sans-serif; color: var(--ink-2); cursor: pointer; border-left: 4px solid transparent; }
+.deck-tabs button:hover { background: var(--paper); color: var(--ink); }
+.deck-tabs button[aria-selected="true"] { color: var(--ink); background: var(--paper); border-left-color: var(--magenta); font-weight: 600; }
+.deck-tabs button:focus-visible { outline: 3px solid var(--magenta); outline-offset: -3px; }
+.deck-hint { margin: auto 0 0; padding: 0.8rem 0.9rem; font: 400 0.8rem/1.3 "Barlow", sans-serif; color: var(--ink-2); }
+.deck-main { position: relative; overflow: hidden; min-width: 0; }
+.slide { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 0.45rem; padding: 1.2rem 1.8rem 1rem; min-height: 0; }
+.slide[hidden] { display: none; }
+.slide > h2, .slide > h1 { margin: 0; }
+.slide .kicker { margin: 0; font: 500 0.85rem/1.3 "Barlow", sans-serif; color: var(--ink-2); }
+.slide .sub { margin: 0; font: 400 1.05rem/1.45 "Barlow", sans-serif; color: var(--ink-2); max-width: 70rem; }
+.slide > figure, .slide > .two, .slide > .lean, .slide > .tablewrap { flex: 1 1 auto; min-height: 0; }
+.title-slide h1 { font-size: clamp(2rem, 4.2vw, 3.6rem); }
+.hero-shot { position: relative; margin: 0; flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; }
+.hero-shot img { max-height: 100%; width: auto; max-width: 100%; object-fit: contain; }
+.hero-shot .callout { left: auto; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; min-height: 0; }
+.two figure { margin: 0; display: flex; flex-direction: column; min-height: 0; }
+.two figure > img, .two figure > svg { flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; object-fit: contain; background: #1b2530; }
+.two.traj figure > svg { background: none; }
+.two figcaption { padding: 0.4rem 0 0; }
+/* Players inside slides: the picture takes the height that is left. */
+.slide figure.cc, .slide figure.pf { display: flex; flex-direction: column; min-height: 0; margin: 0; }
+.slide figure.cc .cc-head { display: none; }
+.slide .cc-stage { flex: 1 1 auto; min-height: 0; max-height: none; aspect-ratio: auto; height: auto; }
+.slide figure.pf .plate-head { display: none; }
+.slide .pf-body { flex: 1 1 auto; min-height: 0; }
+.slide .pf-body > .pf-stage { height: 100%; }
+.slide .pf-body.side > .pf-aside { overflow-y: auto; }
+.slide .cc-chart { height: 110px; flex: none; }
+.slide .cc-key { padding-top: 0.2rem; }
+.slide figure.pf .badge, .slide figure.pf figcaption, .slide figure.cc figcaption { flex: none; }
+.slide .pf-status { min-height: 0; }
+details.more { padding: 0.2rem 0.75rem 0.5rem; font: 400 0.9rem/1.5 "Barlow", sans-serif; color: var(--ink-2); flex: none; }
+details.more summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+details.more[open], .slide details.precise[open] { position: absolute; z-index: 5; left: 1.8rem; right: 1.8rem; bottom: 1rem; max-height: 60%; overflow-y: auto; background: var(--paper); border: 1.5px solid var(--ink); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 0.6rem 0.9rem; }
+.lean { display: flex; flex-direction: column; justify-content: center; gap: 0.3rem; }
+.lean pre { margin: 0 0 0.6rem; padding: 0.7rem 1rem; background: var(--paper-2); border-left: 4px solid var(--blue); overflow-x: auto; }
+.lean pre code { font-size: clamp(0.95rem, 1.3vw, 1.45rem); line-height: 1.45; background: none; padding: 0; white-space: pre-wrap; }
+.lean pre { white-space: pre-wrap; }
+.lean-what { margin: 0; font: 500 1.05rem/1.4 "Barlow", sans-serif; color: var(--ink-2); }
+.fan-steps { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.fan-steps button { font: 600 0.88rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.45rem 0.7rem; border-radius: 2px; cursor: pointer; }
+.fan-steps button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+#pf-fan .cc-bar.pf-ctl { grid-template-columns: auto auto 1fr; }
+.fan-list { margin: 0.2rem 0 0.5rem; padding-left: 1.4rem; font: 500 0.92rem/1.5 "Barlow", sans-serif; }
+.fan-list li.pass { color: var(--green); } .fan-list li.hit { color: var(--red); } .fan-list li.none { color: var(--off); }
+.fan-list li b { color: var(--ink); }
+.fan-verdict { font: 600 0.95rem/1.4 "Barlow", sans-serif; margin: 0; }
+.dome-map { width: 100%; height: auto; image-rendering: pixelated; background: var(--paper-2); }
+html.trisk :is(.deck-tabs button, .deck-tabs .grp, .deck-hint, .slide .kicker, .slide .sub, .lean-what, .fan-steps button, .fan-list, .fan-verdict, details.more, details.more summary) { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; letter-spacing: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); text-transform: none; }
+html.trisk .slide .sub { font-size: var(--t-body); line-height: var(--t-body-lh); }
+html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh); }
+.dome-pick button { font: 600 0.8rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.3rem 0.5rem; border-radius: 2px; cursor: pointer; margin-left: 0.3rem; }
+.dome-pick button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+.statement { justify-content: center; align-items: center; }
+.statement .big { margin: 0; text-align: center; font: 600 clamp(2.4rem, 5vw, 5rem)/1.15 "Barlow Condensed", sans-serif; max-width: 22ch; }
+html.trisk .statement .big { font-family: "Trisk", sans-serif; font-weight: 400; font-size: var(--t-h1); line-height: var(--t-h1-lh); }
+.lean-wrap { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 1.4rem; align-items: center; }
+.legend { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 0.8rem; font: 400 0.95rem/1.4 "Barlow", sans-serif; color: var(--ink-2); border-left: 1.5px solid var(--rule); padding-left: 1rem; }
+.legend dt { color: var(--ink); white-space: nowrap; }
+.legend dd { margin: 0; }
+html.trisk .legend { font-family: "Trisk", "Barlow", sans-serif; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+
+.perf-fig { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.perf-src { font: 400 0.85rem/1.4 "Barlow", sans-serif; color: var(--ink-2); }
+html.trisk .perf-src { font-family: "Trisk", "Barlow", sans-serif; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+.perf { width: 100%; height: 100%; max-height: 100%; font-family: "Barlow", sans-serif; }
+.perf .lab { font-size: 20px; fill: var(--ink); }
+.perf .ax { font-size: 17px; fill: var(--ink-2); }
+.perf .val { font-size: 26px; font-weight: 600; fill: var(--ink); }
+html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; }
+
+.shot3d { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; flex-direction: column; }
+.shot3d-stage { position: relative; flex: 1 1 auto; min-height: 0; background: #1b2530; }
+.shot3d-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.shot3d-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.traj-cap3 { flex: none; }
+.traj-cap3 i { display: inline-block; width: 1.4rem; height: 4px; vertical-align: middle; margin: 0 0.35rem 0 0.8rem; border-radius: 2px; }
+</style>
+</head>
+<body class="deck">
+<nav class="deck-nav" aria-label="Slides"><div class="deck-tabs" role="tablist" aria-orientation="vertical"></div><p class="deck-hint">↑ ↓ or Page Up / Down</p></nav>
+<main class="deck-main">
+<section class="slide statement" id="s-problem" data-nav="The problem">
+  <p class="big">A plane that you can't crash, even if you try</p>
+</section>
+
+<section class="slide" id="s-guarantee" data-nav="What it must guarantee" hidden>
+  <h2>What the filter must guarantee</h2>
+  <p class="sub" id="traj-sub">From one allowed start, hostile and kamikaze pilots: with the filter, nothing is touched.</p>
+  <figure class="shot3d">
+    <div class="shot3d-stage"><img src="media/traj-shot.jpg" alt="The simulator's view from high behind the aircraft at its start, over the city."><svg class="traj3d" aria-hidden="true"></svg></div>
+    <figcaption class="traj-cap3"></figcaption>
+  </figure>
+</section>
+
+<section class="slide" id="s-decide" data-nav="Solution: a backup plan" hidden>
+  <h2>Solution: maintain a &ldquo;backup plan&rdquo; at all times</h2>
+  <p class="sub">After the pilot's next input, it test-flies its escapes in order. The first that gets away clean is kept and the pilot flies on; if none does, it flies the last one that passed.</p>
+  <figure class="plate pf" id="pf-fan">
+    <div class="pf-body side">
+      <div class="cc-stage pf-stage" data-clip="fan" data-view="fan" data-start="5">
+        <video src="media/proof-fan.mp4" poster="media/proof-fan.jpg" muted playsinline preload="metadata" aria-label="View from above and behind the aircraft in the Tower gap street, with the gate's candidate escapes drawn from it."></video>
+        <svg class="pf-ov" aria-hidden="true"></svg>
+        <span class="pf-tag" hidden></span>
+      </div>
+      <div class="pf-aside"><h4 class="fan-head">This tick</h4><ol class="fan-list"></ol><p class="fan-verdict"></p></div>
+    </div>
+    <div class="cc-bar pf-ctl">
+      <div class="fan-steps"></div>
+      <span class="cc-time">t = 2.50 s</span>
+      <p class="pf-status" aria-live="polite"></p>
+      <div class="pf-strip" hidden></div><input class="pf-scrub" type="range" min="0" max="0" step="1" value="0" hidden aria-label="Frame">
+      <button class="cc-play" type="button" hidden>Play</button>
+    </div>
+    <figcaption><b>Green: the test flight gets away clean. Red: it would hit something, marked where. Grey: no steady climb within 16 s.</b></figcaption>
+  </figure>
+</section>
+
+<section class="slide" id="s-cc-parkdive" data-nav="A 35° dive into the park" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 5 · zero-margin gate against the deployed gate</p>
+  <h2>A 35° dive into the park</h2>
+  <figure class="cc" id="cc-parkdive" data-clips='[{"id": "parkdive", "label": "Zero-margin gate: saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "parkdive-twin", "label": "Twin: 0.5 m lower, hits", "short": "twin", "color": "var(--red)", "offset": 3}, {"id": "parkdive-deployed", "label": "Deployed gate (4 m margin): 4.3 m higher", "short": "deployed", "color": "var(--blue)", "offset": 0}]' data-ymax="20" data-margin="4">
+      <div class="cc-head">
+        <h3><span class="kicker">Showcase 5 · zero-margin gate against the deployed gate</span>A 35° dive into the park</h3>
+        <div class="mins"><b>0.05 m</b><span>closest, zero-margin gate, at 6.90 s</span></div>
+      </div>
+      <div class="cc-tabs" role="tablist" aria-label="Runs in this close call"></div>
+      <div class="cc-stage">
+        <video data-id="parkdive" src="media/cc-parkdive.mp4" muted playsinline controls preload="metadata" poster="media/cc-parkdive.jpg" aria-label="Zero-margin gate: the aircraft dives at the park between towers and pulls out just above the grass."></video>
+        <video data-id="parkdive-twin" src="media/cc-parkdive-twin.mp4" muted playsinline controls preload="none" poster="media/cc-parkdive-twin.jpg" hidden aria-label="Twin start 0.5 m lower: no escape verifies and the aircraft hits the park."></video>
+        <video data-id="parkdive-deployed" src="media/cc-parkdive-deployed.mp4" muted playsinline controls preload="none" poster="media/cc-parkdive-deployed.jpg" hidden aria-label="Deployed gate from a start 4.3 m higher: the same pull-out, bottoming out about 4 m above the park."></video>
+      </div>
+      <div class="cc-bar">
+        <button type="button" class="cc-play">Play</button>
+        <span class="cc-time">t = 0.00 s</span>
+        <button type="button" class="cc-jump">Jump to closest moment</button>
+        <span class="cc-now"></span>
+      </div>
+      <svg class="cc-chart" role="img" aria-label="Clearance over time for the runs in this close call; click or drag to seek the video"></svg>
+      <ul class="cc-key">
+        <li><i style="background:var(--blue)"></i>pilot flying</li>
+        <li><i style="background:var(--amber)"></i>filter flying its escape</li>
+        <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
+      </ul>
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">At 50 m/s in a 35° dive at the park between the towers, the pilot's hands are off and the fly-by-wire holds the dive. The run starts 3 s before the slice's start point (<code>--lead 3</code>). The gate takes over and bottoms out <strong>0.05 m</strong> above the park at 6.90 s. The twin starts at the slice point itself, 0.5 m lower: nothing verifies, and it hits the park 1.27 s later with the filter on. The deployed gate, with its 4 m margin, accepts starts only from 4.3 m higher on this slice; from there it flies the same pull-out and bottoms out at <strong>3.87 m</strong>, a little inside its margin, because the margin is kept only at the points it checks along each rollout.</p><p class="repro">
+        <span>Zero-margin, saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,36.14,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,35.64,50.00,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
+        <span>Deployed gate: <code>make fly-rust ARGS="--time-cap 0 --start -360.00,260.00,40.40,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
+      </p></details>
+    </figure>
+</section>
+
+<section class="slide" id="s-cc-wallbeside" data-nav="Wingtip against the glass" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 2 · zero-margin gate, not the deployed one</p>
+  <h2>Wingtip against the glass</h2>
+  <figure class="cc" id="cc-wallbeside" data-clips='[{"id": "wallbeside", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "wallbeside-twin", "label": "Twin: 0.5 m closer, hits", "short": "twin", "color": "var(--red)", "offset": 0}]' data-ymax="15">
+      <div class="cc-head">
+        <h3><span class="kicker">Showcase 2 · zero-margin gate, not the deployed one</span>Wingtip against the glass</h3>
+        <div class="mins"><b>0.03 m</b><span>closest, at 1.60 s</span></div>
+      </div>
+      <div class="cc-tabs" role="tablist" aria-label="Runs in this close call"></div>
+      <div class="cc-stage">
+        <video data-id="wallbeside" src="media/cc-wallbeside.mp4" muted playsinline controls preload="metadata" poster="media/cc-wallbeside.jpg" aria-label="Chase view: the aircraft drifts toward a glass tower face, the filter rolls it away and the wingtip passes the glass."></video>
+        <video data-id="wallbeside-twin" src="media/cc-wallbeside-twin.mp4" muted playsinline controls preload="none" poster="media/cc-wallbeside-twin.jpg" hidden aria-label="Twin start half a metre closer: the wing hits the tower face."></video>
+      </div>
+      <div class="cc-bar">
+        <button type="button" class="cc-play">Play</button>
+        <span class="cc-time">t = 0.00 s</span>
+        <button type="button" class="cc-jump">Jump to closest moment</button>
+        <span class="cc-now"></span>
+      </div>
+      <svg class="cc-chart" role="img" aria-label="Clearance over time for the runs in this close call; click or drag to seek the video"></svg>
+      <ul class="cc-key">
+        <li><i style="background:var(--blue)"></i>pilot flying</li>
+        <li><i style="background:var(--amber)"></i>filter flying its escape</li>
+        <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
+      </ul>
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">Drifting 10° into an 87 m tower face from 12 m away at 45 m/s. The filter rolls away into its left 40° escape, and the airframe envelope passes the glass with <strong>0.03 m</strong> to spare at 1.60 s. Half a metre closer, the twin hits the face 1.40 s in with the filter on.</p><p class="repro">
+        <span>Saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
+      </p></details>
+    </figure>
+</section>
+
+<section class="slide" id="s-cc-fastdive" data-nav="A 67 m/s dive at the park" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 3 · zero-margin gate, not the deployed one</p>
+  <h2>A 67 m/s dive at the park</h2>
+  <figure class="cc" id="cc-fastdive" data-clips='[{"id": "fastdive", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "fastdive-twin", "label": "Twin: 0.5 m/s faster, hits", "short": "twin", "color": "var(--red)", "offset": 3}]' data-ymax="20">
+      <div class="cc-head">
+        <h3><span class="kicker">Showcase 3 · zero-margin gate, not the deployed one</span>A 67 m/s dive at the park</h3>
+        <div class="mins"><b>0.01 m</b><span>closest, at 4.83 s</span></div>
+      </div>
+      <div class="cc-tabs" role="tablist" aria-label="Runs in this close call"></div>
+      <div class="cc-stage">
+        <video data-id="fastdive" src="media/cc-fastdive.mp4" muted playsinline controls preload="metadata" poster="media/cc-fastdive.jpg" aria-label="The aircraft dives steeply toward a park between towers and pulls out just above the grass."></video>
+        <video data-id="fastdive-twin" src="media/cc-fastdive-twin.mp4" muted playsinline controls preload="none" poster="media/cc-fastdive-twin.jpg" hidden aria-label="Twin start half a metre per second faster: the aircraft hits the park."></video>
+      </div>
+      <div class="cc-bar">
+        <button type="button" class="cc-play">Play</button>
+        <span class="cc-time">t = 0.00 s</span>
+        <button type="button" class="cc-jump">Jump to closest moment</button>
+        <span class="cc-now"></span>
+      </div>
+      <svg class="cc-chart" role="img" aria-label="Clearance over time for the runs in this close call; click or drag to seek the video"></svg>
+      <ul class="cc-key">
+        <li><i style="background:var(--blue)"></i>pilot flying</li>
+        <li><i style="background:var(--amber)"></i>filter flying its escape</li>
+        <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
+      </ul>
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">A 35° dive at 66.9 m/s (130 knots) toward the park between the towers, starting 3 s before the slice point. The pull-out bottoms out <strong>0.01 m</strong> above the park at 4.83 s, the tightest save on this page. The twin is 0.5 m/s faster at the slice point: no escape verifies, and it hits the ground 1.73 s after its start with the filter on. Here the limit is the escape law's 3.5 g pull, not physics.</p><p class="repro">
+        <span>Saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,66.88,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,67.38,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
+      </p></details>
+    </figure>
+</section>
+
+<section class="slide" id="s-cc-wallahead" data-nav="Head-on at the tower" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 7 · zero-margin gate, not the deployed one</p>
+  <h2>Head-on at the tower</h2>
+  <figure class="cc" id="cc-wallahead" data-clips='[{"id": "wallahead", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "wallahead-twin", "label": "Twin: 0.5 m closer, hits", "short": "twin", "color": "var(--red)", "offset": 2}]' data-ymax="20">
+      <div class="cc-head">
+        <h3><span class="kicker">Showcase 7 · zero-margin gate, not the deployed one</span>Head-on at the tower</h3>
+        <div class="mins"><b>0.86 m</b><span>closest, at 6.67 s</span></div>
+      </div>
+      <div class="cc-tabs" role="tablist" aria-label="Runs in this close call"></div>
+      <div class="cc-stage">
+        <video data-id="wallahead" src="media/cc-wallahead.mp4" muted playsinline controls preload="metadata" poster="media/cc-wallahead.jpg" aria-label="Chase view: the aircraft flies straight at a tower face across the park, then banks and climbs over its roof."></video>
+        <video data-id="wallahead-twin" src="media/cc-wallahead-twin.mp4" muted playsinline controls preload="none" poster="media/cc-wallahead-twin.jpg" hidden aria-label="Twin start half a metre closer: the blind fallback escape meets the tower face."></video>
+      </div>
+      <div class="cc-bar">
+        <button type="button" class="cc-play">Play</button>
+        <span class="cc-time">t = 0.00 s</span>
+        <button type="button" class="cc-jump">Jump to closest moment</button>
+        <span class="cc-now"></span>
+      </div>
+      <svg class="cc-chart" role="img" aria-label="Clearance over time for the runs in this close call; click or drag to seek the video"></svg>
+      <ul class="cc-key">
+        <li><i style="background:var(--blue)"></i>pilot flying</li>
+        <li><i style="background:var(--amber)"></i>filter flying its escape</li>
+        <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
+      </ul>
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">Straight at an 87 m tower face across the park at 45 m/s, starting 2 s before the slice point. The filter takes over and climbs away in a 40° left bank, skimming over the roof with <strong>0.86 m</strong> to spare at 6.67 s. Half a metre further in, nothing verifies and the fallback escape, flown blind, meets the face 5.77 s after the twin's start.</p><p class="repro">
+        <span>Saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -399.19,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --lead 2 --cinematic --cam 0 --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -398.69,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
+      </p></details>
+    </figure>
+</section>
+
+<section class="slide" id="s-cc-towergap" data-nav="Tower gap, banking into a 352 m tower" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Scenario 5 · deployed gate · scripted showcase pilot</p>
+  <h2>Tower gap, banking into a 352 m tower</h2>
+  <figure class="cc" id="cc-towergap" data-clips='[{"id": "towergap", "label": "Filter on", "short": "filter on", "color": "var(--green)", "offset": 0}, {"id": "towergap-off", "label": "Filter off, hits", "short": "filter off", "color": "var(--red)", "offset": 0}]' data-ymax="30" data-margin="4">
+      <div class="cc-head">
+        <h3><span class="kicker">Scenario 5 · deployed gate · scripted showcase pilot</span>Tower gap, banking into a 352 m tower</h3>
+        <div class="mins"><b>5.61 m</b><span>closest, at 5.93 s</span></div>
+      </div>
+      <div class="cc-tabs" role="tablist" aria-label="Runs in this close call"></div>
+      <div class="cc-stage">
+        <video data-id="towergap" src="media/cc-towergap.mp4" muted playsinline controls preload="metadata" poster="media/cc-towergap.jpg" aria-label="Fly-by view: the aircraft threads a street between towers, banks hard toward a tower, and the filter takes over and climbs out along the street."></video>
+        <video data-id="towergap-off" src="media/cc-towergap-off.mp4" muted playsinline controls preload="none" poster="media/cc-towergap-off.jpg" hidden aria-label="Filter off: the same pilot banks into the next block and hits a building."></video>
+      </div>
+      <div class="cc-bar">
+        <button type="button" class="cc-play">Play</button>
+        <span class="cc-time">t = 0.00 s</span>
+        <button type="button" class="cc-jump">Jump to closest moment</button>
+        <span class="cc-now"></span>
+      </div>
+      <svg class="cc-chart" role="img" aria-label="Clearance over time for the runs in this close call; click or drag to seek the video"></svg>
+      <ul class="cc-key">
+        <li><i style="background:var(--blue)"></i>pilot flying</li>
+        <li><i style="background:var(--amber)"></i>filter flying its escape</li>
+        <li><i style="background:var(--off)"></i>filter off</li>
+        <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
+      </ul>
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">The scenario from the section above, flown with the deployed Rust gate (4 m margin, <code>make fly-rust</code>) and recorded fresh. The scripted pilot holds the street centreline through both gaps, then banks hard right toward the 352 m tower and holds the bank. The filter takes over at 2.73 s, and the closest the airframe comes to anything in these 20 s is <strong>5.61 m</strong> at 5.93 s. With the filter off, the same pilot hits a building at 5.63 s.</p><p class="repro">
+        <span>Filter on: <code>make fly-rust ARGS="--time-cap 0 --showcase --cinematic --paths"</code> (or <code>make showcase</code>)</span>
+        <span>Filter off: <code>make fly-rust ARGS="--time-cap 0 --showcase --cinematic --paths --off"</code></span>
+      </p></details>
+    </figure>
+</section>
+
+<section class="slide" id="s-cc-kamikaze" data-nav="A kamikaze autopilot, the first 24 s of its run" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Episode 1004 · deployed gate · kamikaze autopilot</p>
+  <h2>A kamikaze autopilot, the first 24 s of its run</h2>
+  <figure class="cc" id="cc-kamikaze" data-clips='[{"id": "kamikaze", "label": "Filter on", "short": "filter on", "color": "var(--green)", "offset": 0}]' data-ymax="30" data-margin="4">
+      <div class="cc-head">
+        <h3><span class="kicker">Episode 1004 · deployed gate · kamikaze autopilot</span>A kamikaze autopilot, the first 24 s of its run</h3>
+        <div class="mins"><b>4.04 m</b><span>closest in 60 s, at 8.27 s</span></div>
+      </div>
+      <div class="cc-tabs" role="tablist" aria-label="Runs in this close call"></div>
+      <div class="cc-stage">
+        <video data-id="kamikaze" src="media/cc-kamikaze.mp4" muted playsinline controls preload="metadata" poster="media/cc-kamikaze.jpg" aria-label="Chase view: the kamikaze autopilot dives at buildings at full throttle and the filter repeatedly takes over and turns it away."></video>
+      </div>
+      <div class="cc-bar">
+        <button type="button" class="cc-play">Play</button>
+        <span class="cc-time">t = 0.00 s</span>
+        <button type="button" class="cc-jump">Jump to closest moment</button>
+        <span class="cc-now"></span>
+      </div>
+      <svg class="cc-chart" role="img" aria-label="Clearance over time for the runs in this close call; click or drag to seek the video"></svg>
+      <ul class="cc-key">
+        <li><i style="background:var(--blue)"></i>pilot flying</li>
+        <li><i style="background:var(--amber)"></i>filter flying its escape</li>
+        <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
+      </ul>
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">The kamikaze autopilot picks a building (or now and then a point on the ground), flies straight at it at full throttle, and picks a new target every 12 to 25 s or once it passes. This run starts at the Tower gap scenario's start, with the deployed gate. The clip is the first 24 s of the 60 s run, around its closest moment: <strong>4.04 m</strong> at 8.27 s, just outside the 4 m margin the gate keeps at the points it checks along each rollout. With the filter off, the same autopilot hits a building at 4.82 s.</p><p class="repro">
+        <span>Filter on: <code>make fly-rust ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths"</code>; this clip is <code>--frames 1440</code> of the recording</span>
+        <span>Filter off (contact at 4.82 s): <code>make fly-rust ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths --off"</code></span>
+      </p></details>
+    </figure>
+</section>
+
+<section class="slide" id="s-pf-way" data-nav="1. Always a way out" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>1. Always a way out</h2>
+  <figure class="plate pf" id="pf-way">
+      <div class="plate-head"><span>1. Always a way out</span><span>Tower gap, showcase pilot, t = 1.0 to 10.0 s</span></div>
+      <div class="pf-body">
+        <div class="cc-stage pf-stage" data-clip="towergap" data-view="way" data-start="50">
+          <video src="media/proof-towergap.mp4" poster="media/proof-towergap.jpg" muted playsinline preload="metadata" aria-label="Chase view of the aircraft in the Tower gap street. A green ribbon ahead shows the way out the gate has checked. At 2.72 s the pilot's hard right bank leaves no checked way out, the ribbon turns amber and the gate flies it, until it hands back at 6.40 s."></video>
+          <svg class="pf-ov" aria-hidden="true"></svg>
+          <span class="pf-tag" hidden></span>
+        </div>
+      </div>
+      <div class="cc-bar pf-ctl">
+        <button class="cc-play" type="button">Play</button>
+        <div class="pf-track"><div class="pf-strip" aria-hidden="true"></div><input class="pf-scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub through the Tower gap clip"></div>
+        <span class="cc-time">t = 1.00 s</span>
+        <p class="pf-status" aria-live="polite"></p>
+      </div>
+      <p class="badge conditional"><b>Conditional</b><span>Lean checks the implication: if every state the end-of-escape check accepts is safe forever, no pilot input can crash the aircraft. That condition does not hold yet; fixes in progress.</span></p>
+      <figcaption><b>Every frame, the gate keeps a checked way out, and lets the pilot do anything that still leaves one.</b></figcaption>
+      <details class="precise">
+        <summary>More</summary>
+        <p>Green ribbon: the way out checked from this frame, meaning the pilot's next 20 ms followed by an escape, flown on an exact copy of the aircraft. When the pilot's input leaves no way out that passes (red dashes: the input, then an escape, failing the check), the gate flies the ribbon it already had, now amber. It was checked from exactly this state, so the aircraft flies exactly what was checked. Ribbon drawn faint where a building hides it. The strip under the slider is blue while the pilot flies and amber while the gate does.</p>
+        <p><code>CityGate.city_safe_R</code>: if the end-of-escape test is sound (<code>TermSoundR</code>, part 2), then from an allowed start, whatever the pilot does at every JSBSim frame, no state the gate lets the aircraft reach is a <code>Crash</code>: a 6 m cube around the aircraft touching a building or the terrain. Kernel-checked; the induction behind it (<code>GateSafety</code>) never looks inside the escapes or the end test.</p>
+        <p>The theorem is about the Lean version of the gate (<code>--safety-filter exact-rollout-lean</code>), which checks clearance at every frame in exact arithmetic. The footage shows the Rust gate (<code>exact-rollout</code>, the demo's default), which runs the same rules but is not the code the theorem covers. And the condition does not hold yet: part 2 lists the 34 failures of the end-of-escape check found so far.<a class="fn" href="#src-6">6</a></p>
+      </details>
+    </figure>
+</section>
+
+<section class="slide" id="s-pf-end" data-nav="2. Safe forever at the end" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>2. Safe forever at the end</h2>
+  <figure class="plate pf" id="pf-end">
+      <div class="plate-head"><span>2. Safe forever at the end</span><span>same run, camera 650 m up and 250 m behind</span></div>
+      <div class="pf-body side">
+        <div class="cc-stage pf-stage" data-clip="towergap-high" data-view="end" data-start="160">
+          <video src="media/proof-towergap-high.mp4" poster="media/proof-towergap-high.jpg" muted playsinline preload="metadata" aria-label="The same Tower gap run seen from high behind the aircraft, with the end of the checked way out drawn: a climbing circle above the downtown towers, and a shaded ring at the height everything under the circle must stay below."></video>
+          <svg class="pf-ov" aria-hidden="true"></svg>
+          <span class="pf-tag" hidden></span>
+        </div>
+        <div class="pf-aside">
+          <h4>From above</h4>
+          <svg class="svgtext pf-plan" viewBox="0 0 360 360" role="img" aria-label="Plan view of the end of the checked way out: the ring or corridor over the city blocks, buildings shaded by height."></svg>
+          <p class="pf-plan-note"></p>
+        </div>
+      </div>
+      <div class="cc-bar pf-ctl">
+        <button class="cc-play" type="button">Play</button>
+        <div class="pf-track"><div class="pf-strip" aria-hidden="true"></div><input class="pf-scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub through the Tower gap clip, end-set view"></div>
+        <span class="cc-time">t = 1.00 s</span>
+        <p class="pf-status" aria-live="polite"></p>
+      </div>
+      <p class="badge assumed"><b>Assumed</b><span>Assumed (the open obligation, <code>TermSoundR</code>). Tested: crash hunts found 34 escapes that passed this check and touched something 12–388 s later, all circling endings, from three causes (a slow descent the law settles into, circle radius drifting as speed changes, the street escape rolling into a circle after its straight ending). Fixes are in progress; an informal argument is in progress.</span></p>
+      <figcaption><b>An escape counts only if it ends in a steady climb whose path is clear of everything below, forever.</b></figcaption>
+      <details class="precise">
+        <summary>More</summary>
+        <p>Purple coil: the climbing circle the escape has settled into when its check passes, with the radius, centre and climb rate the gate's end test measured. Shaded ring: everything under it, buildings and hillside, must be at least 8.5 m (body plus margin) below where the circle starts; as long as the aircraft keeps climbing on that circle, it stays clear for good. A straight escape ends instead in a climbing corridor, clear until it is above the map's highest point, 927 m. In this clip, the circle flown on for two more minutes keeps climbing, at 1.9 m/s at the end.<a class="fn" href="#src-6">6</a></p>
+        <p><code>TermSoundR</code>: whenever the end-of-escape test passes on a real rollout of an escape the gate proposes, flying that escape on never crashes. It is a hypothesis of <code>city_safe_R</code>, not yet a theorem. The geometry half is checked in Lean: given bounds on how far the aircraft drifts from the circle or the corridor, nothing under them is ever hit. The dynamics half, that the aircraft stays inside those bounds forever, is not. The crash hunts found 34 escapes that passed the check and later touched something, all with circling endings, from three causes:</p>
+        <ul>
+          <li><strong>A slow descent the law settles into.</strong> At about 33 to 37 m/s the 30° and 40° circles settle into a descent of 1.7 to 3.2 m/s; the 2 s windows the check compares caught a brief climb paid for with airspeed.</li>
+          <li><strong>The circle's radius drifts as the speed changes.</strong> The speed had not settled, and the radius grows with the square of the speed, so the circle flown is not the one checked (in one case 177 m shrinking to 139 m, into a tower).</li>
+          <li><strong>The street escape rolls into a circle after its straight ending.</strong> It was judged by its climbing corridor, but can still roll into a circle afterwards, which can then descend as in the first cause.</li>
+        </ul>
+        <p>Fixes to the escape laws and the check are in progress. The Lean gate's straight ending, after an earlier fix, held in all 626 cases.<a class="fn" href="#src-7">7</a></p>
+      </details>
+    </figure>
+</section>
+
+<section class="slide" id="s-pf-settle" data-nav="3. Settling" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>3. Settling</h2>
+  <figure class="plate pf" id="pf-settle">
+      <div class="plate-head"><span>3. Settling</span><span>Dive, kamikaze autopilot, t = 52.5 to 60.0 s</span></div>
+      <div class="pf-body side">
+        <div class="cc-stage pf-stage" data-clip="dive" data-view="settle" data-start="40">
+          <video src="media/proof-dive.mp4" poster="media/proof-dive.jpg" muted playsinline preload="metadata" aria-label="Chase view of the kamikaze autopilot flying low and fast over the city at 70 m/s. At 53.34 s, 96 m up, the gate takes over with its 40° left turn, pulls up and climbs away in a turn; it hands back at 59.20 s."></video>
+          <svg class="pf-ov" aria-hidden="true"></svg>
+          <span class="pf-tag" hidden></span>
+        </div>
+        <div class="pf-aside">
+          <h4>Distance from a steady climb</h4>
+          <svg class="svgtext pf-gauge" viewBox="0 0 360 320" role="img" aria-label="Distance from the steady climbing circle against time since the takeover, on a log scale: from about 75 at the takeover down into the settled box after about 37 s."></svg>
+          <p class="pf-gauge-note"></p>
+        </div>
+      </div>
+      <div class="cc-bar pf-ctl">
+        <button class="cc-play" type="button">Play</button>
+        <div class="pf-track"><div class="pf-strip" aria-hidden="true"></div><input class="pf-scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub through the Dive clip"></div>
+        <span class="cc-time">t = 53.00 s</span>
+        <p class="pf-status" aria-live="polite"></p>
+      </div>
+      <p class="badge informal"><b>In progress</b><span>In progress: the argument is being reworked to show the aircraft can't leave a band that stays above everything, rather than that it settles; numbers measured, not formally checked.</span></p>
+      <figcaption><b>Once the escape takes over, wobbles die out, and small errors can't build up.</b></figcaption>
+      <details class="precise">
+        <summary>More</summary>
+        <p>The curve is this takeover's escape flown on from the takeover with nobody else at the controls, which is exactly what the aircraft flies for as long as the gate keeps it; here the gate flies it for 5.9 s, then hands back. Distance 1 is the edge of the settled box: speed and climb rate within 0.5 m/s of the steady climb's, bank, heading and turn rate within 0.02 rad (about 1°). This escape, a climbing 40° turn entered at 70 m/s, takes about 37 s to settle, into a circle climbing 2.2 m/s. The ring shows how much nudging a law that shrinks errors to 0.902 of their size each second can absorb.</p>
+        <p>The argument needs a set around each steady climb that the escape never leaves, even with small errors each frame: a contraction certificate. The measured numbers so far are for the straight escape, not for circling escapes like the one in this clip. For a proposed final climb phase of the straight escape (specified in <code>docs/escape-law-terminal.md</code>, not yet flying in the demo), the measured worst one-second factor is 0.902 in one norm over 10 to 1,000 m, for the linear part only. That law settles 48 of 48 test starts within 16 s (median 10.0 s); today's law settles 14 of 48 (median 18.8 s). Per 1/128 s frame the slowest error shrinks by only about 0.17%, which is why the certificates step a second at a time. The covering bound on the nonlinear part is not closed yet (the level-trim certificate's first pass gives 9.79 where it needs below 1).<a class="fn" href="#src-7">7</a></p>
+      </details>
+    </figure>
+</section>
+
+<section class="slide" id="s-lean" data-nav="In Lean" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>In Lean: the statement, and its two conditions</h2>
+  <div class="lean-wrap"><div class="lean">
+    <p class="lean-what">No reachable state is a crash:</p>
+    <pre><code>def Safe (M : CityMap) (F : Filter) : Prop :=
+  ∀ p, Reach F p → ¬ Crash M p.1</code></pre>
+    <p class="lean-what">The open condition: whenever the end-of-escape test passes on the gate's own rollout, flying on never crashes:</p>
+    <pre><code>def TermSoundR : Prop :=
+  ∀ x, Origin G Init x → ∀ n, G.term (G.flyN n x) = true → SafeForever G Crash (G.flyN n x)</code></pre>
+    <p class="lean-what">The headline theorem:</p>
+    <pre><code>theorem cityGate_spec_safe_of_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded) :
+    CitySafety.Safe cityMap specFilter</code></pre>
+  </div>
+  <dl class="legend">
+    <dt><code>M</code></dt><dd>the city: its buildings and terrain (<code>cityMap</code>)</dd>
+    <dt><code>F</code></dt><dd>the filter, which sits between the pilot and the aircraft (<code>specFilter</code>)</dd>
+    <dt><code>p</code></dt><dd>a closed-loop state: the aircraft's state together with the filter's state; <code>p.1</code> is the aircraft's part</dd>
+    <dt><code>Reach F p</code></dt><dd><code>p</code> can be reached from an allowed start, whatever the pilot does at each frame</dd>
+    <dt><code>Crash M s</code></dt><dd>some point of the airframe in state <code>s</code> is inside a building or the terrain</dd>
+    <dt><code>G</code></dt><dd>the gate, the filter as written in Lean (<code>cityGate</code>)</dd>
+    <dt><code>x</code>, <code>Origin</code></dt><dd>where one of the gate's test flights starts: an escape and the aircraft state it starts from</dd>
+    <dt><code>G.flyN n x</code></dt><dd>that test flight after <code>n</code> frames; <code>G.term</code> is the end-of-escape check</dd>
+    <dt><code>SafeForever</code></dt><dd>flying that escape on from there never crashes</dd>
+  </dl></div>
+  <p class="badge conditional"><b>Conditional</b><span>Lean-checked, conditional on <code>TermSoundR</code> (not yet true for today's end test) and <code>TbBounded</code>.</span></p>
+</section>
+
+<section class="slide" id="s-evidence" data-nav="Performance" hidden>
+  <h2>Performance</h2>
+  <p class="sub">The same 45 hostile and kamikaze runs, 60 s each on the JSBSim aircraft, with each filter. Neither gate crashes once; the point-mass filter, which predicts with a simplified model, crashes 8 times.</p>
+  <figure class="perf-fig"><svg class="perf" viewBox="0 0 1100 442" role="img" aria-label="Bar chart: crashes in 45 runs for each filter, and the share of time each is in control."><line x1="330" x2="330" y1="32" y2="358" style="stroke:var(--rule)"/><text x="330" y="380" text-anchor="middle" class="ax">0</text><line x1="424" x2="424" y1="32" y2="358" style="stroke:var(--rule)"/><text x="424" y="380" text-anchor="middle" class="ax">2</text><line x1="518" x2="518" y1="32" y2="358" style="stroke:var(--rule)"/><text x="518" y="380" text-anchor="middle" class="ax">4</text><line x1="612" x2="612" y1="32" y2="358" style="stroke:var(--rule)"/><text x="612" y="380" text-anchor="middle" class="ax">6</text><line x1="706" x2="706" y1="32" y2="358" style="stroke:var(--rule)"/><text x="706" y="380" text-anchor="middle" class="ax">8</text><line x1="800" x2="800" y1="32" y2="358" style="stroke:var(--rule)"/><text x="800" y="380" text-anchor="middle" class="ax">10</text><text x="565" y="410" text-anchor="middle" class="ax">crashes in 45 runs: 40 hostile episodes and 5 kamikaze scenarios</text><text x="830" y="28" class="ax">share of time the filter</text><text x="830" y="48" class="ax">is in control</text><text x="316" y="100" text-anchor="end" class="lab">Point-mass filter</text><rect x="330" y="58" width="376" height="70" style="fill:var(--red)"/><text x="718" y="102" class="val" style="fill:var(--red)">8</text><text x="830" y="102" class="val">2.6%</text><text x="316" y="204" text-anchor="end" class="lab">Rust gate (exact-rollout)</text><rect x="330" y="162" width="3" height="70" style="fill:var(--green)"/><text x="345" y="206" class="val" style="fill:var(--green)">0</text><text x="830" y="206" class="val">40.3%</text><text x="316" y="308" text-anchor="end" class="lab">Lean gate</text><rect x="330" y="266" width="3" height="70" style="fill:var(--green)"/><text x="345" y="310" class="val" style="fill:var(--green)">0</text><text x="830" y="310" class="val">37.5%</text></svg><figcaption class="perf-src">Measured on current main (fd08ca1) with <code>make crashes N=40</code>, <code>make crashes-lean N=40</code> and <code>make crashes N=40 FILTER=p1</code>, 1 November 2026. Lowest clearance: Rust gate 3.87 m, Lean gate 2.78 m.</figcaption></figure>
+</section>
+</main>
+<script>
+  // The pixel font has a 13-unit em: it renders crisply only when each font pixel covers a whole number of device
+  // pixels, so sizes are multiples of 13 device px, chosen per devicePixelRatio (re-run on zoom or a move to
+  // another display), and centred columns start on a whole device pixel.
+  (() => {
+    const root = document.documentElement;
+    const snap = () => {
+      const d = window.devicePixelRatio || 1;
+      const fs = (n) => Math.max(1, Math.round((n * d) / 13)) * 13 / d;
+      const lh = (n) => Math.round(n * d) / d;
+      const set = (k, v) => root.style.setProperty(k, v + "px");
+      const body = fs(19.5);
+      set("--t-sm", fs(13)); set("--t-sm-lh", lh(fs(13) * 1.4));
+      set("--t-body", body); set("--t-body-lh", lh(body * 1.38));
+      set("--t-h3", fs(26)); set("--t-h3-lh", lh(fs(26) * 1.15));
+      set("--t-h2", fs(39)); set("--t-h2-lh", lh(fs(39) * 1.08));
+      set("--t-h1", fs(52)); set("--t-h1-lh", lh(fs(52) * 1.08));
+      set("--t-measure", Math.round(43 * body));
+      for (const el of document.querySelectorAll(".col, .wide, .hero-text")) {
+        el.style.transform = "";
+        const x = el.getBoundingClientRect().left * d;
+        const dx = (Math.round(x) - x) / d;
+        if (Math.abs(dx) > 1e-6) el.style.transform = `translateX(${dx}px)`;
+      }
+      matchMedia(`(resolution: ${d}dppx)`).addEventListener("change", snap, { once: true });
+    };
+    const go = () => { if (root.classList.contains("trisk")) snap(); };
+    document.fonts.ready.then(go);
+    addEventListener("resize", go);
+    window.snapPixelFont = go;
+  })();
+</script>
+<script>/*CC*/const CC_DATA = {"wallbeside":{"dur":20.0,"t0":0.0,"min":[1.6,0.032],"crash":null,"sim_crash":null,"rows":[[0.0,5.775,0],[0.067,5.1,2],[0.133,4.681,2],[0.2,4.208,2],[0.267,3.613,2],[0.333,3.162,2],[0.4,2.751,2],[0.467,2.3,2],[0.533,1.984,2],[0.6,1.735,2],[0.667,1.393,2],[0.733,1.202,2],[0.8,1.009,2],[0.867,0.805,2],[0.933,0.672,2],[1.0,0.576,2],[1.067,0.458,2],[1.133,0.402,2],[1.2,0.353,2],[1.267,0.295,2],[1.333,0.205,2],[1.4,0.133,2],[1.467,0.069,2],[1.533,0.04,2],[1.6,0.032,2],[1.667,0.377,2],[1.733,1.55,2],[1.8,3.454,0],[1.867,6.202,0],[1.933,8.532,0],[2.0,10.62,0],[2.067,13.948,0],[2.133,16.081,0],[2.2,18.524,0],[2.267,16.1,0],[2.333,14.081,0],[2.4,12.222,0],[2.467,10.206,0],[2.533,8.931,0],[2.6,8.138,0],[2.667,7.633,0],[2.733,7.822,0],[2.8,8.497,0],[2.867,9.595,0],[2.933,10.499,0],[3.0,11.309,0],[3.067,12.616,0],[3.133,13.471,0],[3.2,14.47,0],[3.267,15.75,0],[3.333,16.801,0],[3.4,17.874,0],[3.467,19.248,0],[3.533,20.373,0],[3.6,21.376,0],[3.667,22.987,0],[3.733,24.1,0],[3.8,25.503,0],[3.867,27.422,0],[3.933,29.067,0],[4.0,30.572,0],[4.067,33.04,0],[4.133,34.664,0],[4.2,36.561,0],[4.267,38.982,0],[4.333,40.952,0],[4.4,42.944,0],[4.467,45.459,0],[4.533,47.486,0],[4.6,49.269,0],[4.667,52.079,0],[4.733,53.872,0],[4.8,55.923,0],[4.867,58.487,0],[4.933,60.535,0],[5.0,62.325,0],[5.067,64.178,0],[5.133,63.641,0],[5.2,63.07,0],[5.267,62.421,0],[5.333,61.952,0],[5.4,61.527,0],[5.467,61.056,0],[5.533,60.726,0],[5.6,60.47,0],[5.667,60.128,0],[5.733,59.949,0],[5.8,59.779,0],[5.867,59.617,0],[5.933,59.548,0],[6.0,59.55,0],[6.067,59.67,0],[6.133,59.818,0],[6.2,60.054,0],[6.267,60.446,0],[6.333,60.836,0],[6.4,61.29,0],[6.467,61.945,0],[6.533,62.535,0],[6.6,63.098,0],[6.667,64.066,0],[6.733,64.733,0],[6.8,65.211,0],[6.867,65.555,0],[6.933,65.847,0],[7.0,66.113,0],[7.067,66.55,0],[7.133,66.838,0],[7.2,67.177,0],[7.267,67.612,0],[7.333,67.969,0],[7.4,68.333,0],[7.467,68.795,0],[7.533,69.17,0],[7.6,69.501,0],[7.667,70.026,0],[7.733,70.362,0],[7.8,70.747,0],[7.867,71.232,0],[7.933,71.646,0],[8.0,72.03,0],[8.067,72.675,0],[8.133,73.11,0],[8.2,73.629,0],[8.267,74.307,0],[8.333,74.872,0],[8.4,75.456,0],[8.467,76.21,0],[8.533,76.832,0],[8.6,77.389,0],[8.667,78.285,0],[8.733,78.868,0],[8.8,79.546,0],[8.867,80.408,0],[8.933,81.11,0],[9.0,81.732,0],[9.067,82.723,0],[9.133,83.362,0],[9.2,84.1,0],[9.267,85.032,0],[9.333,85.785,0],[9.4,86.545,0],[9.467,87.503,0],[9.533,88.275,0],[9.6,88.956,0],[9.667,90.032,0],[9.733,90.721,0],[9.8,91.513,2],[9.867,92.511,2],[9.933,93.316,2],[10.0,94.025,2],[10.067,95.15,0],[10.133,95.876,0],[10.2,96.714,0],[10.267,97.088,0],[10.333,97.303,0],[10.4,97.523,0],[10.467,97.81,0],[10.533,98.051,0],[10.6,98.269,0],[10.667,98.629,0],[10.733,98.869,0],[10.8,99.153,0],[10.867,99.524,0],[10.933,99.836,0],[11.0,100.121,0],[11.067,100.591,0],[11.133,100.905,0],[11.2,101.279,0],[11.267,101.771,0],[11.333,102.184,0],[11.4,102.617,0],[11.467,103.184,0],[11.533,103.66,0],[11.6,104.094,0],[11.667,104.359,0],[11.733,103.585,0],[11.8,102.713,0],[11.867,101.661,0],[11.933,100.853,0],[12.0,100.171,0],[12.067,99.152,0],[12.133,98.537,0],[12.2,97.87,0],[12.267,97.09,0],[12.333,96.511,0],[12.4,95.975,0],[12.467,95.367,0],[12.533,94.933,0],[12.6,94.591,0],[12.667,94.132,0],[12.733,93.889,0],[12.8,93.661,0],[12.867,93.452,0],[12.933,93.346,0],[13.0,93.299,0],[13.067,93.315,0],[13.133,93.381,0],[13.2,93.512,0],[13.267,93.758,0],[13.333,94.022,0],[13.4,94.345,0],[13.467,94.831,0],[13.533,95.287,0],[13.6,95.733,0],[13.667,95.376,0],[13.733,94.941,0],[13.8,94.445,0],[13.867,93.829,0],[13.933,93.338,0],[14.0,92.911,0],[14.067,92.245,0],[14.133,91.824,0],[14.2,91.346,0],[14.267,90.755,0],[14.333,90.288,0],[14.4,89.825,0],[14.467,89.252,0],[14.533,88.797,0],[14.6,88.403,0],[14.667,87.792,0],[14.733,87.408,0],[14.8,86.974,0],[14.867,86.438,0],[14.933,86.016,0],[15.0,85.652,0],[15.067,85.09,0],[15.133,84.739,0],[15.2,84.343,0],[15.267,83.857,0],[15.333,83.476,0],[15.4,83.103,0],[15.467,82.645,0],[15.533,82.285,0],[15.6,81.975,0],[15.667,81.5,0],[15.733,81.205,0],[15.8,80.876,0],[15.867,80.475,0],[15.933,80.162,0],[16.0,79.894,0],[16.067,79.485,0],[16.133,79.237,0],[16.2,78.96,0],[16.267,78.624,0],[16.333,78.365,0],[16.4,78.111,0],[16.467,77.803,0],[16.533,77.566,0],[16.6,77.365,0],[16.667,77.06,0],[16.733,76.874,0],[16.8,76.669,0],[16.867,76.334,0],[16.933,75.558,0],[17.0,74.946,0],[17.067,74.115,0],[17.133,73.67,0],[17.2,73.245,0],[17.267,72.839,0],[17.333,72.617,0],[17.4,72.278,0],[17.467,71.08,0],[17.533,70.209,0],[17.6,69.512,0],[17.667,68.547,0],[17.733,68.017,2],[17.8,67.493,2],[17.867,66.965,2],[17.933,66.646,2],[18.0,66.442,2],[18.067,66.266,2],[18.133,66.214,2],[18.2,66.193,2],[18.267,66.224,2],[18.333,66.295,2],[18.4,66.407,2],[18.467,66.603,2],[18.533,66.806,2],[18.6,67.016,2],[18.667,67.409,2],[18.733,67.699,2],[18.8,68.068,2],[18.867,68.585,2],[18.933,69.043,2],[19.0,69.477,2],[19.067,70.218,2],[19.133,70.728,2],[19.2,71.347,2],[19.267,72.176,0],[19.333,72.883,0],[19.4,73.627,0],[19.467,73.886,0],[19.533,73.913,0],[19.6,73.937,0],[19.667,72.815,0],[19.733,71.402,0],[19.8,69.808,0],[19.867,67.85,0],[19.933,66.311,0],[19.967,65.362,0]]},"wallbeside-twin":{"dur":3.4,"t0":0.0,"min":[1.4,-0.011],"crash":1.4,"sim_crash":1.4,"rows":[[0.0,5.275,0],[0.067,4.61,2],[0.133,4.197,2],[0.2,3.721,2],[0.267,3.146,2],[0.333,2.731,2],[0.4,2.36,2],[0.467,1.953,2],[0.533,1.668,2],[0.6,1.443,2],[0.667,1.134,2],[0.733,0.964,2],[0.8,0.793,2],[0.867,0.617,2],[0.933,0.504,2],[1.0,0.423,2],[1.067,0.325,2],[1.133,0.279,2],[1.2,0.241,2],[1.267,0.127,2],[1.333,0.049,2],[1.4,-0.011,2],[1.467,-0.011,2],[1.533,-0.011,2],[1.6,-0.011,2],[1.667,-0.011,2],[1.733,-0.011,2],[1.8,-0.011,2],[1.867,-0.011,2],[1.933,-0.011,2],[2.0,-0.011,2],[2.067,-0.011,2],[2.133,-0.011,2],[2.2,-0.011,2],[2.267,-0.011,2],[2.333,-0.011,2],[2.4,-0.011,2],[2.467,-0.011,2],[2.533,-0.011,2],[2.6,-0.011,2],[2.667,-0.011,2],[2.733,-0.011,2],[2.8,-0.011,2],[2.867,-0.011,2],[2.933,-0.011,2],[3.0,-0.011,2],[3.067,-0.011,2],[3.133,-0.011,2],[3.2,-0.011,2],[3.267,-0.011,2],[3.333,-0.011,2],[3.367,-0.011,2]]},"fastdive":{"dur":20.0,"t0":0.0,"min":[4.833,0.014],"crash":null,"sim_crash":null,"rows":[[0.0,35.031,0],[0.067,36.76,0],[0.133,38.248,0],[0.2,40.29,0],[0.267,43.3,0],[0.333,41.725,0],[0.4,38.55,0],[0.467,34.848,0],[0.533,32.212,0],[0.6,30.215,0],[0.667,27.807,0],[0.733,26.724,0],[0.8,25.924,0],[0.867,25.64,0],[0.933,25.643,0],[1.0,25.647,0],[1.067,25.653,0],[1.133,25.656,0],[1.2,25.66,0],[1.267,24.457,0],[1.333,22.805,0],[1.4,21.266,0],[1.467,20.04,0],[1.533,19.993,0],[1.6,20.465,0],[1.667,19.629,0],[1.733,19.385,0],[1.8,19.352,0],[1.867,19.354,0],[1.933,18.711,0],[2.0,17.258,0],[2.067,15.666,0],[2.133,15.842,0],[2.2,17.247,0],[2.267,18.534,0],[2.333,20.121,0],[2.4,22.475,0],[2.467,26.232,0],[2.533,29.594,2],[2.6,32.649,2],[2.667,37.651,2],[2.733,40.951,2],[2.8,44.518,2],[2.867,41.485,2],[2.933,39.149,2],[3.0,37.173,2],[3.067,34.197,0],[3.133,32.392,0],[3.2,30.398,0],[3.267,27.97,0],[3.333,26.051,0],[3.4,24.141,0],[3.467,21.75,2],[3.533,19.86,2],[3.6,18.253,2],[3.667,15.843,2],[3.733,14.391,2],[3.8,12.814,2],[3.867,10.97,2],[3.933,9.597,2],[4.0,8.469,2],[4.067,6.837,2],[4.133,5.89,2],[4.2,4.894,2],[4.267,3.778,2],[4.333,2.989,2],[4.4,2.293,2],[4.467,1.554,2],[4.533,1.066,2],[4.6,0.715,2],[4.667,0.308,2],[4.733,0.14,2],[4.8,0.034,2],[4.833,0.014,2],[4.867,0.031,2],[4.933,0.132,2],[5.0,0.295,2],[5.067,0.692,2],[5.133,1.03,2],[5.2,1.501,2],[5.267,2.216,2],[5.333,2.887,2],[5.4,3.643,0],[5.467,4.701,0],[5.533,5.602,0],[5.6,6.41,0],[5.667,7.681,0],[5.733,8.492,0],[5.8,9.417,0],[5.867,10.569,0],[5.933,11.374,0],[6.0,11.39,0],[6.067,11.416,0],[6.133,11.432,0],[6.2,11.45,0],[6.267,11.471,0],[6.333,11.488,0],[6.4,12.031,0],[6.467,13.133,0],[6.533,13.148,0],[6.6,13.16,0],[6.667,13.179,0],[6.733,13.191,0],[6.8,13.203,0],[6.867,13.648,0],[6.933,15.38,0],[7.0,17.543,0],[7.067,21.155,0],[7.133,24.01,0],[7.2,25.326,0],[7.267,21.874,0],[7.333,18.771,0],[7.4,16.068,0],[7.467,13.313,0],[7.533,12.486,0],[7.6,12.631,0],[7.667,12.907,0],[7.733,13.086,0],[7.8,13.293,0],[7.867,13.556,0],[7.933,13.769,0],[8.0,13.967,0],[8.067,15.637,0],[8.133,17.43,0],[8.2,17.513,0],[8.267,17.689,0],[8.333,17.835,0],[8.4,17.985,0],[8.467,18.179,0],[8.533,18.339,0],[8.6,18.482,0],[8.667,19.339,0],[8.733,20.724,0],[8.8,22.952,0],[8.867,26.229,0],[8.933,29.105,0],[9.0,31.846,0],[9.067,30.369,0],[9.133,29.569,0],[9.2,29.144,0],[9.267,29.321,0],[9.333,29.608,0],[9.4,29.897,0],[9.467,30.261,0],[9.533,30.553,0],[9.6,30.877,0],[9.667,32.086,0],[9.733,33.163,0],[9.8,33.479,0],[9.867,33.875,0],[9.933,33.842,0],[10.0,33.434,0],[10.067,32.887,0],[10.133,32.899,0],[10.2,33.193,0],[10.267,33.57,0],[10.333,33.872,0],[10.4,34.175,0],[10.467,34.593,0],[10.533,35.285,0],[10.6,36.215,0],[10.667,38.234,0],[10.733,39.836,0],[10.8,40.838,0],[10.867,39.896,0],[10.933,39.546,0],[11.0,39.542,0],[11.067,39.952,0],[11.133,40.239,0],[11.2,40.566,0],[11.267,40.975,0],[11.333,41.301,0],[11.4,41.648,0],[11.467,42.46,0],[11.533,43.467,0],[11.6,44.59,0],[11.667,46.773,0],[11.733,47.358,0],[11.8,47.653,0],[11.867,48.021,0],[11.933,48.453,0],[12.0,49.06,0],[12.067,50.428,0],[12.133,51.544,0],[12.2,53.037,0],[12.267,54.68,0],[12.333,54.985,0],[12.4,53.13,0],[12.467,50.677,0],[12.533,48.947,0],[12.6,47.621,0],[12.667,45.922,0],[12.733,45.101,0],[12.8,44.428,0],[12.867,43.995,0],[12.933,43.981,0],[13.0,44.201,0],[13.067,44.633,0],[13.133,44.908,0],[13.2,45.222,0],[13.267,45.614,0],[13.333,45.927,0],[13.4,46.362,0],[13.467,47.279,0],[13.533,48.297,0],[13.6,49.381,0],[13.667,51.421,0],[13.733,51.014,0],[13.8,50.721,0],[13.867,50.27,0],[13.933,50.048,0],[14.0,50.057,0],[14.067,50.405,0],[14.133,50.671,0],[14.2,50.975,0],[14.267,51.355,0],[14.333,51.658,0],[14.4,51.961,0],[14.467,52.492,0],[14.533,53.168,0],[14.6,53.936,0],[14.667,55.456,0],[14.733,56.611,0],[14.8,58.096,0],[14.867,58.124,0],[14.933,57.963,0],[15.0,57.973,0],[15.067,58.285,0],[15.133,58.541,0],[15.2,58.833,0],[15.267,59.198,0],[15.333,59.49,0],[15.4,59.803,0],[15.467,60.428,0],[15.533,61.135,0],[15.6,61.9,0],[15.667,63.361,0],[15.733,63.582,0],[15.8,63.161,0],[15.867,62.885,0],[15.933,62.867,0],[16.0,62.997,0],[16.067,63.38,0],[16.133,63.628,0],[16.2,63.913,0],[16.267,64.267,0],[16.333,64.551,0],[16.4,64.834,0],[16.467,65.24,0],[16.533,65.737,0],[16.6,66.304,0],[16.667,67.433,0],[16.733,68.299,0],[16.8,69.42,0],[16.867,71.01,0],[16.933,72.423,0],[17.0,73.757,0],[17.067,76.023,0],[17.133,77.566,0],[17.2,79.172,0],[17.267,79.528,0],[17.333,79.814,0],[17.4,80.098,0],[17.467,80.454,0],[17.533,80.738,0],[17.6,80.975,0],[17.667,81.342,0],[17.733,81.574,0],[17.8,81.84,0],[17.867,82.171,0],[17.933,82.436,0],[18.0,82.597,0],[18.067,82.841,0],[18.133,82.995,0],[18.2,83.172,0],[18.267,83.392,0],[18.333,83.554,0],[18.4,83.644,0],[18.467,83.754,0],[18.533,83.841,0],[18.6,83.918,0],[18.667,84.038,0],[18.733,84.092,0],[18.8,84.107,0],[18.867,84.124,0],[18.933,84.137,0],[19.0,84.148,0],[19.067,84.166,0],[19.133,84.157,0],[19.2,84.117,0],[19.267,84.065,0],[19.333,84.023,0],[19.4,83.981,0],[19.467,83.929,0],[19.533,83.864,0],[19.6,83.793,0],[19.667,83.679,0],[19.733,83.607,0],[19.8,83.525,0],[19.867,83.422,0],[19.933,83.321,0],[19.967,83.252,0]]},"fastdive-twin":{"dur":3.733,"t0":0.0,"min":[1.733,-0.08],"crash":1.733,"sim_crash":1.72,"rows":[[0.0,37.819,0],[0.067,36.864,2],[0.133,34.751,2],[0.2,32.375,2],[0.267,29.489,2],[0.333,27.258,2],[0.4,25.103,2],[0.467,22.522,2],[0.533,20.549,2],[0.6,18.891,2],[0.667,16.417,2],[0.733,14.928,2],[0.8,13.307,2],[0.867,11.405,2],[0.933,9.982,2],[1.0,8.812,2],[1.067,7.112,2],[1.133,6.12,2],[1.2,5.071,2],[1.267,3.889,2],[1.333,3.049,2],[1.4,2.3,2],[1.467,1.494,2],[1.533,0.953,2],[1.6,0.557,2],[1.667,0.079,2],[1.733,-0.08,2],[1.8,-0.08,2],[1.867,-0.08,2],[1.933,-0.08,2],[2.0,-0.08,2],[2.067,-0.08,2],[2.133,-0.08,2],[2.2,-0.08,2],[2.267,-0.08,2],[2.333,-0.08,2],[2.4,-0.08,2],[2.467,-0.08,2],[2.533,-0.08,2],[2.6,-0.08,2],[2.667,-0.08,2],[2.733,-0.08,2],[2.8,-0.08,2],[2.867,-0.08,2],[2.933,-0.08,2],[3.0,-0.08,2],[3.067,-0.08,2],[3.133,-0.08,2],[3.2,-0.08,2],[3.267,-0.08,2],[3.333,-0.08,2],[3.4,-0.08,2],[3.467,-0.08,2],[3.533,-0.08,2],[3.6,-0.08,2],[3.667,-0.08,2],[3.7,-0.08,2]]},"wallahead":{"dur":20.0,"t0":0.0,"min":[6.667,0.864],"crash":null,"sim_crash":null,"rows":[[0.0,10.906,0],[0.067,14.778,0],[0.133,17.246,0],[0.2,20.071,0],[0.267,23.607,0],[0.333,26.441,0],[0.4,29.277,0],[0.467,32.699,0],[0.533,35.11,0],[0.6,37.266,0],[0.667,40.729,0],[0.733,42.973,0],[0.8,45.568,0],[0.867,45.931,0],[0.933,45.973,0],[1.0,46.007,0],[1.067,46.059,0],[1.133,46.09,0],[1.2,46.124,0],[1.267,46.164,0],[1.333,46.194,0],[1.4,46.221,0],[1.467,46.252,0],[1.533,46.278,0],[1.6,46.301,0],[1.667,46.335,0],[1.733,46.355,0],[1.8,46.377,0],[1.867,46.399,0],[1.933,46.415,0],[2.0,46.433,2],[2.067,46.447,2],[2.133,46.479,2],[2.2,46.567,2],[2.267,46.765,2],[2.333,46.997,2],[2.4,47.303,2],[2.467,47.797,0],[2.533,48.278,2],[2.6,48.744,2],[2.667,49.56,2],[2.733,50.133,2],[2.8,50.832,2],[2.867,51.773,2],[2.933,52.57,2],[3.0,53.29,2],[3.067,54.446,2],[3.133,55.19,2],[3.2,56.04,2],[3.267,57.094,2],[3.333,57.926,2],[3.4,58.749,2],[3.467,59.758,2],[3.533,60.55,2],[3.6,61.23,2],[3.667,62.279,2],[3.733,62.934,2],[3.8,63.67,2],[3.867,64.577,2],[3.933,65.292,2],[4.0,65.911,2],[4.067,66.872,2],[4.133,67.477,2],[4.2,68.162,2],[4.267,69.011,2],[4.333,69.685,2],[4.4,70.359,2],[4.467,71.193,2],[4.533,69.396,2],[4.6,67.29,2],[4.667,63.991,2],[4.733,61.898,2],[4.8,59.513,2],[4.867,56.541,2],[4.933,54.173,2],[5.0,52.107,2],[5.067,48.872,2],[5.133,46.821,2],[5.2,44.485,2],[5.267,41.577,2],[5.333,39.26,2],[5.4,36.951,2],[5.467,34.078,2],[5.533,31.79,2],[5.6,29.802,2],[5.667,26.71,2],[5.733,24.767,2],[5.8,22.572,2],[5.867,19.875,2],[5.933,17.763,2],[6.0,15.956,2],[6.067,13.213,2],[6.133,11.551,2],[6.2,9.759,2],[6.267,7.743,2],[6.333,6.387,2],[6.4,5.355,2],[6.467,3.525,2],[6.533,2.007,2],[6.6,1.185,2],[6.667,1.037,2],[6.733,2.01,2],[6.8,3.145,0],[6.867,4.601,0],[6.933,5.789,0],[7.0,6.845,0],[7.067,8.537,0],[7.133,9.633,0],[7.2,10.721,0],[7.267,11.856,0],[7.333,12.845,0],[7.4,13.897,0],[7.467,15.292,0],[7.533,16.465,0],[7.6,17.528,0],[7.667,19.402,0],[7.733,20.742,0],[7.8,22.387,0],[7.867,24.578,0],[7.933,24.767,0],[8.0,23.72,0],[8.067,22.116,0],[8.133,21.131,0],[8.2,20.048,0],[8.267,18.773,0],[8.333,17.689,0],[8.4,16.105,0],[8.467,14.181,0],[8.533,12.602,0],[8.6,11.269,0],[8.667,9.474,0],[8.733,8.602,0],[8.8,7.957,0],[8.867,7.787,0],[8.933,8.178,0],[9.0,8.859,0],[9.067,10.388,0],[9.133,11.425,0],[9.2,12.585,0],[9.267,14.0,0],[9.333,15.103,0],[9.4,16.181,0],[9.467,17.491,0],[9.533,18.51,0],[9.6,19.399,0],[9.667,20.958,0],[9.733,20.83,0],[9.8,19.868,0],[9.867,18.812,0],[9.933,18.1,0],[10.0,17.588,0],[10.067,17.052,0],[10.133,16.891,0],[10.2,16.882,0],[10.267,17.127,0],[10.333,17.521,0],[10.4,18.069,0],[10.467,18.798,0],[10.533,19.383,0],[10.6,19.893,0],[10.667,20.69,0],[10.733,21.191,0],[10.8,21.757,2],[10.867,22.448,2],[10.933,22.999,2],[11.0,23.462,2],[11.067,24.151,2],[11.133,24.563,2],[11.2,25.008,2],[11.267,25.523,2],[11.333,25.905,2],[11.4,26.255,2],[11.467,26.646,2],[11.533,26.929,0],[11.6,27.116,0],[11.667,27.36,0],[11.733,27.506,0],[11.8,27.748,0],[11.867,28.198,0],[11.933,28.672,0],[12.0,29.184,0],[12.067,30.164,0],[12.133,30.877,0],[12.2,31.759,0],[12.267,32.933,0],[12.333,33.928,0],[12.4,34.976,0],[12.467,36.358,0],[12.533,37.514,0],[12.6,38.534,0],[12.667,40.15,0],[12.733,41.205,0],[12.8,42.434,0],[12.867,44.0,0],[12.933,45.274,0],[13.0,46.401,0],[13.067,48.193,0],[13.133,49.344,0],[13.2,50.667,0],[13.267,52.332,2],[13.333,53.672,2],[13.4,55.015,2],[13.467,56.699,2],[13.533,58.049,0],[13.6,59.232,0],[13.667,61.093,0],[13.733,61.137,0],[13.8,60.884,0],[13.867,60.628,0],[13.933,60.477,0],[14.0,60.386,0],[14.067,60.328,0],[14.133,60.348,0],[14.2,60.428,0],[14.267,60.616,0],[14.333,60.832,0],[14.4,61.103,0],[14.467,61.517,0],[14.533,61.905,0],[14.6,62.286,0],[14.667,62.961,0],[14.733,63.438,0],[14.8,64.027,0],[14.867,64.8,0],[14.933,64.166,0],[15.0,63.563,0],[15.067,62.643,0],[15.133,62.077,0],[15.2,61.448,0],[15.267,60.692,0],[15.333,60.11,0],[15.4,59.537,0],[15.467,58.821,0],[15.533,58.248,0],[15.6,57.747,0],[15.667,56.963,0],[15.733,56.466,0],[15.8,55.902,0],[15.867,55.204,0],[15.933,54.651,0],[16.0,54.147,0],[16.067,53.327,0],[16.133,52.813,0],[16.2,52.234,0],[16.267,51.524,0],[16.333,50.97,0],[16.4,50.428,0],[16.467,49.77,0],[16.533,49.261,0],[16.6,48.829,0],[16.667,48.178,0],[16.733,47.782,0],[16.8,47.35,0],[16.867,46.841,0],[16.933,46.469,0],[17.0,46.173,0],[17.067,45.766,0],[17.133,45.544,0],[17.2,45.327,0],[17.267,45.111,0],[17.333,44.983,0],[17.4,44.895,0],[17.467,44.837,0],[17.533,44.796,0],[17.6,44.759,0],[17.667,44.696,0],[17.733,44.652,0],[17.8,44.598,0],[17.867,44.524,0],[17.933,44.458,0],[18.0,44.396,0],[18.067,44.289,0],[18.133,44.214,0],[18.2,44.121,0],[18.267,43.994,0],[18.333,43.883,0],[18.4,43.763,0],[18.467,43.601,0],[18.533,43.461,0],[18.6,43.33,0],[18.667,43.109,0],[18.733,42.959,0],[18.8,42.776,0],[18.867,42.534,0],[18.933,42.327,0],[19.0,42.148,0],[19.067,41.905,0],[19.133,41.793,0],[19.2,41.712,0],[19.267,41.68,0],[19.333,41.712,0],[19.4,41.795,0],[19.467,41.971,0],[19.533,42.17,0],[19.6,42.386,0],[19.667,42.805,0],[19.733,43.121,0],[19.8,43.529,0],[19.867,44.106,0],[19.933,44.622,0],[19.967,44.968,0]]},"wallahead-twin":{"dur":7.767,"t0":0.0,"min":[5.767,-0.182],"crash":5.767,"sim_crash":5.76,"rows":[[0.0,45.501,0],[0.067,45.51,2],[0.133,45.529,2],[0.2,45.596,2],[0.267,45.768,2],[0.333,45.98,2],[0.4,46.265,2],[0.467,46.739,2],[0.533,47.205,2],[0.6,47.673,2],[0.667,48.507,2],[0.733,49.093,2],[0.8,49.8,2],[0.867,50.733,2],[0.933,51.511,2],[1.0,52.2,2],[1.067,53.288,2],[1.133,53.977,2],[1.2,54.758,2],[1.267,55.714,2],[1.333,56.465,2],[1.4,57.205,2],[1.467,58.114,2],[1.533,58.828,2],[1.6,59.443,2],[1.667,60.395,2],[1.733,60.99,2],[1.8,61.662,2],[1.867,62.493,2],[1.933,63.156,2],[2.0,63.165,2],[2.067,62.672,2],[2.133,62.331,2],[2.2,61.915,2],[2.267,61.355,2],[2.333,60.874,2],[2.4,60.363,2],[2.467,59.684,2],[2.533,59.108,2],[2.6,58.581,2],[2.667,57.71,2],[2.733,57.13,2],[2.8,56.443,2],[2.867,55.568,2],[2.933,54.928,2],[3.0,54.422,2],[3.067,51.619,2],[3.133,49.691,2],[3.2,47.505,2],[3.267,44.799,2],[3.333,42.656,2],[3.4,40.531,2],[3.467,37.903,2],[3.533,35.823,2],[3.6,34.019,2],[3.667,31.215,2],[3.733,29.451,2],[3.8,27.455,2],[3.867,24.99,2],[3.933,23.049,2],[4.0,21.379,2],[4.067,18.81,2],[4.133,17.215,2],[4.2,15.435,2],[4.267,13.337,2],[4.333,11.891,2],[4.4,10.719,2],[4.467,9.738,2],[4.533,9.411,2],[4.6,9.485,2],[4.667,10.257,2],[4.733,11.117,2],[4.8,12.387,2],[4.867,14.309,2],[4.933,16.041,2],[5.0,17.598,2],[5.067,20.078,2],[5.133,18.624,2],[5.2,16.821,2],[5.267,14.541,2],[5.333,12.697,2],[5.4,10.836,2],[5.467,8.486,2],[5.533,6.587,2],[5.6,4.912,2],[5.667,2.257,2],[5.733,0.552,2],[5.767,-0.182,2],[5.8,-0.182,2],[5.867,-0.182,2],[5.933,-0.182,2],[6.0,-0.182,2],[6.067,-0.182,2],[6.133,-0.182,2],[6.2,-0.182,2],[6.267,-0.182,2],[6.333,-0.182,2],[6.4,-0.182,2],[6.467,-0.182,2],[6.533,-0.182,2],[6.6,-0.182,2],[6.667,-0.182,2],[6.733,-0.182,2],[6.8,-0.182,2],[6.867,-0.182,2],[6.933,-0.182,2],[7.0,-0.182,2],[7.067,-0.182,2],[7.133,-0.182,2],[7.2,-0.182,2],[7.267,-0.182,2],[7.333,-0.182,2],[7.4,-0.182,2],[7.467,-0.182,2],[7.533,-0.182,2],[7.6,-0.182,2],[7.667,-0.182,2],[7.733,-0.182,2]]},"towergap":{"dur":20.0,"t0":0.0,"min":[5.933,5.609],"crash":null,"sim_crash":null,"rows":[[0.0,11.377,0],[0.067,11.378,0],[0.133,11.379,0],[0.2,11.379,0],[0.267,11.38,0],[0.333,11.38,0],[0.4,11.381,0],[0.467,11.382,0],[0.533,11.391,0],[0.6,11.734,0],[0.667,13.188,0],[0.733,13.632,0],[0.8,13.701,0],[0.867,14.472,0],[0.933,15.634,0],[1.0,16.972,0],[1.067,19.532,0],[1.133,21.375,0],[1.2,23.632,0],[1.267,26.321,0],[1.333,23.81,0],[1.4,21.373,0],[1.467,18.472,0],[1.533,16.309,0],[1.6,14.575,0],[1.667,11.646,0],[1.733,10.05,0],[1.8,8.737,0],[1.867,8.198,0],[1.933,8.204,0],[2.0,8.209,0],[2.067,8.217,0],[2.133,8.222,0],[2.2,8.228,0],[2.267,8.236,0],[2.333,8.235,0],[2.4,8.218,0],[2.467,8.191,0],[2.533,8.174,0],[2.6,8.167,0],[2.667,8.171,0],[2.733,8.18,2],[2.8,8.172,2],[2.867,8.123,2],[2.933,8.058,2],[3.0,7.984,2],[3.067,7.84,2],[3.133,7.731,2],[3.2,7.592,2],[3.267,7.808,2],[3.333,8.842,2],[3.4,10.423,2],[3.467,12.854,2],[3.533,15.001,2],[3.6,16.886,2],[3.667,19.691,2],[3.733,21.554,2],[3.8,23.738,2],[3.867,26.532,2],[3.933,28.806,2],[4.0,29.267,2],[4.067,27.669,2],[4.133,26.804,2],[4.2,25.87,2],[4.267,25.035,2],[4.333,24.65,2],[4.4,24.527,2],[4.467,24.742,2],[4.533,25.201,2],[4.6,25.049,2],[4.667,24.609,2],[4.733,24.567,2],[4.8,24.726,2],[4.867,24.973,2],[4.933,25.165,2],[5.0,25.33,2],[5.067,25.581,2],[5.133,24.999,2],[5.2,22.735,2],[5.267,19.97,2],[5.333,17.825,2],[5.4,15.759,2],[5.467,13.326,2],[5.533,11.546,2],[5.6,10.154,2],[5.667,8.136,2],[5.733,6.804,2],[5.8,5.839,2],[5.867,5.619,2],[5.933,5.614,2],[6.0,5.662,2],[6.067,5.83,2],[6.133,5.991,2],[6.2,6.219,2],[6.267,6.563,2],[6.333,6.878,2],[6.4,7.214,0],[6.467,7.444,0],[6.533,7.659,0],[6.6,7.862,0],[6.667,8.577,2],[6.733,9.43,2],[6.8,10.712,2],[6.867,12.67,2],[6.933,14.45,2],[7.0,16.123,2],[7.067,18.916,2],[7.133,17.897,2],[7.2,15.8,2],[7.267,13.31,2],[7.333,11.463,2],[7.4,9.798,2],[7.467,8.076,2],[7.533,7.094,2],[7.6,6.515,2],[7.667,6.206,2],[7.733,6.411,2],[7.8,6.66,2],[7.867,6.993,2],[7.933,7.248,0],[8.0,7.428,0],[8.067,7.663,0],[8.133,7.798,0],[8.2,7.95,0],[8.267,8.146,0],[8.333,8.312,0],[8.4,8.49,0],[8.467,8.731,0],[8.533,8.941,0],[8.6,9.299,0],[8.667,10.687,0],[8.733,11.963,0],[8.8,13.672,0],[8.867,16.019,0],[8.933,17.761,0],[9.0,19.378,0],[9.067,22.057,0],[9.133,23.83,0],[9.2,24.116,0],[9.267,24.376,0],[9.333,24.821,0],[9.4,25.467,0],[9.467,26.535,0],[9.533,27.579,0],[9.6,28.615,0],[9.667,30.445,0],[9.733,31.723,0],[9.8,33.276,0],[9.867,35.195,0],[9.933,36.792,0],[10.0,38.247,0],[10.067,40.627,0],[10.133,42.194,0],[10.2,43.47,0],[10.267,42.496,0],[10.333,41.854,0],[10.4,41.341,0],[10.467,40.886,0],[10.533,40.675,0],[10.6,40.603,0],[10.667,40.706,0],[10.733,40.905,0],[10.8,41.259,0],[10.867,41.85,0],[10.933,42.339,0],[11.0,42.768,0],[11.067,43.324,0],[11.133,43.138,0],[11.2,42.929,0],[11.267,42.675,0],[11.333,42.483,0],[11.4,42.382,0],[11.467,42.422,0],[11.533,42.585,0],[11.6,42.823,0],[11.667,43.373,0],[11.733,43.832,0],[11.8,44.456,0],[11.867,45.382,0],[11.933,46.232,0],[12.0,46.443,0],[12.067,46.668,0],[12.133,46.812,0],[12.2,46.976,0],[12.267,47.182,0],[12.333,47.346,0],[12.4,47.51,0],[12.467,47.716,0],[12.533,47.88,0],[12.6,48.024,0],[12.667,48.25,0],[12.733,48.394,0],[12.8,48.558,0],[12.867,48.764,0],[12.933,48.928,0],[13.0,49.075,0],[13.067,49.422,0],[13.133,49.737,0],[13.2,50.183,0],[13.267,50.867,0],[13.333,51.513,0],[13.4,52.242,0],[13.467,53.266,0],[13.533,54.171,0],[13.6,55.023,0],[13.667,56.468,0],[13.733,57.452,0],[13.8,58.633,0],[13.867,60.192,0],[13.933,61.499,0],[14.0,62.685,0],[14.067,64.622,0],[14.133,65.898,0],[14.2,67.396,0],[14.267,69.322,0],[14.333,70.904,0],[14.4,72.519,0],[14.467,74.582,0],[14.533,76.266,0],[14.6,77.442,0],[14.667,76.282,0],[14.733,75.6,0],[14.8,74.877,0],[14.867,74.059,0],[14.933,73.476,0],[15.0,73.017,0],[15.067,72.398,0],[15.133,72.069,0],[15.2,71.757,0],[15.267,71.462,0],[15.333,71.304,0],[15.4,71.215,0],[15.467,71.198,0],[15.533,71.212,0],[15.6,71.227,0],[15.667,71.255,0],[15.733,71.276,0],[15.8,71.302,0],[15.867,71.34,0],[15.933,71.373,0],[16.0,71.404,0],[16.067,71.458,0],[16.133,71.496,0],[16.2,71.541,0],[16.267,71.608,0],[16.333,71.719,0],[16.4,71.898,0],[16.467,72.215,0],[16.533,72.544,0],[16.6,72.885,0],[16.667,73.521,0],[16.733,73.987,0],[16.8,74.578,0],[16.867,75.401,0],[16.933,76.125,0],[17.0,76.805,0],[17.067,77.958,0],[17.133,78.744,0],[17.2,79.69,0],[17.267,80.943,0],[17.333,81.998,0],[17.4,83.098,0],[17.467,84.535,0],[17.533,85.732,0],[17.6,86.812,0],[17.667,88.568,0],[17.733,89.721,0],[17.8,91.072,0],[17.867,92.808,0],[17.933,94.231,0],[18.0,95.502,0],[18.067,97.543,0],[18.133,98.87,0],[18.2,100.41,0],[18.267,102.37,0],[18.333,103.964,0],[18.4,105.581,0],[18.467,107.633,0],[18.533,109.297,0],[18.6,110.769,0],[18.667,113.108,0],[18.733,114.612,0],[18.8,116.344,0],[18.867,118.531,0],[18.933,120.295,0],[19.0,121.47,0],[19.067,122.264,0],[19.133,122.804,0],[19.2,123.453,0],[19.267,124.312,0],[19.333,125.036,0],[19.4,125.793,0],[19.467,126.784,0],[19.533,127.612,0],[19.6,128.362,0],[19.667,129.586,0],[19.733,130.394,0],[19.8,131.344,0],[19.867,132.571,0],[19.933,133.583,0],[19.967,134.228,0]]},"towergap-off":{"dur":7.633,"t0":0.0,"min":[5.633,-0.067],"crash":5.633,"sim_crash":5.64,"rows":[[0.0,11.377,3],[0.067,11.378,3],[0.133,11.379,3],[0.2,11.379,3],[0.267,11.38,3],[0.333,11.38,3],[0.4,11.381,3],[0.467,11.382,3],[0.533,11.391,3],[0.6,11.734,3],[0.667,13.188,3],[0.733,13.632,3],[0.8,13.701,3],[0.867,14.472,3],[0.933,15.634,3],[1.0,16.972,3],[1.067,19.532,3],[1.133,21.375,3],[1.2,23.632,3],[1.267,26.321,3],[1.333,23.81,3],[1.4,21.373,3],[1.467,18.472,3],[1.533,16.309,3],[1.6,14.575,3],[1.667,11.646,3],[1.733,10.05,3],[1.8,8.737,3],[1.867,8.198,3],[1.933,8.204,3],[2.0,8.209,3],[2.067,8.217,3],[2.133,8.222,3],[2.2,8.228,3],[2.267,8.236,3],[2.333,8.235,3],[2.4,8.218,3],[2.467,8.191,3],[2.533,8.174,3],[2.6,8.167,3],[2.667,8.171,3],[2.733,8.184,3],[2.8,8.206,3],[2.867,8.243,3],[2.933,8.278,3],[3.0,8.311,3],[3.067,8.361,3],[3.133,8.389,3],[3.2,8.414,3],[3.267,9.009,3],[3.333,10.306,3],[3.4,12.093,3],[3.467,14.281,3],[3.533,16.275,3],[3.6,18.163,3],[3.667,21.323,3],[3.733,23.42,3],[3.8,25.874,3],[3.867,29.005,3],[3.933,27.925,3],[4.0,26.769,3],[4.067,25.386,3],[4.133,24.811,3],[4.2,24.466,3],[4.267,23.443,3],[4.333,22.532,3],[4.4,21.566,3],[4.467,20.279,3],[4.533,19.186,3],[4.6,18.184,3],[4.667,16.525,3],[4.733,15.415,3],[4.8,14.096,3],[4.867,12.371,3],[4.933,10.932,3],[5.0,9.63,3],[5.067,7.504,3],[5.133,6.101,3],[5.2,4.597,3],[5.267,3.601,3],[5.333,3.757,3],[5.4,4.725,3],[5.467,4.847,3],[5.533,2.845,3],[5.6,1.133,3],[5.633,-0.067,3],[5.667,-0.067,3],[5.733,-0.067,3],[5.8,-0.067,3],[5.867,-0.067,3],[5.933,-0.067,3],[6.0,-0.067,3],[6.067,-0.067,3],[6.133,-0.067,3],[6.2,-0.067,3],[6.267,-0.067,3],[6.333,-0.067,3],[6.4,-0.067,3],[6.467,-0.067,3],[6.533,-0.067,3],[6.6,-0.067,3],[6.667,-0.067,3],[6.733,-0.067,3],[6.8,-0.067,3],[6.867,-0.067,3],[6.933,-0.067,3],[7.0,-0.067,3],[7.067,-0.067,3],[7.133,-0.067,3],[7.2,-0.067,3],[7.267,-0.067,3],[7.333,-0.067,3],[7.4,-0.067,3],[7.467,-0.067,3],[7.533,-0.067,3],[7.6,-0.067,3]]},"kamikaze":{"dur":24.0,"t0":0.0,"min":[8.267,4.038],"crash":null,"sim_crash":null,"rows":[[0.0,11.377,0],[0.067,11.4,2],[0.133,11.412,2],[0.2,11.414,2],[0.267,11.418,2],[0.333,11.425,2],[0.4,11.438,0],[0.467,11.504,0],[0.533,11.57,0],[0.6,11.858,0],[0.667,13.189,0],[0.733,13.369,0],[0.8,13.35,0],[0.867,13.909,0],[0.933,14.908,0],[1.0,16.116,0],[1.067,18.498,0],[1.133,20.244,0],[1.2,22.401,0],[1.267,25.024,0],[1.333,25.277,0],[1.4,22.883,0],[1.467,19.996,0],[1.533,17.809,0],[1.6,16.019,0],[1.667,13.319,0],[1.733,11.622,0],[1.8,10.063,0],[1.867,8.98,0],[1.933,8.89,0],[2.0,8.893,0],[2.067,8.901,0],[2.133,8.91,0],[2.2,8.924,0],[2.267,8.948,0],[2.333,8.973,0],[2.4,9.004,0],[2.467,9.051,0],[2.533,9.097,0],[2.6,9.142,0],[2.667,9.225,0],[2.733,9.286,0],[2.8,9.354,0],[2.867,9.241,0],[2.933,9.14,0],[3.0,9.045,0],[3.067,8.88,0],[3.133,8.9,0],[3.2,9.708,0],[3.267,10.632,0],[3.333,11.935,2],[3.4,13.696,2],[3.467,16.374,2],[3.533,18.528,2],[3.6,20.595,2],[3.667,24.092,2],[3.733,26.432,2],[3.8,27.626,2],[3.867,24.164,2],[3.933,21.486,2],[4.0,19.232,2],[4.067,15.925,2],[4.133,14.023,2],[4.2,12.116,2],[4.267,9.545,2],[4.333,8.034,2],[4.4,7.317,2],[4.467,6.935,2],[4.533,6.637,2],[4.6,6.382,2],[4.667,5.992,2],[4.733,5.75,2],[4.8,5.478,2],[4.867,5.145,2],[4.933,4.886,2],[5.0,4.755,2],[5.067,4.869,2],[5.133,5.131,2],[5.2,5.578,2],[5.267,5.726,2],[5.333,5.915,2],[5.4,6.196,2],[5.467,6.665,2],[5.533,7.123,2],[5.6,7.576,2],[5.667,7.487,2],[5.733,8.097,2],[5.8,9.423,2],[5.867,10.642,2],[5.933,11.95,2],[6.0,13.373,2],[6.067,15.99,2],[6.133,17.83,2],[6.2,20.052,2],[6.267,22.957,2],[6.333,25.356,2],[6.4,27.803,2],[6.467,29.307,2],[6.533,30.377,2],[6.6,31.447,2],[6.667,33.352,2],[6.733,33.854,2],[6.8,32.54,2],[6.867,29.61,2],[6.933,27.331,2],[7.0,25.393,2],[7.067,22.484,2],[7.133,20.738,2],[7.2,18.871,2],[7.267,16.777,2],[7.333,15.346,2],[7.4,14.182,2],[7.467,13.18,2],[7.533,12.754,2],[7.6,11.071,2],[7.667,8.743,2],[7.733,7.329,2],[7.8,5.576,2],[7.867,4.372,2],[7.933,4.292,2],[8.0,4.246,2],[8.067,4.178,2],[8.133,4.135,2],[8.2,4.088,2],[8.267,4.038,2],[8.333,4.082,2],[8.4,4.222,2],[8.467,4.518,2],[8.533,4.837,2],[8.6,5.31,2],[8.667,7.254,0],[8.733,8.689,0],[8.8,10.4,0],[8.867,12.82,0],[8.933,14.906,0],[9.0,16.805,0],[9.067,19.888,0],[9.133,21.894,0],[9.2,24.218,0],[9.267,27.159,0],[9.333,29.533,0],[9.4,31.922,0],[9.467,34.925,0],[9.533,37.339,0],[9.6,39.458,0],[9.667,42.799,0],[9.733,41.811,0],[9.8,40.526,0],[9.867,39.052,0],[9.933,37.989,0],[10.0,37.153,0],[10.067,36.031,0],[10.133,35.45,0],[10.2,34.921,0],[10.267,34.476,0],[10.333,34.211,0],[10.4,33.924,0],[10.467,33.535,0],[10.533,33.203,0],[10.6,32.898,0],[10.667,32.508,0],[10.733,32.438,0],[10.8,32.536,0],[10.867,32.322,0],[10.933,30.884,0],[11.0,29.713,0],[11.067,28.077,0],[11.133,27.186,0],[11.2,26.185,0],[11.267,24.919,0],[11.333,23.899,0],[11.4,22.877,0],[11.467,21.596,0],[11.533,20.57,0],[11.6,19.67,0],[11.667,18.253,0],[11.733,17.349,0],[11.8,16.314,0],[11.867,15.017,0],[11.933,13.976,0],[12.0,13.064,0],[12.067,11.767,0],[12.133,11.401,0],[12.2,11.535,0],[12.267,12.513,0],[12.333,13.866,0],[12.4,15.626,0],[12.467,18.263,0],[12.533,20.635,0],[12.6,22.855,0],[12.667,26.551,0],[12.733,29.006,0],[12.8,31.887,0],[12.867,35.581,0],[12.933,37.52,0],[13.0,36.575,0],[13.067,35.089,0],[13.133,34.144,0],[13.2,33.066,0],[13.267,31.721,0],[13.333,30.65,0],[13.4,29.584,0],[13.467,28.25,0],[13.533,27.186,0],[13.6,26.426,0],[13.667,25.785,0],[13.733,25.75,0],[13.8,26.074,0],[13.867,27.008,0],[13.933,28.154,0],[14.0,29.419,0],[14.067,30.877,0],[14.133,29.921,0],[14.2,28.827,0],[14.267,27.456,0],[14.333,26.355,0],[14.4,25.258,0],[14.467,24.275,0],[14.533,23.969,0],[14.6,24.07,0],[14.667,24.917,0],[14.733,25.87,0],[14.8,27.317,0],[14.867,29.594,0],[14.933,29.402,0],[15.0,27.008,0],[15.067,23.6,0],[15.133,21.73,0],[15.2,19.965,0],[15.267,17.999,0],[15.333,16.488,0],[15.4,14.969,0],[15.467,13.06,0],[15.533,11.526,0],[15.6,10.182,0],[15.667,8.024,0],[15.733,6.711,0],[15.8,5.934,0],[15.867,7.57,0],[15.933,9.844,0],[16.0,10.571,0],[16.067,10.027,0],[16.133,10.056,0],[16.2,10.276,0],[16.267,10.822,0],[16.333,11.461,0],[16.4,12.262,0],[16.467,11.655,0],[16.533,10.4,2],[16.6,9.864,2],[16.667,10.698,2],[16.733,12.186,2],[16.8,14.559,2],[16.867,13.765,2],[16.933,10.604,2],[17.0,8.238,2],[17.067,5.918,2],[17.133,5.436,2],[17.2,4.997,2],[17.267,4.578,2],[17.333,4.348,2],[17.4,4.209,2],[17.467,4.166,2],[17.533,4.235,2],[17.6,4.37,2],[17.667,4.894,2],[17.733,6.339,2],[17.8,5.285,2],[17.867,5.602,2],[17.933,6.242,2],[18.0,6.872,2],[18.067,8.006,0],[18.133,8.8,0],[18.2,9.79,0],[18.267,11.111,0],[18.333,12.192,0],[18.4,13.274,0],[18.467,14.613,0],[18.533,15.755,0],[18.6,17.199,0],[18.667,20.218,0],[18.733,22.495,0],[18.8,25.349,0],[18.867,29.203,0],[18.933,30.907,0],[19.0,31.186,0],[19.067,32.166,0],[19.133,32.85,0],[19.2,33.502,0],[19.267,33.324,0],[19.333,33.194,0],[19.4,33.074,0],[19.467,32.938,0],[19.533,32.843,0],[19.6,32.919,0],[19.667,33.645,0],[19.733,34.478,0],[19.8,35.759,0],[19.867,36.91,0],[19.933,35.784,0],[20.0,35.091,0],[20.067,34.593,0],[20.133,34.528,0],[20.2,34.482,0],[20.267,34.466,0],[20.333,34.485,0],[20.4,34.53,0],[20.467,34.622,0],[20.533,34.916,0],[20.6,35.487,0],[20.667,36.943,0],[20.733,38.196,0],[20.8,39.904,0],[20.867,39.228,0],[20.933,38.635,0],[21.0,38.41,0],[21.067,38.554,0],[21.133,38.716,0],[21.2,38.9,0],[21.267,39.128,0],[21.333,39.06,0],[21.4,38.007,0],[21.467,37.172,0],[21.533,36.909,0],[21.6,36.97,0],[21.667,37.186,0],[21.733,37.319,0],[21.8,37.467,0],[21.867,37.646,0],[21.933,37.785,0],[22.0,37.911,0],[22.067,38.487,0],[22.133,38.91,0],[22.2,39.154,0],[22.267,39.504,0],[22.333,39.826,0],[22.4,40.182,0],[22.467,40.562,0],[22.533,41.115,0],[22.6,41.861,0],[22.667,43.501,0],[22.733,44.818,0],[22.8,46.559,0],[22.867,48.483,0],[22.933,48.377,0],[23.0,48.534,0],[23.067,49.247,0],[23.133,49.987,0],[23.2,50.97,0],[23.267,49.547,0],[23.333,48.441,0],[23.4,47.374,0],[23.467,46.108,0],[23.533,45.164,0],[23.6,44.425,0],[23.667,43.682,0],[23.733,43.497,0],[23.8,43.564,0],[23.867,44.062,0],[23.933,44.781,0],[23.967,45.312,0]]},"parkdive":{"dur":20.0,"t0":0.0,"min":[6.9,0.048],"crash":null,"sim_crash":null,"rows":[[0.0,26.86,0],[0.067,24.758,0],[0.133,23.636,0],[0.2,22.42,0],[0.267,20.999,0],[0.333,19.956,0],[0.4,18.74,0],[0.467,17.357,0],[0.533,16.386,0],[0.6,15.654,0],[0.667,14.769,0],[0.733,14.399,0],[0.8,14.184,0],[0.867,14.164,0],[0.933,14.17,0],[1.0,14.442,0],[1.067,15.697,0],[1.133,16.079,0],[1.2,15.142,0],[1.267,14.24,0],[1.333,13.775,0],[1.4,13.568,0],[1.467,13.553,0],[1.533,12.682,0],[1.6,11.958,0],[1.667,11.266,0],[1.733,11.152,0],[1.8,11.158,0],[1.867,11.619,0],[1.933,12.814,0],[2.0,14.337,0],[2.067,17.353,0],[2.133,19.166,0],[2.2,21.443,0],[2.267,24.554,0],[2.333,27.205,0],[2.4,29.968,2],[2.467,31.662,2],[2.533,29.481,2],[2.6,27.608,2],[2.667,24.762,2],[2.733,23.02,2],[2.8,21.101,2],[2.867,18.814,2],[2.933,17.077,2],[3.0,15.626,2],[3.067,13.478,2],[3.133,12.196,2],[3.2,10.813,2],[3.267,9.207,2],[3.333,8.022,2],[3.4,6.927,2],[3.467,5.684,2],[3.533,4.792,2],[3.6,4.086,2],[3.667,3.119,2],[3.733,2.594,2],[3.8,2.08,2],[3.867,1.567,2],[3.933,1.262,2],[4.0,1.071,2],[4.067,0.913,2],[4.133,0.902,2],[4.2,0.976,2],[4.267,1.199,2],[4.333,1.481,2],[4.4,1.851,2],[4.467,2.439,2],[4.533,3.005,0],[4.6,3.577,0],[4.667,4.587,0],[4.733,5.272,0],[4.8,6.072,0],[4.867,7.071,0],[4.933,7.863,0],[5.0,8.547,0],[5.067,9.601,0],[5.133,10.255,0],[5.2,10.988,0],[5.267,11.881,0],[5.333,12.572,0],[5.4,13.241,0],[5.467,14.043,0],[5.533,14.656,0],[5.6,15.171,0],[5.667,15.944,0],[5.733,16.413,0],[5.8,16.93,0],[5.867,17.541,0],[5.933,17.999,0],[6.0,18.384,0],[6.067,18.969,0],[6.133,18.954,0],[6.2,15.495,0],[6.267,11.338,2],[6.333,8.253,2],[6.4,5.592,2],[6.467,2.359,2],[6.533,1.391,2],[6.6,1.131,2],[6.667,0.756,2],[6.733,0.541,2],[6.8,0.32,2],[6.867,0.084,2],[6.9,0.048,2],[6.933,0.379,2],[7.0,0.656,2],[7.067,0.398,2],[7.133,0.495,2],[7.2,2.138,2],[7.267,5.628,0],[7.333,6.934,0],[7.4,7.857,0],[7.467,9.068,0],[7.533,10.065,0],[7.6,10.95,0],[7.667,12.352,0],[7.733,13.248,0],[7.8,14.272,0],[7.867,15.551,0],[7.933,16.572,0],[8.0,17.643,0],[8.067,19.93,0],[8.133,21.691,0],[8.2,23.922,0],[8.267,26.963,0],[8.333,29.546,0],[8.4,32.229,0],[8.467,35.689,0],[8.533,37.038,0],[8.6,36.888,0],[8.667,37.034,0],[8.733,37.367,0],[8.8,37.967,0],[8.867,39.023,0],[8.933,39.956,0],[9.0,40.769,0],[9.067,42.043,0],[9.133,42.852,0],[9.2,43.775,0],[9.267,44.928,0],[9.333,45.849,0],[9.4,46.676,0],[9.467,47.329,0],[9.533,47.854,0],[9.6,48.324,0],[9.667,49.266,0],[9.733,49.689,0],[9.8,49.977,0],[9.867,50.519,0],[9.933,50.979,0],[10.0,51.386,0],[10.067,52.034,0],[10.133,52.452,0],[10.2,52.935,0],[10.267,53.547,0],[10.333,54.044,0],[10.4,54.546,0],[10.467,55.184,0],[10.533,55.701,0],[10.6,56.178,0],[10.667,57.104,0],[10.733,57.805,0],[10.8,58.706,0],[10.867,59.973,0],[10.933,61.092,0],[11.0,62.142,0],[11.067,63.918,0],[11.133,65.12,0],[11.2,66.559,0],[11.267,68.445,0],[11.333,70.017,0],[11.4,71.642,0],[11.467,73.738,0],[11.533,75.462,0],[11.6,77.003,0],[11.667,79.477,0],[11.733,81.082,0],[11.8,82.942,0],[11.867,85.302,0],[11.933,87.215,0],[12.0,88.905,0],[12.067,91.588,0],[12.133,93.31,0],[12.2,95.288,0],[12.267,95.816,0],[12.333,95.684,0],[12.4,95.608,0],[12.467,95.591,0],[12.533,95.637,0],[12.6,95.721,0],[12.667,95.931,0],[12.733,96.114,0],[12.8,96.368,0],[12.867,96.751,0],[12.933,97.108,0],[13.0,97.455,0],[13.067,98.066,0],[13.133,98.494,0],[13.2,99.019,0],[13.267,99.726,0],[13.333,100.331,0],[13.4,100.968,0],[13.467,101.789,0],[13.533,102.454,0],[13.6,103.043,0],[13.667,103.985,0],[13.733,104.593,0],[13.8,105.296,0],[13.867,106.189,0],[13.933,106.914,0],[14.0,107.555,0],[14.067,108.578,0],[14.133,109.241,0],[14.2,110.029,0],[14.267,111.059,0],[14.333,111.919,0],[14.4,112.808,0],[14.467,113.958,0],[14.533,114.251,0],[14.6,114.516,0],[14.667,114.965,0],[14.733,115.272,0],[14.8,115.641,0],[14.867,116.13,0],[14.933,116.55,0],[15.0,116.943,0],[15.067,117.605,0],[15.133,118.054,0],[15.2,118.592,0],[15.267,119.302,0],[15.333,119.898,0],[15.4,120.519,0],[15.467,121.327,0],[15.533,121.999,0],[15.6,122.603,0],[15.667,123.462,0],[15.733,123.928,0],[15.8,124.457,0],[15.867,125.112,0],[15.933,125.632,0],[16.0,126.084,0],[16.067,126.787,0],[16.133,127.23,0],[16.2,127.733,0],[16.267,128.356,0],[16.333,128.849,0],[16.4,129.341,0],[16.467,129.968,0],[16.533,130.478,0],[16.6,130.932,0],[16.667,131.659,0],[16.733,132.129,0],[16.8,132.673,0],[16.867,133.365,0],[16.933,133.927,0],[17.0,134.425,0],[17.067,135.22,0],[17.133,135.734,0],[17.2,136.328,0],[17.267,137.079,0],[17.333,137.47,0],[17.4,137.788,0],[17.467,138.196,0],[17.533,138.528,0],[17.6,138.822,0],[17.667,139.29,0],[17.733,139.592,0],[17.8,139.94,0],[17.867,140.377,0],[17.933,140.728,0],[18.0,141.031,0],[18.067,141.49,0],[18.133,141.772,0],[18.2,142.083,0],[18.267,142.455,0],[18.333,142.74,0],[18.4,143.012,0],[18.467,143.334,0],[18.533,143.578,0],[18.6,143.779,0],[18.667,144.075,0],[18.733,144.25,0],[18.8,144.435,0],[18.867,144.647,0],[18.933,144.8,0],[19.0,144.922,0],[19.067,145.089,0],[19.133,145.181,0],[19.2,145.27,0],[19.267,145.361,0],[19.333,145.416,0],[19.4,145.463,0],[19.467,145.512,0],[19.533,145.544,0],[19.6,145.567,0],[19.667,145.592,0],[19.733,145.601,0],[19.8,145.605,0],[19.867,145.6,0],[19.933,145.589,0],[19.967,145.579,0]]},"parkdive-twin":{"dur":3.267,"t0":0.0,"min":[1.267,-0.031],"crash":1.267,"sim_crash":1.26,"rows":[[0.0,23.517,0],[0.067,21.034,2],[0.133,19.456,2],[0.2,17.688,2],[0.267,15.557,2],[0.333,13.93,2],[0.4,12.377,2],[0.467,10.548,2],[0.533,9.179,2],[0.6,8.052,2],[0.667,6.419,2],[0.733,5.468,2],[0.8,4.468,2],[0.867,3.347,2],[0.933,2.555,2],[1.0,1.939,2],[1.067,1.116,2],[1.133,0.685,2],[1.2,0.28,2],[1.267,-0.031,2],[1.333,-0.031,2],[1.4,-0.031,2],[1.467,-0.031,2],[1.533,-0.031,2],[1.6,-0.031,2],[1.667,-0.031,2],[1.733,-0.031,2],[1.8,-0.031,2],[1.867,-0.031,2],[1.933,-0.031,2],[2.0,-0.031,2],[2.067,-0.031,2],[2.133,-0.031,2],[2.2,-0.031,2],[2.267,-0.031,2],[2.333,-0.031,2],[2.4,-0.031,2],[2.467,-0.031,2],[2.533,-0.031,2],[2.6,-0.031,2],[2.667,-0.031,2],[2.733,-0.031,2],[2.8,-0.031,2],[2.867,-0.031,2],[2.933,-0.031,2],[3.0,-0.031,2],[3.067,-0.031,2],[3.133,-0.031,2],[3.2,-0.031,2],[3.233,-0.031,2]]},"parkdive-deployed":{"dur":20.0,"t0":0.0,"min":[6.533,3.87],"crash":null,"sim_crash":null,"rows":[[0.0,27.118,0],[0.067,26.184,0],[0.133,25.814,0],[0.2,25.366,0],[0.267,23.751,0],[0.333,22.528,0],[0.4,21.375,0],[0.467,20.045,0],[0.533,18.838,0],[0.6,17.837,0],[0.667,16.443,0],[0.733,15.696,0],[0.8,15.001,0],[0.867,14.411,0],[0.933,14.193,0],[1.0,14.442,0],[1.067,15.697,0],[1.133,16.946,0],[1.2,17.394,0],[1.267,15.998,0],[1.333,15.061,0],[1.4,14.32,0],[1.467,13.726,0],[1.533,13.55,0],[1.6,13.543,0],[1.667,12.544,0],[1.733,11.851,0],[1.8,11.337,0],[1.867,11.619,0],[1.933,12.815,0],[2.0,14.337,0],[2.067,17.354,0],[2.133,19.167,0],[2.2,21.444,0],[2.267,24.555,0],[2.333,27.206,0],[2.4,29.97,0],[2.467,33.543,2],[2.533,33.724,2],[2.6,31.831,2],[2.667,28.946,2],[2.733,27.176,2],[2.8,25.224,2],[2.867,22.894,2],[2.933,21.122,2],[3.0,19.64,2],[3.067,17.442,2],[3.133,16.128,2],[3.2,14.707,2],[3.267,13.055,2],[3.333,11.832,2],[3.4,10.699,2],[3.467,9.409,2],[3.533,8.478,2],[3.6,7.738,2],[3.667,6.718,2],[3.733,6.16,2],[3.8,5.607,2],[3.867,5.045,2],[3.933,4.701,2],[4.0,4.475,2],[4.067,4.264,2],[4.133,4.22,2],[4.2,4.255,2],[4.267,4.43,2],[4.333,4.673,2],[4.4,5.006,2],[4.467,5.546,2],[4.533,6.075,2],[4.6,6.61,2],[4.667,7.583,0],[4.733,8.283,0],[4.8,9.135,0],[4.867,10.24,0],[4.933,11.136,0],[5.0,11.915,0],[5.067,13.123,0],[5.133,13.878,0],[5.2,14.726,0],[5.267,15.767,0],[5.333,16.579,0],[5.4,17.372,0],[5.467,18.331,0],[5.533,19.072,0],[5.6,19.7,0],[5.667,20.636,2],[5.733,21.213,2],[5.8,21.898,2],[5.867,22.826,2],[5.933,23.637,2],[6.0,24.406,2],[6.067,22.624,2],[6.133,19.624,2],[6.2,16.258,2],[6.267,12.178,2],[6.333,9.137,2],[6.4,6.49,2],[6.467,4.258,2],[6.533,3.922,2],[6.6,4.429,2],[6.667,5.435,2],[6.733,6.178,2],[6.8,7.099,0],[6.867,8.332,0],[6.933,9.367,0],[7.0,10.297,0],[7.067,11.792,0],[7.133,12.757,0],[7.2,13.868,0],[7.267,15.575,0],[7.333,17.444,0],[7.4,19.649,0],[7.467,22.746,0],[7.533,24.564,0],[7.6,25.532,0],[7.667,27.052,0],[7.733,28.019,0],[7.8,28.863,0],[7.867,29.08,0],[7.933,29.276,0],[8.0,29.485,0],[8.067,30.248,0],[8.133,31.029,0],[8.2,32.174,0],[8.267,33.941,0],[8.333,35.586,0],[8.4,37.403,0],[8.467,39.878,0],[8.533,41.994,0],[8.6,43.927,0],[8.667,47.091,0],[8.733,49.171,0],[8.8,51.6,0],[8.867,54.548,0],[8.933,55.742,0],[9.0,56.154,0],[9.067,57.017,0],[9.133,57.632,0],[9.2,58.338,0],[9.267,59.223,0],[9.333,59.934,0],[9.4,60.648,0],[9.467,61.544,0],[9.533,62.264,0],[9.6,62.897,0],[9.667,63.897,0],[9.733,64.536,0],[9.8,64.864,0],[9.867,65.259,0],[9.933,65.698,0],[10.0,66.17,0],[10.067,67.059,0],[10.133,67.656,0],[10.2,68.344,0],[10.267,69.211,0],[10.333,69.91,0],[10.4,70.615,0],[10.467,71.505,0],[10.533,72.223,0],[10.6,72.857,0],[10.667,73.862,0],[10.733,74.508,0],[10.8,75.253,0],[10.867,76.197,0],[10.933,77.011,0],[11.0,77.782,0],[11.067,79.097,0],[11.133,79.996,0],[11.2,81.079,0],[11.267,82.512,0],[11.333,83.718,0],[11.4,84.972,0],[11.467,86.597,0],[11.533,87.931,0],[11.6,89.12,0],[11.667,91.028,0],[11.733,92.263,0],[11.8,93.693,0],[11.867,95.504,0],[11.933,96.97,0],[12.0,98.263,0],[12.067,100.312,0],[12.133,101.624,0],[12.2,103.13,0],[12.267,105.021,0],[12.333,106.538,0],[12.4,108.057,0],[12.467,109.957,0],[12.533,111.477,0],[12.6,112.806,0],[12.667,114.89,0],[12.733,116.212,0],[12.8,117.719,0],[12.867,119.595,0],[12.933,121.089,0],[13.0,122.302,0],[13.067,124.045,0],[13.133,124.385,0],[13.2,124.81,0],[13.267,125.393,0],[13.333,125.9,0],[13.4,126.44,0],[13.467,127.162,0],[13.533,127.775,0],[13.6,128.335,0],[13.667,129.261,0],[13.733,129.877,0],[13.8,130.606,0],[13.867,131.551,0],[13.933,132.334,0],[14.0,133.038,0],[14.067,134.176,0],[14.133,134.921,0],[14.2,135.79,0],[14.267,136.07,0],[14.333,136.056,0],[14.4,136.054,0],[14.467,136.068,0],[14.533,136.092,0],[14.6,136.122,0],[14.667,136.188,0],[14.733,136.24,0],[14.8,136.311,0],[14.867,136.416,0],[14.933,136.512,0],[15.0,136.606,0],[15.067,136.772,0],[15.133,136.888,0],[15.2,137.031,0],[15.267,137.225,0],[15.333,137.393,0],[15.4,137.572,0],[15.467,137.811,0],[15.533,138.014,0],[15.6,138.201,0],[15.667,138.513,0],[15.733,138.723,0],[15.8,138.972,0],[15.867,139.297,0],[15.933,139.565,0],[16.0,139.805,0],[16.067,140.192,0],[16.133,140.444,0],[16.2,140.736,0],[16.267,141.106,0],[16.333,141.406,0],[16.4,141.709,0],[16.467,142.089,0],[16.533,142.395,0],[16.6,142.663,0],[16.667,143.085,0],[16.733,143.353,0],[16.8,143.658,0],[16.867,144.036,0],[16.933,144.335,0],[17.0,144.594,0],[17.067,144.994,0],[17.133,145.236,0],[17.2,145.499,0],[17.267,145.806,0],[17.333,146.033,0],[17.4,146.244,0],[17.467,146.485,0],[17.533,146.659,0],[17.6,146.797,0],[17.667,146.988,0],[17.733,147.091,0],[17.8,147.193,0],[17.867,147.295,0],[17.933,147.357,0],[18.0,147.395,0],[18.067,147.427,0],[18.133,147.429,0],[18.2,147.414,0],[18.267,147.368,0],[18.333,147.309,0],[18.4,147.231,0],[18.467,147.107,0],[18.533,146.985,0],[18.6,146.862,0],[18.667,146.637,0],[18.733,146.475,0],[18.8,146.27,0],[18.867,145.986,0],[18.933,145.736,0],[19.0,145.508,0],[19.067,145.134,0],[19.133,144.887,0],[19.2,144.597,0],[19.267,144.223,0],[19.333,143.915,0],[19.4,143.599,0],[19.467,143.194,0],[19.533,142.863,0],[19.6,142.569,0],[19.667,142.099,0],[19.733,141.795,0],[19.8,141.443,0],[19.867,141.0,0],[19.933,140.642,0],[19.967,140.418,0]]}};
+</script>
+<script>
+// Close-call players. Each figure.cc lists its clips in data-clips: [{id, label, color, offset}], where `offset`
+// places the clip on the card's shared timeline (seconds). Traces come from CC_DATA (cc_data.py): rows of
+// [t, clearance m, mode] at 15 Hz, mode 0 pilot, 1 blend, 2 filter flying its escape, 3 filter off.
+(() => {
+  if (typeof CC_DATA === "undefined") return;
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, parent) => {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) { if (k === "text") e.textContent = v; else e.setAttribute(k, v); }
+    if (parent) parent.appendChild(e);
+    return e;
+  };
+  const css = (v) => `var(--${v})`;
+  const modeColor = (m) => (m >= 1 && m <= 2 ? css("amber") : m === 3 ? css("off") : css("blue"));
+  const fmt = (t) => t.toFixed(2) + " s";
+  const clearFmt = (c) => (Math.abs(c) < 0.1 ? c.toFixed(3) : c.toFixed(2)) + " m";
+
+  for (const fig of document.querySelectorAll("figure.cc")) {
+    const clips = JSON.parse(fig.dataset.clips).map((c) => ({ ...c, d: CC_DATA[c.id] })).filter((c) => c.d);
+    if (!clips.length) continue;
+    const yMax = +(fig.dataset.ymax || 20);
+    const stage = fig.querySelector(".cc-stage");
+    const tabs = fig.querySelector(".cc-tabs");
+    const chart = fig.querySelector(".cc-chart");
+    const playBtn = fig.querySelector(".cc-play");
+    const jumpBtn = fig.querySelector(".cc-jump");
+    const timeEl = fig.querySelector(".cc-time");
+    const nowEl = fig.querySelector(".cc-now");
+    const videos = clips.map((c) => stage.querySelector(`video[data-id="${c.id}"]`));
+    for (const v of videos) { v.controls = false; v.removeAttribute("controls"); v.muted = true; v.playsInline = true; }
+    const tEnd = Math.max(...clips.map((c) => c.offset + c.d.dur));
+    // Times are shown in the run's own clock: a clip recorded from mid-run (--record-from) starts at its t0.
+    const T0 = clips[0].d.t0 || 0;
+    let active = 0, shared = 0, pending = null, dragging = false, tabsReady = false;
+
+    // Clip tabs (only when there is more than one clip).
+    const tabBtns = clips.length > 1 ? clips.map((c, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.setAttribute("role", "tab");
+      b.innerHTML = `<span class="dot" style="background:${c.color}"></span>${c.label}`;
+      b.addEventListener("click", () => select(i));
+      tabs.appendChild(b);
+      return b;
+    }) : [];
+
+    // Half a frame (30 fps) late, so a seek to a frame's own time shows that frame, not the one before it.
+    const clipTime = (i, t) => Math.min(Math.max(t - clips[i].offset + 1 / 60, 0), clips[i].d.dur - 0.02);
+    const rowAt = (c, t) => {
+      const r = c.d.rows, lt = t - c.offset;
+      if (lt < 0 || lt > c.d.dur) return null;
+      let lo = 0, hi = r.length - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (r[m][0] <= lt) lo = m; else hi = m - 1; }
+      return r[lo];
+    };
+
+    // Seek the active video to shared time t, one seek in flight at a time.
+    function seek(t) {
+      shared = Math.min(Math.max(t, 0), tEnd);
+      const v = videos[active];
+      const ct = clipTime(active, shared);
+      if (v.seeking) pending = ct; else v.currentTime = ct;
+      update();
+    }
+    for (const v of videos) v.addEventListener("seeked", () => { if (pending !== null && v === videos[active]) { const p = pending; pending = null; v.currentTime = p; } });
+
+    function select(i) {
+      if (i === active && tabsReady) return;
+      tabsReady = true;
+      const wasPlaying = !videos[active].paused;
+      videos[active].pause();
+      active = i;
+      videos.forEach((v, k) => { v.hidden = k !== i; });
+      tabBtns.forEach((b, k) => b.setAttribute("aria-selected", k === i ? "true" : "false"));
+      const c = clips[i];
+      if (shared < c.offset || shared > c.offset + c.d.dur) shared = c.offset;
+      const v = videos[i];
+      if (v.preload === "none") v.preload = "auto";
+      const go = () => { v.currentTime = clipTime(i, shared); if (wasPlaying) v.play(); };
+      if (v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, { once: true });
+      draw();
+    }
+
+    // Chart: one CSS pixel per user unit, redrawn on resize, so labels stay on the pixel grid.
+    let geo = null, cursor = null, dot = null;
+    function draw() {
+      const W = Math.max(280, Math.round(chart.getBoundingClientRect().width)), H = Math.round(chart.getBoundingClientRect().height) || 150;
+      chart.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      chart.replaceChildren();
+      const L = 40, R = 12, T = 12, B = 40;
+      const X = (t) => L + ((W - L - R) * t) / tEnd;
+      const Y = (c) => T + ((H - T - B) * (yMax - Math.max(-0.5, Math.min(yMax, c)))) / (yMax + 0.5);
+      geo = { L, R, T, B, W, H, X, Y };
+      const step = yMax > 30 ? 20 : yMax > 12 ? 5 : 2;
+      for (let c = 0; c <= yMax; c += step) {
+        el("line", { x1: L, x2: W - R, y1: Y(c), y2: Y(c), "stroke-width": 1, style: `stroke:${css("rule")}` }, chart);
+        el("text", { x: L - 6, y: Y(c) + 4, "text-anchor": "end", style: `fill:${css("ink-2")}`, text: c + (c + step > yMax ? " m" : "") }, chart);
+      }
+      // Time ticks at least 56 px apart; the last one carries the unit.
+      const tStep = [1, 2, 5, 10, 20].find((k) => ((W - L - R) * k) / tEnd >= 56) || 20;
+      const ticks = [];
+      for (let t = Math.ceil(T0 / tStep) * tStep - T0; t <= tEnd + 1e-6; t += tStep) ticks.push(t);
+      ticks.forEach((t, k) => el("text", { x: X(t), y: H - 6, "text-anchor": k === ticks.length - 1 && X(t) > W - R - 24 ? "end" : "middle", style: `fill:${css("ink-2")}`, text: Math.round(t + T0) + (k === ticks.length - 1 ? " s" : "") }, chart));
+      el("line", { x1: L, x2: W - R, y1: Y(0), y2: Y(0), "stroke-width": 2, style: `stroke:${css("red")}` }, chart);
+      if (fig.dataset.margin) {
+        const m = +fig.dataset.margin;
+        el("line", { x1: L, x2: W - R, y1: Y(m), y2: Y(m), "stroke-width": 1, "stroke-dasharray": "5 4", style: `stroke:${css("magenta")}` }, chart);
+        el("text", { x: W - R, y: Y(m) - 4, "text-anchor": "end", style: `fill:${css("magenta")}`, text: W > 560 ? `${m} m margin (deployed gate)` : `${m} m margin` }, chart);
+      }
+      // Traces: the inactive clips thin and faded behind, the active one on top, coloured by who is flying.
+      const order = clips.map((_, i) => i).filter((i) => i !== active).concat([active]);
+      for (const i of order) {
+        const c = clips[i], rows = c.d.rows, on = i === active;
+        const g = el("g", { opacity: on ? 1 : 0.4 }, chart);
+        let a = 0;
+        while (a < rows.length - 1) {
+          let b = a;
+          while (b < rows.length - 1 && rows[b + 1][2] === rows[a][2]) b++;
+          const pts = rows.slice(a, Math.min(b + 2, rows.length)).map((r) => `${X(r[0] + c.offset).toFixed(1)},${Y(r[1]).toFixed(1)}`).join(" ");
+          const at = { points: pts, fill: "none", "stroke-width": on ? 2.6 : 1.6, "stroke-linejoin": "round", style: `stroke:${on ? modeColor(rows[a][2]) : c.color}` };
+          if (!on) at["stroke-dasharray"] = "4 3";
+          el("polyline", at, g);
+          a = b + 1;
+        }
+        if (c.d.crash !== null) {
+          const cx = X(c.d.crash + c.offset), cy = Y(0);
+          el("path", { d: `M${cx - 6} ${cy - 6} L${cx + 6} ${cy + 6} M${cx - 6} ${cy + 6} L${cx + 6} ${cy - 6}`, "stroke-width": 2.5, style: `stroke:${css("red")}` }, g);
+          if (on) {
+            const left = cx > W * 0.6;
+            el("text", { x: cx + (left ? -10 : 10), y: cy + 16, "text-anchor": left ? "end" : "start", style: `fill:${css("red")};font-weight:600`, text: `${c.short || c.label} hits, ${fmt(c.d.crash + c.offset + T0)}` }, g);
+          }
+        }
+      }
+      const c = clips[active];
+      if (c.d.crash === null) {
+        const [tm, cm] = c.d.min, mx = X(tm + c.offset), my = Y(cm);
+        el("circle", { cx: mx, cy: my, r: 5, fill: "none", "stroke-width": 2, style: `stroke:${css("ink")}` }, chart);
+        const left = mx > W * 0.6;
+        el("text", { x: mx + (left ? -10 : 10), y: my - 8, "text-anchor": left ? "end" : "start", style: `fill:${css("ink")};font-weight:600;paint-order:stroke;stroke:${css("paper")};stroke-width:4px`, text: `closest ${clearFmt(cm)} at ${fmt(tm + c.offset + T0)}` }, chart);
+      }
+      cursor = el("line", { y1: T - 4, y2: H - B + 2, "stroke-width": 1.5, style: `stroke:${css("magenta")}` }, chart);
+      dot = el("circle", { r: 4, style: `fill:${css("magenta")}` }, chart);
+      update();
+    }
+
+    function update() {
+      if (!geo) return;
+      const v = videos[active];
+      if (!v.paused && !dragging) shared = v.currentTime + clips[active].offset;
+      const x = geo.X(shared);
+      cursor.setAttribute("x1", x); cursor.setAttribute("x2", x);
+      const r = rowAt(clips[active], shared);
+      if (r) { dot.setAttribute("cx", x); dot.setAttribute("cy", geo.Y(r[1])); dot.style.display = ""; } else dot.style.display = "none";
+      timeEl.textContent = "t = " + fmt(shared + T0);
+      const c = clips[active], hit = c.d.crash !== null && shared - c.offset >= c.d.crash - 1e-6;
+      const who = hit ? "contact" : !r ? (shared < c.offset ? "before this run starts" : "after this clip ends") : r[2] === 3 ? "filter off" : r[2] === 0 ? "pilot flying" : r[2] === 1 ? "blending to the escape" : "filter flying its escape";
+      nowEl.textContent = r && !hit ? `clearance ${clearFmt(r[1])}, ${who}` : who === "contact" ? `contact at ${fmt(c.d.crash + c.offset + T0)}` : who;
+      playBtn.textContent = v.paused ? "Play" : "Pause";
+    }
+    const loop = () => { update(); if (!videos[active].paused) requestAnimationFrame(loop); };
+    for (const v of videos) {
+      v.addEventListener("play", () => requestAnimationFrame(loop));
+      v.addEventListener("pause", update);
+      v.addEventListener("ended", update);
+    }
+
+    playBtn.addEventListener("click", () => {
+      const v = videos[active];
+      if (v.paused) { if (v.ended || v.currentTime >= clips[active].d.dur - 0.05) seek(clips[active].offset); v.play(); } else v.pause();
+    });
+    jumpBtn.addEventListener("click", () => {
+      const c = clips[active];
+      videos[active].pause();
+      seek((c.d.crash ?? c.d.min[0]) + c.offset);
+    });
+
+    // Chart: click or drag to seek (horizontal drags on touch; vertical swipes still scroll the page).
+    const chartT = (e) => {
+      const b = chart.getBoundingClientRect();
+      const x = ((e.clientX - b.left) / b.width) * geo.W;
+      return ((x - geo.L) / (geo.W - geo.L - geo.R)) * tEnd;
+    };
+    chart.addEventListener("pointerdown", (e) => { dragging = true; chart.setPointerCapture(e.pointerId); videos[active].pause(); seek(chartT(e)); });
+    chart.addEventListener("pointermove", (e) => { if (dragging) seek(chartT(e)); });
+    for (const ev of ["pointerup", "pointercancel"]) chart.addEventListener(ev, () => { dragging = false; });
+
+    // Video: a horizontal drag scrubs (the whole width is about 6 s); a tap or click toggles play.
+    let drag = null;
+    stage.addEventListener("pointerdown", (e) => { if (e.pointerType === "mouse") e.preventDefault(); drag = { x: e.clientX, y: e.clientY, t: shared, moved: false, id: e.pointerId }; });
+    stage.addEventListener("dragstart", (e) => e.preventDefault());
+    stage.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(e.clientY - drag.y)) { drag.moved = true; stage.setPointerCapture(drag.id); videos[active].pause(); dragging = true; }
+      if (drag.moved) seek(drag.t + (dx / stage.clientWidth) * Math.min(6, tEnd));
+    });
+    const endDrag = () => {
+      if (drag && !drag.moved) { stage.classList.add("engaged"); playBtn.click(); }
+      drag = null; dragging = false;
+    };
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", () => { drag = null; dragging = false; });
+    stage.addEventListener("pointerleave", () => stage.classList.remove("engaged"));
+
+    // Wheel: sideways scrolling over the video or chart always scrubs; vertical scrolling scrubs over the video
+    // once it has been clicked (until the pointer leaves it), so the page still scrolls past an idle player.
+    const wheel = (e, always) => {
+      const dx = e.deltaX, dy = e.deltaY;
+      const sideways = Math.abs(dx) > Math.abs(dy);
+      if (!sideways && !(always && stage.classList.contains("engaged"))) return;
+      e.preventDefault();
+      videos[active].pause();
+      const d = (sideways ? dx : dy) * (e.deltaMode === 1 ? 16 : 1);
+      seek(shared + d * 0.01);
+    };
+    stage.addEventListener("wheel", (e) => wheel(e, true), { passive: false });
+    chart.addEventListener("wheel", (e) => wheel(e, false), { passive: false });
+
+    // Keyboard on the figure: arrows step a frame (shift: 1 s), space plays.
+    fig.tabIndex = 0;
+    fig.addEventListener("keydown", (e) => {
+      if (e.target.closest("button")) return;
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); videos[active].pause(); seek(shared + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 1 : 1 / 30)); }
+      else if (e.key === " ") { e.preventDefault(); playBtn.click(); }
+    });
+
+    stage.insertAdjacentHTML("beforeend", '<span class="cc-hint">drag sideways to scrub · click to play</span>');
+    select(0);
+    shared = 0;
+    new ResizeObserver(draw).observe(chart);
+  }
+})();
+</script>
+<script src="media/proof-towergap.js"></script>
+<script src="media/proof-towergap-high.js"></script>
+<script src="media/proof-dive.js"></script>
+<script src="media/proof-fan.js"></script>
+<script src="media/slides-data.js"></script>
+<script>
+// Recorded clips with the gate's verified path, failed rollout and end set drawn per frame.
+(() => {
+  const CLIPS = window.PROOF_CLIPS || {};
+  const UNDER = 8.5; // R_BODY + MARGIN: how far below the climb the end tests need everything to be (m)
+  const fmt = (x, d = 0) => x.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const NAMES = { street: "street escape", straight: "straight climb", left: "left turn (30°)", right: "right turn (30°)", left40: "left turn (40°)", right40: "right turn (40°)" };
+
+  const unpack = (a) => {
+    const out = [];
+    let x = 0, y = 0, z = 0;
+    for (let i = 0; i < a.length; i += 3) { x += a[i]; y += a[i + 1]; z += a[i + 2]; out.push([x / 10, y / 10, z / 10]); }
+    return out;
+  };
+
+  function prep(c) {
+    if (c.pts) return c;
+    c.pts = {};
+    for (const [id, a] of Object.entries(c.paths)) c.pts[id] = unpack(a);
+    // The tick-exact takeover and hand-back times of the run each frame belongs to (null while the pilot flies).
+    const run = (f) => (f[1] === "escape" ? c.runs.find((r) => r[0] <= f[0] + 1e-6 && (r[1] == null || f[0] < r[1] - 1e-6)) : null);
+    c.runStart = c.frames.map((f) => run(f)?.[0] ?? null);
+    c.runEnd = c.frames.map((f) => run(f)?.[1] ?? null);
+    return c;
+  }
+
+  // Screen position of world point p in a frame: [x, y, depth] in the clip's pixels, or null behind the camera.
+  const project = (M, W, H, p) => {
+    const [x, y, z] = p;
+    const w = M[3] * x + M[7] * y + M[11] * z + M[15];
+    if (w < 1) return null;
+    const cx = M[0] * x + M[4] * y + M[8] * z + M[12], cy = M[1] * x + M[5] * y + M[9] * z + M[13];
+    return [((cx / w + 1) / 2) * W, ((1 - cy / w) / 2) * H, w];
+  };
+
+  // Whether a building box lies between the camera and p (slab test on the open segment).
+  const hiddenBy = (boxes, cam, p) => {
+    const d = [p[0] - cam[0], p[1] - cam[1], p[2] - cam[2]];
+    outer: for (const b of boxes) {
+      let t0 = 0.0, t1 = 0.985;
+      const lo = [b[0], b[2], b[4]], hi = [b[1], b[3], b[5]];
+      for (let k = 0; k < 3; k++) {
+        if (Math.abs(d[k]) < 1e-9) { if (cam[k] < lo[k] || cam[k] > hi[k]) continue outer; continue; }
+        let a = (lo[k] - cam[k]) / d[k], c = (hi[k] - cam[k]) / d[k];
+        if (a > c) [a, c] = [c, a];
+        t0 = Math.max(t0, a); t1 = Math.min(t1, c);
+        if (t0 > t1) continue outer;
+      }
+      return true;
+    }
+    return false;
+  };
+
+  class Scene {
+    constructor(clip, row) {
+      this.c = clip; this.row = row;
+      [this.W, this.H] = clip.size;
+      this.M = row[4]; this.cam = row[9];
+      this.near = null;
+      this.vis = {}; this.hid = {};
+    }
+    // Boxes near the segment from the camera to any of `pts` (computed once per frame).
+    boxesFor(pts) {
+      let x0 = this.cam[0], x1 = x0, y0 = this.cam[1], y1 = y0;
+      for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+      return this.c.boxes.filter((b) => b[1] > x0 && b[0] < x1 && b[3] > y0 && b[2] < y1);
+    }
+    P(p) { return project(this.M, this.W, this.H, p); }
+    // A flat strip in the world, as screen quads, split by whether buildings hide each quad's centre.
+    quads(key, quads, boxes) {
+      let v = this.vis[key] || "", h = this.hid[key] || "";
+      for (const q of quads) {
+        const s = q.map((p) => this.P(p));
+        if (s.some((x) => !x)) continue;
+        const m = q.reduce((a, p) => [a[0] + p[0] / 4, a[1] + p[1] / 4, a[2] + p[2] / 4], [0, 0, 0]);
+        const d = `M${s.map((x) => x[0].toFixed(1) + " " + x[1].toFixed(1)).join("L")}Z`;
+        if (hiddenBy(boxes, this.cam, m)) h += d; else v += d;
+      }
+      this.vis[key] = v; this.hid[key] = h;
+    }
+    ribbon(key, pts, hw, boxes) {
+      const qs = [];
+      const edge = (i) => {
+        const a = pts[Math.max(i - 1, 0)], b = pts[Math.min(i + 1, pts.length - 1)];
+        let tx = b[0] - a[0], ty = b[1] - a[1];
+        const n = Math.hypot(tx, ty) || 1;
+        tx /= n; ty /= n;
+        const p = pts[i];
+        return [[p[0] - ty * hw, p[1] + tx * hw, p[2]], [p[0] + ty * hw, p[1] - tx * hw, p[2]]];
+      };
+      let prev = edge(0);
+      for (let i = 1; i < pts.length; i++) {
+        const cur = edge(i);
+        qs.push([prev[0], cur[0], cur[1], prev[1]]);
+        prev = cur;
+      }
+      this.quads(key, qs, boxes);
+    }
+    line(pts, boxes) {
+      let v = "", h = "", pv = null;
+      for (let i = 0; i < pts.length; i++) {
+        const s = this.P(pts[i]);
+        if (!s) { pv = null; continue; }
+        if (pv && i > 0) {
+          const m = [(pts[i][0] + pts[i - 1][0]) / 2, (pts[i][1] + pts[i - 1][1]) / 2, (pts[i][2] + pts[i - 1][2]) / 2];
+          const d = `M${pv[0].toFixed(1)} ${pv[1].toFixed(1)}L${s[0].toFixed(1)} ${s[1].toFixed(1)}`;
+          if (hiddenBy(boxes, this.cam, m)) h += d; else v += d;
+        }
+        pv = s;
+      }
+      return [v, h];
+    }
+  }
+
+  // The held path from the aircraft on: drop the part already flown.
+  function ahead(pts, ac) {
+    let best = 0, bd = Infinity;
+    const lim = Math.max(2, Math.floor(pts.length * 0.6));
+    for (let i = 0; i < lim; i++) {
+      const d = Math.hypot(pts[i][0] - ac[0], pts[i][1] - ac[1], pts[i][2] - ac[2]);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return [ac, ...pts.slice(best + 1)];
+  }
+
+  function helixPts(end, E, turns) {
+    const th0 = Math.atan2(E[1] - end.c[1], E[0] - end.c[0]), s = -end.dir, k = (end.vz / end.vh) * end.r;
+    const out = [];
+    for (let u = 0; u <= turns * 2 * Math.PI + 1e-9; u += Math.PI / 36) out.push([end.c[0] + end.r * Math.cos(th0 + s * u), end.c[1] + end.r * Math.sin(th0 + s * u), E[2] + k * u]);
+    return out;
+  }
+  const ringR = (end) => [Math.max(end.r - end.m - 4.5, 0), end.r + end.m + 4.5];
+  function ringQuads(end, z) {
+    const [r0, r1] = ringR(end), qs = [], n = 96;
+    const at = (r, i) => [end.c[0] + r * Math.cos((2 * Math.PI * i) / n), end.c[1] + r * Math.sin((2 * Math.PI * i) / n), z];
+    for (let i = 0; i < n; i++) qs.push([at(r0, i), at(r1, i), at(r1, i + 1), at(r0, i + 1)]);
+    return qs;
+  }
+  function corridor(end) {
+    const L = Math.hypot(end.end[0] - end.p[0], end.end[1] - end.p[1]), c = Math.cos(end.psi), s = Math.sin(end.psi);
+    const at = (d, side) => {
+      const w = 9.5 + 0.02 * d;
+      return [end.p[0] + d * c - side * s * w, end.p[1] + d * s + side * c * w, end.p[2] + d * end.grad - UNDER];
+    };
+    const qs = [], ray = [];
+    const step = 25;
+    for (let d = 0; d < L; d += step) {
+      const e = Math.min(d + step, L);
+      qs.push([at(d, 1), at(e, 1), at(e, -1), at(d, -1)]);
+      ray.push([end.p[0] + d * c, end.p[1] + d * s, end.p[2] + d * end.grad]);
+    }
+    ray.push(end.end);
+    return { qs, ray, L };
+  }
+
+  // Where to pin a label on a path: its first point on screen that is clear of the aircraft.
+  const anchor = (sc, pts) => {
+    const a0 = sc.P(pts[0]);
+    for (const p of pts.slice(3)) {
+      const s = sc.P(p);
+      if (s && s[0] > 0 && s[0] < sc.W && s[1] > 0.12 * sc.H && s[1] < sc.H && (!a0 || Math.hypot(s[0] - a0[0], s[1] - a0[1]) > 0.18 * sc.H)) return s;
+    }
+    return null;
+  };
+  const DOME_R = { r: "143" };
+  const domeColor = (h, top) => {
+    const u = Math.max(0, Math.min(1, h / top));
+    const stops = [[46, 133, 80], [217, 132, 0], [158, 26, 108]];
+    const k = u < 0.5 ? 0 : 1, w = u < 0.5 ? u * 2 : (u - 0.5) * 2;
+    const c = stops[k].map((v, n) => Math.round(v + (stops[k + 1][n] - v) * w));
+    return `rgb(${c.join(",")})`;
+  };
+  const path = (d, style) => (d ? `<path d="${d}" style="${style}"/>` : "");
+
+  // Each view returns the overlay markup, a tag (screen anchor and text) and the status line for frame i.
+  const FANCOL = { Ok: "var(--green)", Hit: "var(--red)" };
+  const fanAt = (t) => {
+    const F = (window.SLIDES || {}).fan || [];
+    let best = null;
+    for (const f of F) if (f.t <= t + 1e-6 && t - f.t < 0.1 && (!best || f.t > best.t)) best = f;
+    return best;
+  };
+  const VIEWS = {
+    fan(c, i, sc) {
+      const f = c.frames[i], F = fanAt(f[0]);
+      if (!F) return { svg: "", status: "Between the ticks shown: pick a step.", aside: "" };
+      const all = F.cands.flatMap((k) => k.path);
+      const boxes = sc.boxesFor(all.slice(0, 400));
+      let svg = "";
+      const tags = [];
+      // Passing paths drawn last, so the one that is kept is on top.
+      const order = F.cands.map((k, j) => j).sort((a, b) => (F.cands[a].outcome === "Ok") - (F.cands[b].outcome === "Ok"));
+      order.forEach((j) => {
+        const k = F.cands[j];
+        const col = FANCOL[k.outcome] || "var(--off)";
+        const [v, h] = sc.line(k.path, boxes);
+        const won = F.found === j;
+        svg += path(h, `fill:none;stroke:${col};stroke-width:${won ? 7 : 5};opacity:.45;stroke-dasharray:10 8`) + path(v, `fill:none;stroke:${col};stroke-width:${won ? 10 : 6};stroke-linecap:round`);
+        const e = sc.P(k.path[k.path.length - 1]);
+        if (e && k.outcome === "Hit") svg += `<path d="M${e[0] - 9} ${e[1] - 9}l18 18m0 -18l-18 18" style="stroke:var(--red);stroke-width:5"/>`;
+        // Labels on their own paths, at heights staggered by order so they do not stack.
+        const want = sc.H * (0.6 - 0.08 * j);
+        let lab = null;
+        for (const q of k.path) { const p = sc.P(q); if (p && p[0] > 60 && p[0] < sc.W - 60 && p[1] > 70 && p[1] < sc.H - 20 && (!lab || Math.abs(p[1] - want) < Math.abs(lab[1] - want))) lab = p; }
+        if (lab) tags.push({ at: lab, text: `${j + 1}. ${k.label}${k.resumed ? " (continued)" : ""}`, color: col });
+      });
+      const verdict = F.holding ? "Holding the escape it took over with (no check for 0.3 s)."
+        : F.accepted ? `Kept: ${F.found + 1}. ${F.cands[F.found].label}. The pilot's input goes through.`
+        : F.found != null ? `${F.found + 1}. ${F.cands[F.found].label} passes, but without 3 m to spare, so the gate keeps flying its escape.`
+        : "None passed: the gate flies the last escape that passed, checked on the previous tick.";
+      const word = { Ok: "gets away clean", Hit: "would hit something", Horizon: "no steady climb within 16 s", Budget: "cut short (a continued escape is checked for 8.6 s)" };
+      const aside = F.cands.map((k, j) => `<li class="${k.outcome === "Ok" ? "pass" : k.outcome === "Hit" ? "hit" : "none"}"><b>${k.label}${k.resumed ? " (continued)" : ""}</b>: ${word[k.outcome] || k.outcome}${F.found === j ? (F.accepted ? ", kept" : "") : ""}</li>`).join("");
+      return { svg, tags, aside, verdict, status: `t = ${fmt(F.t, 2)} s, ${F.mode === "escape" ? "the gate flying its escape" : "the pilot flying"}.` };
+    },
+    dome(c, i, sc) {
+      const D = ((window.SLIDES || {}).dome || {})[DOME_R.r];
+      if (!D) return { svg: "", status: "" };
+      const quads = [];
+      const z = (a, b) => D.z[b][a];
+      for (let b = 0; b + 1 < D.n; b++) for (let a = 0; a + 1 < D.n; a++) {
+        const P = [[a, b], [a + 1, b], [a + 1, b + 1], [a, b + 1]].map(([u, w]) => sc.P([D.x0 + u * D.dx, D.x0 + w * D.dx, z(u, w)]));
+        if (P.some((p) => !p)) continue;
+        const h = (z(a, b) + z(a + 1, b) + z(a + 1, b + 1) + z(a, b + 1)) / 4;
+        quads.push([P.reduce((s, p) => s + p[2], 0) / 4, P, h]);
+      }
+      quads.sort((p, q) => q[0] - p[0]);
+      let svg = "";
+      for (const [, P, h] of quads) svg += `<path d="M${P.map((p) => p[0].toFixed(1) + " " + p[1].toFixed(1)).join("L")}Z" style="fill:${domeColor(h, D.z_top)};fill-opacity:.38;stroke:none"/>`;
+      const e = D.x0 + (D.n - 1) * D.dx, ring = [[D.x0, D.x0], [e, D.x0], [e, e], [D.x0, e], [D.x0, D.x0]].map(([x, y]) => sc.P([x, y, D.z_top]));
+      if (ring.every((p) => p)) svg += `<path d="M${ring.map((p) => p[0].toFixed(1) + " " + p[1].toFixed(1)).join("L")}" style="fill:none;stroke:var(--ink);stroke-width:1.5;stroke-dasharray:8 6;opacity:.45"/>`;
+      return { svg, status: `Circles of radius ${DOME_R.r} m, drift margin ${D.m.toFixed(1)} m: colour is the dome's height, ${Math.round(D.z_top)} m (the flat ceiling, dashed) at the most.` };
+    },
+    way(c, i, sc) {
+      const f = c.frames[i];
+      const held = c.pts[f[5]];
+      if (!held) return { svg: "", status: "No checked way out yet." };
+      const pts = ahead(held, f[3]);
+      const esc = f[1] === "escape", t0 = c.runStart[i];
+      const fresh = esc && f[0] - t0 < 1.2;
+      const failed = fresh && f[6] >= 0 ? c.pts[f[6]] : null;
+      const boxes = sc.boxesFor(failed ? pts.concat(failed) : pts);
+      sc.ribbon("r", pts, 2.0, boxes);
+      const col = esc ? "var(--amber)" : "var(--green)";
+      let svg = path(sc.hid.r, `fill:${col};fill-opacity:.25`) + path(sc.vis.r, `fill:${col};fill-opacity:.75`);
+      if (failed) {
+        const [v, h] = sc.line(failed, boxes);
+        svg += path(h, "fill:none;stroke:var(--red);stroke-width:3;stroke-dasharray:10 8;opacity:.4") + path(v, "fill:none;stroke:var(--red);stroke-width:4;stroke-dasharray:12 8");
+      }
+      const tip = sc.P(pts[pts.length - 1]);
+      if (tip) svg += `<circle cx="${tip[0].toFixed(1)}" cy="${tip[1].toFixed(1)}" r="7" style="fill:#fff;stroke:${col};stroke-width:4"/>`;
+      const a = anchor(sc, pts);
+      const name = NAMES[f[2]] || f[2];
+      let tag, status;
+      if (fresh) {
+        tag = { at: a, text: "no way out after the pilot's input: the gate takes over", color: "var(--red)" };
+        status = `<i style="background:var(--amber)"></i><b>${fmt(t0, 2)} s: the gate takes over.</b> After the pilot's next input, no escape passed the check, so the aircraft flies the ${name} checked on the previous tick, from exactly this state.`;
+      } else if (esc) {
+        tag = { at: a, text: `gate flying the ${name}`, color: "var(--amber)" };
+        status = `<i style="background:var(--amber)"></i><b>Gate flying</b> the ${name} it checked before ${fmt(t0, 2)} s, frame for frame. Every tick it checks the pilot's input again, and hands back as soon as one leaves a way out${c.runEnd[i] != null ? ` (here at ${fmt(c.runEnd[i], 2)} s)` : ""}.`;
+      } else {
+        tag = { at: a, text: `checked way out: ${name}`, color: "var(--green)" };
+        status = `<i style="background:var(--blue)"></i><b>Pilot flying.</b> Checked way out from this frame: the pilot's next 20 ms, then the ${name}, clear to the end of the ribbon, where its end test passes (part 2).`;
+      }
+      return { svg, tag, status };
+    },
+
+    end(c, i, sc) {
+      const f = c.frames[i];
+      const held = c.pts[f[5]], end = c.ends[f[7]];
+      if (!held || !end) return { svg: "", status: "No checked way out yet." };
+      const pts = ahead(held, f[3]);
+      const E = held[held.length - 1];
+      const col = f[1] === "escape" ? "var(--amber)" : "var(--green)";
+      let svg = "", tag, status;
+      if (end.kind === "helix") {
+        const coil = helixPts(end, E, 1.5);
+        const zf = E[2] - UNDER;
+        const boxes = sc.boxesFor(pts.concat(coil, ringQuads(end, zf).map((q) => q[1])));
+        sc.quads("ring", ringQuads(end, zf), boxes);
+        sc.ribbon("r", pts, 1.6, boxes);
+        sc.ribbon("coil", coil, 3.5, boxes);
+        svg += path(sc.hid.ring, "fill:var(--magenta);fill-opacity:.15") + path(sc.vis.ring, "fill:var(--magenta);fill-opacity:.4");
+        svg += path(sc.hid.r, `fill:${col};fill-opacity:.25`) + path(sc.vis.r, `fill:${col};fill-opacity:.7`);
+        svg += path(sc.hid.coil, "fill:var(--magenta);fill-opacity:.3") + path(sc.vis.coil, "fill:var(--magenta);fill-opacity:.9");
+        const a = sc.P([end.c[0] + end.r * Math.cos(Math.PI / 2), end.c[1] + end.r * Math.sin(Math.PI / 2), zf]) || sc.P(E);
+        tag = { at: a, text: `floor ${fmt(zf)} m: everything under the ring is below it`, color: "var(--magenta)" };
+        const dist = Math.hypot(end.c[0] - f[3][0], end.c[1] - f[3][1]);
+        status = `<i style="background:var(--magenta)"></i><b>End set: a climbing circle,</b> radius ${fmt(end.r)} m, its centre ${fmt(dist)} m from the aircraft, entered at ${fmt(E[2])} m and climbing ${fmt(end.vz, 1)} m/s when the check passed. Highest point under the ring: ${fmt(end.gap_at[2])} m, ${fmt(end.gap)} m below the floor.`;
+      } else {
+        const cor = corridor(end);
+        const boxes = sc.boxesFor(pts.concat(cor.ray.slice(0, 40)));
+        sc.quads("cor", cor.qs, boxes);
+        sc.ribbon("r", pts, 1.6, boxes);
+        const [v, h] = sc.line(cor.ray, boxes);
+        svg += path(sc.hid.cor, "fill:var(--magenta);fill-opacity:.1") + path(sc.vis.cor, "fill:var(--magenta);fill-opacity:.3");
+        svg += path(sc.hid.r, `fill:${col};fill-opacity:.25`) + path(sc.vis.r, `fill:${col};fill-opacity:.7`);
+        svg += path(h, "fill:none;stroke:var(--magenta);stroke-width:2;opacity:.4") + path(v, "fill:none;stroke:var(--magenta);stroke-width:4");
+        tag = { at: sc.P(cor.ray[Math.min(4, cor.ray.length - 1)]), text: "climbing corridor, clear until above 927 m", color: "var(--magenta)" };
+        status = `<i style="background:var(--magenta)"></i><b>End set: a straight climb</b> at a gradient of ${fmt(end.grad * 100)}%, in a corridor clear for ${fmt(cor.L / 1000, 1)} km, until the climb is above everything on the map. Tightest point under it: ${fmt(end.gap)} m below the floor.`;
+      }
+      return { svg, tag, status };
+    },
+
+    settle(c, i, sc) {
+      const f = c.frames[i];
+      const held = c.pts[f[5]];
+      const st = c.settle, dt = f[0] - st.t;
+      let svg = "";
+      if (held) {
+        const pts = ahead(held, f[3]);
+        const boxes = sc.boxesFor(pts);
+        sc.ribbon("r", pts, 2.2, boxes);
+        const col = f[1] === "escape" ? "var(--amber)" : "var(--green)";
+        svg = path(sc.hid.r, `fill:${col};fill-opacity:.25`) + path(sc.vis.r, `fill:${col};fill-opacity:.75`);
+      }
+      const back = c.runEnd.find((t, j) => t != null && c.runStart[j] != null && Math.abs(c.runStart[j] - st.t) < 0.011);
+      let status;
+      if (dt < -1e-6) status = `<i style="background:var(--blue)"></i><b>Before the takeover.</b> The autopilot is flying at its target; the gate takes over at ${fmt(st.t, 2)} s with the ${NAMES[st.escape]}.`;
+      else if (f[1] === "escape") status = `<i style="background:var(--amber)"></i><b>${fmt(dt, 2)} s after the takeover,</b> the gate flying the ${NAMES[st.escape]}: distance from the steady climb ${fmt(dist(st, dt), 1)} (1 is the edge of the settled box).`;
+      else status = `<i style="background:var(--blue)"></i><b>Pilot back in control</b>${back ? ` at ${fmt(back, 2)} s` : ""}. The gauge goes on with the escape as checked: what the aircraft would have flown had the gate kept it.`;
+      return { svg, status };
+    },
+  };
+
+  const dist = (st, dt) => {
+    const p = st.pts;
+    const k = Math.min(p.length - 1, Math.max(0, Math.round(dt / 0.25)));
+    return p[k][1];
+  };
+
+  function drawPlan(c, svgEl, note, i) {
+    const f = c.frames[i], end = c.ends[f[7]], held = c.pts[f[5]];
+    if (!end || !held) { svgEl.innerHTML = ""; note.textContent = ""; return; }
+    const S = 360;
+    let cx, cy, half;
+    if (end.kind === "helix") { cx = end.c[0]; cy = end.c[1]; half = ringR(end)[1] + 70; }
+    else { cx = (end.p[0] + end.end[0]) / 2; cy = (end.p[1] + end.end[1]) / 2; half = Math.max(Math.abs(end.end[0] - end.p[0]), Math.abs(end.end[1] - end.p[1])) / 2 + 80; }
+    const sc = S / (2 * half);
+    const X = (x) => ((x - cx + half) * sc).toFixed(1), Y = (y) => ((cy + half - y) * sc).toFixed(1);
+    const shade = (h) => (h > 300 ? "b4" : h > 200 ? "b3" : h > 90 ? "b2" : "b1");
+    let out = `<rect x="0" y="0" width="${S}" height="${S}" style="fill:var(--paper-2)"/>`;
+    for (const b of c.boxes) {
+      if (b[1] < cx - half || b[0] > cx + half || b[3] < cy - half || b[2] > cy + half) continue;
+      out += `<rect x="${X(b[0])}" y="${Y(b[3])}" width="${((b[1] - b[0]) * sc).toFixed(1)}" height="${((b[3] - b[2]) * sc).toFixed(1)}" style="fill:var(--${shade(b[5])})"/>`;
+    }
+    const E = held[held.length - 1];
+    if (end.kind === "helix") {
+      const [r0, r1] = ringR(end);
+      const circ = (r) => `M${X(end.c[0] + r)} ${Y(end.c[1])}A${(r * sc).toFixed(1)} ${(r * sc).toFixed(1)} 0 1 0 ${X(end.c[0] - r)} ${Y(end.c[1])}A${(r * sc).toFixed(1)} ${(r * sc).toFixed(1)} 0 1 0 ${X(end.c[0] + r)} ${Y(end.c[1])}Z`;
+      out += `<path d="${circ(r1)}${r0 > 0 ? circ(r0) : ""}" fill-rule="evenodd" style="fill:var(--magenta);fill-opacity:.22;stroke:var(--magenta);stroke-width:1"/>`;
+      out += `<circle cx="${X(end.c[0])}" cy="${Y(end.c[1])}" r="${(end.r * sc).toFixed(1)}" style="fill:none;stroke:var(--magenta);stroke-width:2.5"/>`;
+    } else {
+      const cor = corridor(end);
+      const left = cor.qs.map((q) => q[0]).concat([cor.qs[cor.qs.length - 1][1]]);
+      const right = cor.qs.map((q) => q[3]).concat([cor.qs[cor.qs.length - 1][2]]).reverse();
+      out += `<path d="M${left.concat(right).map((p) => X(p[0]) + " " + Y(p[1])).join("L")}Z" style="fill:var(--magenta);fill-opacity:.22;stroke:var(--magenta);stroke-width:1"/>`;
+      out += `<path d="M${X(end.p[0])} ${Y(end.p[1])}L${X(end.end[0])} ${Y(end.end[1])}" style="stroke:var(--magenta);stroke-width:2.5"/>`;
+    }
+    const col = f[1] === "escape" ? "var(--amber)" : "var(--green)";
+    out += `<polyline points="${held.map((p) => X(p[0]) + "," + Y(p[1])).join(" ")}" style="fill:none;stroke:${col};stroke-width:3;stroke-linejoin:round"/>`;
+    out += `<circle cx="${X(f[3][0])}" cy="${Y(f[3][1])}" r="4.5" style="fill:var(--ink)"/>`;
+    const g = end.gap_at;
+    out += `<path d="M${+X(g[0]) - 5} ${+Y(g[1]) - 5}l10 10m0 -10l-10 10" style="stroke:var(--ink);stroke-width:2"/>`;
+    const bar = 100 * sc;
+    out += `<line x1="12" y1="${S - 14}" x2="${(12 + bar).toFixed(1)}" y2="${S - 14}" style="stroke:var(--ink);stroke-width:2"/><text x="12" y="${S - 20}" style="fill:var(--ink)">100 m</text>`;
+    out += `<path d="M${S - 20} 12l6 16l-6 -4l-6 4z" style="fill:var(--ink)"/><text x="${S - 20}" y="44" text-anchor="middle" style="fill:var(--ink)">N</text>`;
+    svgEl.innerHTML = out;
+    const floor = E[2] - UNDER;
+    note.innerHTML = end.kind === "helix"
+      ? `<b>Ring</b>: the circle's ground track widened for drift and the airframe (${fmt(ringR(end)[0])} to ${fmt(ringR(end)[1])} m from the centre). <b>Floor</b> ${fmt(floor)} m: the circle starts at ${fmt(E[2])} m, less 8.5 m. <b>×</b> highest point under the ring, ${fmt(g[2])} m. Buildings shaded by height; dot: the aircraft.`
+      : `<b>Corridor</b>: the climb's ground track, widening 2% of the distance. <b>×</b> the tightest point under it, ${fmt(end.gap)} m below the floor. Dot: the aircraft.`;
+  }
+
+  function drawGauge(c, svgEl, note) {
+    const st = c.settle, W = 360, H = 320, L = 42, R = 12, T = 14, B = 40;
+    const tMax = 40, yLo = -1, yHi = 2;
+    const X = (t) => L + ((W - L - R) * Math.min(t, tMax)) / tMax;
+    const Y = (d) => T + ((H - T - B) * (yHi - Math.max(yLo, Math.min(yHi, Math.log10(Math.max(d, 1e-3)))))) / (yHi - yLo);
+    let out = `<rect x="${L}" y="${Y(1)}" width="${W - L - R}" height="${(Y(0.1) - Y(1)).toFixed(1)}" style="fill:var(--green);fill-opacity:.13"/>`;
+    for (const d of [0.1, 1, 10, 100]) {
+      out += `<line x1="${L}" x2="${W - R}" y1="${Y(d)}" y2="${Y(d)}" style="stroke:var(--rule)"/><text x="${L - 6}" y="${Y(d) + 4}" text-anchor="end" style="fill:var(--ink-2)">${d}</text>`;
+    }
+    for (let t = 0; t <= tMax; t += 10) out += `<text x="${X(t)}" y="${H - B + 17}" text-anchor="middle" style="fill:var(--ink-2)">${t}</text>`;
+    out += `<text x="${(L + W - R) / 2}" y="${H - 6}" text-anchor="middle" style="fill:var(--ink-2)">seconds since the takeover</text>`;
+    out += `<text x="${L + 6}" y="${Y(1) + 16}" style="fill:var(--green)">settled box</text>`;
+    const pts = st.pts.filter((p) => p[0] <= tMax);
+    const back = c.runEnd.find((t, j) => t != null && c.runStart[j] != null && Math.abs(c.runStart[j] - st.t) < 0.011);
+    const flown = back != null ? back - st.t : 0;
+    const pl = (sel) => sel.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+    out += `<polyline points="${pl(pts)}" style="fill:none;stroke:var(--ink);stroke-width:2"/>`;
+    out += `<polyline points="${pl(pts.filter((p) => p[0] <= flown + 0.25))}" style="fill:none;stroke:var(--amber);stroke-width:5;stroke-linecap:round"/>`;
+    if (st.t_settled != null) out += `<line x1="${X(st.t_settled)}" x2="${X(st.t_settled)}" y1="${Y(1)}" y2="${Y(0.1)}" style="stroke:var(--green);stroke-dasharray:3 3"/>`;
+    // The tube and the room a 0.902-per-second law leaves for nudges.
+    const ox = W - R - 62, oy = T + 46, r = 34;
+    out += `<circle cx="${ox}" cy="${oy}" r="${r}" style="fill:var(--blue);fill-opacity:.22;stroke:var(--blue);stroke-width:1.5"/><circle cx="${ox}" cy="${oy}" r="${(r * 0.902).toFixed(2)}" style="fill:var(--paper);stroke:var(--blue);stroke-width:1;stroke-dasharray:3 2"/>`;
+    out += `<text x="${ox}" y="${oy + r + 16}" text-anchor="middle" style="fill:var(--blue)">room for nudges</text>`;
+    out += `<g class="cur"></g>`;
+    svgEl.innerHTML = out;
+    note.innerHTML = `<b>Amber</b>: the ${fmt(flown, 1)} s the gate flies it in the clip; <b>black</b>: the same escape flown on (log scale), settled for good ${st.t_settled != null ? `${fmt(st.t_settled)} s after the takeover` : "beyond the window"}. <b>Ring</b>: a tube around the steady climb. A law that shrinks errors to 0.902 of their size each second (the proposed final climb, measured) brings any error inside the dashed circle within a second, so nudges of up to 9.8% of the tube per second (shaded) cannot push it out.`;
+    return { X, Y };
+  }
+
+  function strip(c, el) {
+    const n = c.frames.length;
+    let html = "", i = 0;
+    while (i < n) {
+      let j = i;
+      while (j + 1 < n && c.frames[j + 1][1] === c.frames[i][1]) j++;
+      const col = c.frames[i][1] === "escape" ? "var(--amber)" : c.frames[i][1] === "off" ? "var(--off)" : "var(--blue)";
+      html += `<i style="left:${((i / n) * 100).toFixed(2)}%;width:${(((j + 1 - i) / n) * 100).toFixed(2)}%;background:${col}"></i>`;
+      i = j + 1;
+    }
+    el.innerHTML = html;
+  }
+
+  for (const fig of document.querySelectorAll("figure.pf")) {
+    const stage = fig.querySelector(".pf-stage");
+    const clip = CLIPS[stage.dataset.clip];
+    if (!clip) continue;
+    const c = prep(clip), view = VIEWS[stage.dataset.view], n = c.frames.length;
+    const video = stage.querySelector("video"), ov = stage.querySelector("svg.pf-ov"), tag = stage.querySelector(".pf-tag");
+    const scrub = fig.querySelector(".pf-scrub"), play = fig.querySelector(".cc-play"), time = fig.querySelector(".cc-time"), status = fig.querySelector(".pf-status");
+    ov.setAttribute("viewBox", `0 0 ${c.size[0]} ${c.size[1]}`);
+    // As the video's object-fit: contain, so the drawing stays on the picture when the stage letterboxes it.
+    ov.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    scrub.max = String(n - 1);
+    strip(c, fig.querySelector(".pf-strip"));
+    const plan = fig.querySelector(".pf-plan"), gauge = fig.querySelector(".pf-gauge");
+    const axes = gauge ? drawGauge(c, gauge, fig.querySelector(".pf-gauge-note")) : null;
+    let cur = -1, planEnd = -1;
+    const show = (i) => {
+      i = Math.max(0, Math.min(n - 1, i));
+      if (i === cur) return;
+      cur = i;
+      const f = c.frames[i];
+      const r = view(c, i, new Scene(c, f));
+      ov.innerHTML = r.svg;
+      if (r.tag && r.tag.at && r.tag.at[0] > 0 && r.tag.at[0] < c.size[0] && r.tag.at[1] > 0 && r.tag.at[1] < c.size[1]) {
+        tag.hidden = false;
+        tag.textContent = r.tag.text;
+        tag.style.setProperty("--tag", r.tag.color);
+        const k = Math.min(stage.clientWidth / c.size[0], stage.clientHeight / c.size[1]);
+        const pw = c.size[0] * k, ph = c.size[1] * k, ox = (stage.clientWidth - pw) / 2, oy = (stage.clientHeight - ph) / 2;
+        const half = tag.offsetWidth / 2 + 6;
+        tag.style.left = `${ox + Math.max(half, Math.min(pw - half, r.tag.at[0] * k))}px`;
+        tag.style.top = `${oy + Math.max(tag.offsetHeight + 16, Math.min(ph - 4, r.tag.at[1] * k))}px`;
+      } else tag.hidden = true;
+      for (const t of stage.querySelectorAll(".pf-tag.multi")) t.remove();
+      if (r.tags) {
+        const k = Math.min(stage.clientWidth / c.size[0], stage.clientHeight / c.size[1]);
+        const ox = (stage.clientWidth - c.size[0] * k) / 2, oy = (stage.clientHeight - c.size[1] * k) / 2;
+        for (const t of r.tags) {
+          if (t.at[0] < 0 || t.at[0] > c.size[0] || t.at[1] < 0 || t.at[1] > c.size[1]) continue;
+          const s = document.createElement("span");
+          s.className = "pf-tag multi";
+          s.textContent = t.text;
+          s.style.setProperty("--tag", t.color);
+          stage.appendChild(s);
+          const half = s.offsetWidth / 2 + 4;
+          s.style.left = `${ox + Math.max(half, Math.min(c.size[0] * k - half, t.at[0] * k))}px`;
+          s.style.top = `${oy + Math.max(s.offsetHeight + 8, t.at[1] * k)}px`;
+        }
+      }
+      if (r.aside !== undefined) { fig.querySelector(".fan-list").innerHTML = r.aside; fig.querySelector(".fan-verdict").textContent = r.verdict || ""; }
+      status.innerHTML = r.status;
+      time.textContent = `t = ${fmt(f[0], 2)} s`;
+      scrub.value = String(i);
+      if (plan && f[7] !== planEnd) { planEnd = f[7]; drawPlan(c, plan, fig.querySelector(".pf-plan-note"), i); }
+      if (axes) {
+        const dt = f[0] - c.settle.t, g = gauge.querySelector("g.cur");
+        g.innerHTML = dt < 0 ? "" : `<line x1="${axes.X(dt)}" x2="${axes.X(dt)}" y1="14" y2="280" style="stroke:var(--ink);stroke-width:1;stroke-dasharray:2 3"/><circle cx="${axes.X(dt)}" cy="${axes.Y(dist(c.settle, dt))}" r="5" style="fill:var(--amber);stroke:var(--ink);stroke-width:1.5"/>`;
+      }
+    };
+    const idx = (t) => Math.floor(t * c.fps + 1e-3);
+    // One callback chain at a time; with requestVideoFrameCallback the overlay follows the frame on screen.
+    let pending = false;
+    const tick = (_, m) => { pending = false; show(m ? Math.round(m.mediaTime * c.fps) : idx(video.currentTime)); arm(); };
+    const arm = () => {
+      if (video.paused || pending) return;
+      pending = true;
+      if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(tick);
+      else requestAnimationFrame(() => tick());
+    };
+    video.addEventListener("play", () => { play.textContent = "Pause"; arm(); });
+    video.addEventListener("pause", () => { play.textContent = "Play"; });
+    video.addEventListener("ended", () => { play.textContent = "Replay"; show(n - 1); });
+    // A seek requested before the video has loaded is lost; `want` re-applies it once it can be.
+    let want = null;
+    const seek = () => { if (want != null && video.readyState >= 1) video.currentTime = (want + 0.5) / c.fps; };
+    video.addEventListener("loadedmetadata", seek);
+    video.addEventListener("seeked", () => {
+      if (want != null && idx(video.currentTime) !== want) return seek();
+      want = null;
+      show(idx(video.currentTime));
+    });
+    play.addEventListener("click", () => {
+      if (video.paused) { want = null; if (video.ended || cur >= n - 1) video.currentTime = 0; video.play(); }
+      else { video.pause(); }
+    });
+    scrub.addEventListener("input", () => {
+      video.pause();
+      want = +scrub.value;
+      show(want);
+      seek();
+    });
+    // As the close-call players: drag sideways on the video to scrub (the width is about 6 s), click to play,
+    // sideways wheel to scrub, arrow keys step a frame (shift: 1 s), space plays.
+    const scrubTo = (i) => { video.pause(); want = Math.max(0, Math.min(n - 1, Math.round(i))); show(want); seek(); };
+    let drag = null;
+    stage.addEventListener("pointerdown", (e) => { if (e.pointerType === "mouse") e.preventDefault(); drag = { x: e.clientX, y: e.clientY, i: cur, moved: false, id: e.pointerId }; });
+    stage.addEventListener("dragstart", (e) => e.preventDefault());
+    stage.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(e.clientY - drag.y)) { drag.moved = true; stage.setPointerCapture(drag.id); }
+      if (drag.moved) scrubTo(drag.i + (dx / stage.clientWidth) * 6 * c.fps);
+    });
+    stage.addEventListener("pointerup", () => { if (drag && !drag.moved) { stage.classList.add("engaged"); play.click(); } drag = null; });
+    stage.addEventListener("pointercancel", () => { drag = null; });
+    stage.addEventListener("pointerleave", () => stage.classList.remove("engaged"));
+    stage.addEventListener("wheel", (e) => {
+      const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      if (!sideways && !stage.classList.contains("engaged")) return;
+      e.preventDefault();
+      scrubTo(cur + (sideways ? e.deltaX : e.deltaY) * (e.deltaMode === 1 ? 16 : 1) * 0.01 * c.fps);
+    }, { passive: false });
+    fig.tabIndex = 0;
+    fig.addEventListener("keydown", (e) => {
+      if (e.target.closest("button, input, summary")) return;
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); scrubTo(cur + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? c.fps : 1)); }
+      else if (e.key === " ") { e.preventDefault(); play.click(); }
+    });
+    stage.insertAdjacentHTML("beforeend", '<span class="cc-hint">drag sideways to scrub · click to play</span>');
+    // Labels are laid out in pixels, so a slide that was hidden draws them again when it is shown.
+    addEventListener("resize", () => { if (stage.clientWidth) { const k = cur; cur = -1; show(k); } });
+    const steps = fig.querySelector(".fan-steps");
+    if (steps && window.SLIDES) {
+      for (const F of window.SLIDES.fan) {
+        const j = c.frames.reduce((b, f, k) => (Math.abs(f[0] - F.t) < Math.abs(c.frames[b][0] - F.t) ? k : b), 0);
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = `${fmt(F.t, 2)} s`;
+        b.addEventListener("click", () => { for (const x of steps.children) x.setAttribute("aria-pressed", String(x === b)); scrubTo(j); });
+        steps.appendChild(b);
+      }
+      steps.firstChild?.click();
+    }
+    const pick = fig.querySelector(".dome-pick");
+    if (pick && window.SLIDES) {
+      const draw = () => {
+        const D = window.SLIDES.dome[DOME_R.r], cv = fig.querySelector(".dome-map"), g = cv.getContext("2d");
+        cv.width = D.n; cv.height = D.n;
+        for (let b = 0; b < D.n; b++) for (let a = 0; a < D.n; a++) { g.fillStyle = domeColor(D.z[b][a], D.z_top); g.fillRect(a, D.n - 1 - b, 1, 1); }
+        const zs = D.z.flat();
+        fig.querySelector(".dome-note").textContent = `The city square, 2.6 km across, north up: the dome's height for a circle of radius ${DOME_R.r} m around each point, green (low) to magenta (${Math.round(D.z_top)} m, the ceiling). Lowest ${Math.min(...zs)} m.`;
+        const keep = cur; cur = -1; show(keep);
+      };
+      pick.innerHTML = ["143", "250"].map((r) => `<button type="button" data-r="${r}" aria-pressed="${r === DOME_R.r}">r = ${r} m</button>`).join(" ");
+      pick.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; DOME_R.r = b.dataset.r; for (const x of pick.children) x.setAttribute("aria-pressed", String(x === b)); draw(); });
+      draw();
+    }
+    // Open on the poster's frame, so the drawing matches the picture before the video loads.
+    want = +(stage.dataset.start || 0);
+    show(want);
+    seek();
+  }
+})();
+</script>
+<script>
+// The slide deck: a vertical tab index, keyboard navigation, and the slides drawn from window.SLIDES.
+(() => {
+  const slides = [...document.querySelectorAll(".deck-main > .slide")];
+  const tabs = document.querySelector(".deck-tabs");
+  let group = null;
+  const buttons = slides.map((s, i) => {
+    if (s.dataset.group && s.dataset.group !== group) tabs.insertAdjacentHTML("beforeend", `<div class="grp" aria-hidden="true">${s.dataset.group}</div>`);
+    group = s.dataset.group || null;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-controls", s.id);
+    b.textContent = s.dataset.nav;
+    s.setAttribute("role", "tabpanel");
+    b.addEventListener("click", () => go(i));
+    b.addEventListener("focus", () => go(i));
+    tabs.appendChild(b);
+    return b;
+  });
+  let cur = -1;
+  function go(i) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    if (i === cur) return;
+    if (cur >= 0) for (const v of slides[cur].querySelectorAll("video")) v.pause();
+    cur = i;
+    slides.forEach((s, k) => (s.hidden = k !== i));
+    buttons.forEach((b, k) => b.setAttribute("aria-selected", String(k === i)));
+    history.replaceState(null, "", "#" + slides[i].id);
+    window.dispatchEvent(new Event("resize"));
+  }
+  addEventListener("keydown", (e) => {
+    if (e.target.closest("input, textarea, select") && !["PageDown", "PageUp"].includes(e.key)) return;
+    const k = e.key;
+    if (k === "PageDown" || k === "ArrowDown" || (k === "ArrowRight" && !e.target.closest("figure"))) { e.preventDefault(); go(cur + 1); buttons[cur].focus({ preventScroll: true }); }
+    else if (k === "PageUp" || k === "ArrowUp" || (k === "ArrowLeft" && !e.target.closest("figure"))) { e.preventDefault(); go(cur - 1); buttons[cur].focus({ preventScroll: true }); }
+    else if (k === "Home" && e.target.closest(".deck-nav")) { e.preventDefault(); go(0); buttons[cur].focus(); }
+    else if (k === "End" && e.target.closest(".deck-nav")) { e.preventDefault(); go(slides.length - 1); buttons[cur].focus(); }
+  });
+  const start = slides.findIndex((s) => "#" + s.id === location.hash);
+  go(start >= 0 ? start : 0);
+
+  // Pixel font: diagrams in side panels at one user unit per CSS px.
+  window.pixelSvgs = () => {
+    if (!document.documentElement.classList.contains("trisk")) return;
+    for (const svg of document.querySelectorAll(".pf-aside svg.svgtext")) svg.style.width = svg.viewBox.baseVal.width + "px";
+  };
+  window.pixelSvgs();
+
+  const S = window.SLIDES;
+  if (!S) return;
+  // What the filter must guarantee: the same pilots from one start, filter on and off, drawn on the sim's own frame.
+  const T = S.traj, sh = T.shot;
+  const crashes = T.runs.off.filter((r) => r.crash).length, n = T.runs.on.length;
+  if (sh) {
+    const [W, H] = sh.size, M = sh.vp;
+    const P = ([x, y, z]) => {
+      const w = M[3] * x + M[7] * y + M[11] * z + M[15];
+      if (w < 1) return null;
+      return [(((M[0] * x + M[4] * y + M[8] * z + M[12]) / w + 1) / 2) * W, ((1 - (M[1] * x + M[5] * y + M[9] * z + M[13]) / w) / 2) * H];
+    };
+    const line = (pts) => pts.map(P).filter(Boolean).map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+    const svg = document.querySelector(".traj3d");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    let o = "";
+    for (const r of T.runs.on) o += `<polyline points="${line(r.p3)}" style="fill:none;stroke:#fff;stroke-width:7;stroke-opacity:.6"/><polyline points="${line(r.p3)}" style="fill:none;stroke:var(--green);stroke-width:4"/>`;
+    for (const r of T.runs.off) o += `<polyline points="${line(r.crash ? r.p3.concat([r.crash3]) : r.p3)}" style="fill:none;stroke:#fff;stroke-width:6;stroke-opacity:.55"/><polyline points="${line(r.crash ? r.p3.concat([r.crash3]) : r.p3)}" style="fill:none;stroke:var(--red);stroke-width:3.5;stroke-dasharray:12 8"/>`;
+    for (const r of T.runs.off) { const c = r.crash3 && P(r.crash3); if (c) o += `<path d="M${c[0] - 11} ${c[1] - 11}l22 22m0 -22l-22 22" style="stroke:#fff;stroke-width:8"/><path d="M${c[0] - 11} ${c[1] - 11}l22 22m0 -22l-22 22" style="stroke:var(--red);stroke-width:5"/>`; }
+    const st = P(T.start);
+    if (st) o += `<circle cx="${st[0]}" cy="${st[1]}" r="9" style="fill:var(--ink);stroke:#fff;stroke-width:3"/>`;
+    svg.innerHTML = o;
+  }
+  document.querySelector(".traj-cap3").innerHTML = `The simulator at the start, from above and behind (black dot: the aircraft). Each pilot's first 15 s:<i style="background:var(--green)"></i>filter on, ${n} pilots, none touches anything<i style="background:var(--red)"></i>filter off, the same pilots: ${crashes} of ${n} hit something (×).`;
+  document.getElementById("traj-sub").textContent = `From one allowed start, ${n} hostile and kamikaze pilots: with the filter none touches anything; without it ${crashes} of ${n} crash.`;
+})();
+</script>
+
+<script>
+// Media is built locally by `make present-media`; where a file is missing, say so instead of showing a broken player.
+(() => {
+  const text = "Not built yet: run <code>make present-media</code>, then reload.";
+  const mark = (el) => {
+    const stage = el.closest(".cc-stage, .pf-stage");
+    if (stage) {
+      if (!stage.querySelector(".media-missing")) stage.insertAdjacentHTML("beforeend", `<div class="media-missing">${text}</div>`);
+      return;
+    }
+    if (el.previousElementSibling?.classList.contains("media-missing")) return;
+    el.insertAdjacentHTML("beforebegin", `<div class="media-missing"${el.closest(".hero") ? ' style="aspect-ratio:16/9"' : ""}>${text}</div>`);
+    el.style.display = "none";
+  };
+  const els = [...document.querySelectorAll('video[src^="media/"], img[src^="media/"]')];
+  if (location.protocol.startsWith("http")) {
+    const bySrc = new Map();
+    for (const el of els) bySrc.set(el.getAttribute("src"), [...(bySrc.get(el.getAttribute("src")) || []), el]);
+    for (const [src, list] of bySrc) fetch(src, { method: "HEAD" }).then((r) => { if (!r.ok) list.forEach(mark); }).catch(() => list.forEach(mark));
+  } else {
+    for (const el of els) el.addEventListener("error", () => mark(el));
+  }
+})();
+</script>
+</body>
+</html>

@@ -16,6 +16,11 @@ gate/target/
 dist/
 Tools/city-export/target/
 
+# Explainer media: built locally by `make present-media` from docs/explainer/clips.json, not committed.
+docs/explainer/media/*
+!docs/explainer/media/proof-*.js
+!docs/explainer/media/slides-data.js
+!docs/explainer/media/proof-fan.js
 # San Francisco raw downloads (regenerate with flight/data/sf/fetch.py)
 flight/data/sf/raw/
 flight/data/sf/__pycache__/

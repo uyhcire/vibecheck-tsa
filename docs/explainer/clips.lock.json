@@ -1,0 +1,102 @@
+{
+ "hashes": {
+  "dump:ep1001": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "ticks": "bbd1616cfbee3052be93db49eba66e8bc17020fda1e7a44de1f62aff95cd0afb"
+  },
+  "dump:showcase": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "ticks": "57cd2ad7210a9e2cd18b03f8646c2e3c47dab63a32ee60ad9cc842f75443d615"
+  },
+  "dump:showcase-off": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "ticks": "5ba37b07d3205909de3a9637fe70dd197ee0bc8878efdf98c1f16d8b02379282"
+  },
+  "fastdive": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "86fdb8c4d8af76cf08656d6d588c384f2f41889be9cc4f3884e274f0f7136bad",
+   "trace": "36feadda1c87451f211c7193f2341d68d57d46f4e38f43289a7381aa94fd6e44"
+  },
+  "fastdive-twin": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "0b21aa6773725af51d2ebc12f3ef955567e42b8aec8413c070c53102d2bde505",
+   "trace": "f3ab34c4678c880d2dc6f64960a35d9a19efaa8d9485c940c3a0c3db5f2c17af"
+  },
+  "hero": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "d0f0352a5a1ea1143e26aa8d6f4baa25e615e444cc6b63e0d683e51cac00f62f",
+   "trace": "6397649b6b87eea913f229b3b5b62760c3b1addd2d31ebeb0f014e09c4032e77"
+  },
+  "kamikaze": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "1585f81e6795617cc7a60ee391b7a99dff44df4a007b7f84bcef8d6c46ff6669",
+   "trace": "0e140659934356c1b32039f8140c1c2b845ca441db54e1c27d39c706b61e9629"
+  },
+  "parkdive": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "0d8df29eff4b92de69d121d10a0839d79a6e0eac32d8779dc43d258983c2ee07",
+   "trace": "9746c32f8a9e4b5f741ec32881bfa522f78afe0a8ae74bdec25ba20c26d88282"
+  },
+  "parkdive-deployed": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "9f3abf8c8ee132535ad35f2643da92716ce3ecdad30040f4e1d42f690c9ee185",
+   "trace": "876e3c019dc9ce7987cb7286729152e0fd23a094b17e3d012fabafdc02f70642"
+  },
+  "parkdive-twin": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "35d3420bbfb9da45bfbb3281aa7c8be0931aa70281dd1ae25b52951d1d7a2153",
+   "trace": "32aa90f53ada409da52fa46c8064a4555bc8651ba76f683205509f3b26efbc55"
+  },
+  "paths": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "6a8b9dd0d3bf43fe7ccecbb186f1ee9caec653d038e03058789e6d35838a7c46",
+   "trace": "75842b5e0524baca6b7bdf6bfa996277df0ae2dcba8e0234efbe918d5d30cddf"
+  },
+  "proof-dive": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "465aaca5f0bd37a308c61a04efe7f44c1d38d9645686b5cab648cd1d60e62491",
+   "trace": "b7d4f9e71b1b5cc350b53b929a8325f8b002ad75e0c0dc478719342d336587e6"
+  },
+  "proof-towergap": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "63fe159eebc0207cb2137273c498b6cc83af1fbe8bc53c9829ac0626200a1d6a",
+   "trace": "82c9345d5e137b889888a3f7b9e14d5c8dbe2fc56a871c5ae928bf2307294d61"
+  },
+  "proof-towergap-high": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "63fe159eebc0207cb2137273c498b6cc83af1fbe8bc53c9829ac0626200a1d6a",
+   "trace": "b1d8c474a675600538371652bd7b53535a68a4bc30246741158d4215130155a8"
+  },
+  "towergap": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "d3735866dbc35df19a911d58fdbb9ef4ed3177082ed3ecac5d0ea51df20248e2",
+   "trace": "62173cc3cc1a520ed702d3a2e5f5dd29109e6776b47d9c5d7d01b4afcf87daa1"
+  },
+  "towergap-off": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "3c4f13c4fcd2dea313b8048ca19a6fdbd1b3bad6b526bcb4100566504d0bf652",
+   "trace": "e21114729333c8f3918081b1fa8f548a820207ed1587a00e524f576fcc555726"
+  },
+  "wallahead": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "0c928e60954df5c5502e786f50d8176f7804802de0b31b16985496b593c99092",
+   "trace": "425b1a03495ce82db63bbf037e5067b9a9dffd4b58f4f33721cb012f813517ba"
+  },
+  "wallahead-twin": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "f0eadd3e9f06109a5e310b7c5d935eda03119ac55f97399223cc61673c468c6e",
+   "trace": "cd7ddf9aac2173fc9e3796a3a6a940dc204b787db12f385048907ef1583254b6"
+  },
+  "wallbeside": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "ea218ec687281d5193f2d18167fa9e6232c11fc4db61e8c46b9abfcfae7a5615",
+   "trace": "9c739b531269151d9fa5144dacdc1a9050c999a637278b8b989e28dcab0da41d"
+  },
+  "wallbeside-twin": {
+   "code": "274f93aa33361e51831bf7595c4e1124731836cd",
+   "frames_csv": "20d1295998caf18170682830911d96dc3e395991caa4090f4ed51170da97ab0f",
+   "trace": "ea848c6b0b2a18cd6625a92c1cf69e99006b02c1cfec2a077060ab06a098bb91"
+  }
+ },
+ "note": "frames.csv; trace.jsonl less viewport and view_proj; proofdump ticks.jsonl; code: the main commit whose flight code made them"
+}
