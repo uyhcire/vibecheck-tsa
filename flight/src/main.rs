@@ -679,6 +679,8 @@ struct App {
     fstop: f32,
     /// Caption pill for demos (`--label`).
     label: Option<String>,
+    /// `--cam-world X,Y,Z,TX,TY,TZ`: a fixed camera and target in world metres (for framing recordings).
+    cam_world: Option<(Vec3, Vec3)>,
     /// Seconds since start for animation (strobes, pulses, camera shake): the wall clock, or frames / 60 when
     /// `--shot`/`--record` step a fixed 1/60 s per frame, so captured frames do not depend on machine speed.
     clock: Option<f64>,
@@ -1174,6 +1176,10 @@ impl App {
                 }
                 (self.flyby.unwrap_or(p - fh * 30.0), p + f * 4.0, Vec3::Z)
             }
+            9 if self.cam_world.is_some() => {
+                let (a, b) = self.cam_world.unwrap();
+                (a, b, Vec3::Z)
+            }
             _ => {
                 let zoom = (self.focal_mm / 24.0).sqrt().clamp(1.0, 4.0);
                 let desired = p - (f * 24.0 + fh * 6.0 - vec3(0.0, 0.0, 7.0)) * zoom;
@@ -1496,7 +1502,7 @@ impl App {
             "{} · {} · H help · Tab map · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-{} scenarios{} · K kamikaze · T harness · R reset{}{}",
             self.world.map.name(),
             scenario_names(self.world.map)[self.scenario],
-            CAM_NAMES[self.cam_mode],
+            CAM_NAMES.get(self.cam_mode).copied().unwrap_or("fixed"),
             RENDERER_NAMES[self.renderer],
             scenario_names(self.world.map).len(),
             if self.world.map == MapId::Grid { " · Y showcase" } else { "" },
@@ -1995,6 +2001,7 @@ async fn main() {
         sun_el: sun_angles(map).0,
         sun_az: sun_angles(map).1,
         label: None,
+        cam_world: None,
         clock: if fixed_step { Some(0.0) } else { None },
         renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
             (true, false, true) => 2,
@@ -2008,6 +2015,10 @@ async fn main() {
     }
     if let (true, Some(ph)) = (args.iter().any(|a| a == "--cinematic"), photo.as_mut()) {
         set_cinematic(&mut app, ph);
+    }
+    if let Some(v) = arg("--cam-world").map(|s| s.split(',').filter_map(|x| x.parse::<f32>().ok()).collect::<Vec<_>>()).filter(|v| v.len() == 6) {
+        app.cam_world = Some((vec3(v[0], v[1], v[2]), vec3(v[3], v[4], v[5])));
+        app.cam_mode = 9;
     }
     if let Some(c) = arg("--cam").and_then(|s| s.parse().ok()) {
         app.cam_mode = c;
