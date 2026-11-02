@@ -882,9 +882,8 @@ impl App {
         if self.kamikaze.is_some() {
             self.kamikaze = Some(Kamikaze::new(self.seed));
         }
-        if self.dogfight.is_some() {
-            self.dogfight = Some(Dogfight::new(self.seed, gui_brain()));
-        }
+        // Back to normal flight: the next pull of the trigger summons a new fly.
+        self.dogfight = None;
         let (f, _, _) = body_axes(&s0);
         self.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
     }
