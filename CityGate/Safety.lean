@@ -18,8 +18,8 @@ theorem city_safe (hT : TermSound cityGate Crash) : Safe cityGate Crash Init :=
 /-- Allowed starts on map `S`. -/
 def InitOn (S : Site) (s : Plane) : Prop := (gateOn S).rolloutOK (gateOn S).horizon ((gateOn S).start s, s) = true
 
-/-- **The city gate is safe on any map** `S` (for example San Francisco, `CityGate.SanFrancisco`), with crashes
-judged against `S`'s own geometry, under the same one assumption. -/
+/-- **The city gate is safe on any map** `S` (for example San Francisco as the host passes it in, `siteOf`), with
+crashes judged against `S`'s own geometry, under the same one assumption. -/
 theorem site_safe (S : Site) (hT : TermSound (gateOn S) (CrashOn S.geo.map)) :
     Safe (gateOn S) (CrashOn S.geo.map) (InitOn S) :=
   safe (gateOn S) (CrashOn S.geo.map) (InitOn S)

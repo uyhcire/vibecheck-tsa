@@ -1,6 +1,6 @@
 /-! A city map as the gate sees it (`GateMap`: building boxes and a terrain grid), and the default city (seed 1337)
-exactly as `Tools/city-export` writes it (`CityGate/data/`, format in `map.json`). San Francisco is
-`CityGate.SanFrancisco`. Every value is a shortest round-trip decimal, so `Dec.toRat` is the exact
+exactly as `Tools/city-export` writes it (`CityGate/data/`, format in `map.json`). Other maps come from the host
+(`CityGate.siteOf`). Every value is a shortest round-trip decimal, so `Dec.toRat` is the exact
 value and `Dec.toFloat` the same double Rust uses. Trusted surface (with `data/`). -/
 
 namespace CityGate
