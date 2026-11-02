@@ -78,3 +78,8 @@ required-features = ["jsb"]
 name = "dome"
 path = "src/bin/dome.rs"
 required-features = ["jsb"]
+
+[[bin]]
+name = "termhunt"
+path = "src/bin/termhunt.rs"
+required-features = ["jsb"]

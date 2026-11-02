@@ -28,6 +28,8 @@ Everything is a one-word `make` target; `make help` lists them.
 | `make dome` | The circle-safe dome: the altitude at which the gate's circle test passes at each centre, for r = 143 m and 250 m, as grids, heat-map PNGs and stats in `OUT`; see `docs/dome.md` |
 | `make plantcheck` | Plant, state-import and Lean-gate spot checks, plus the 4 spec starts |
 | `make termcheck` | The `TermSoundR` skeleton's certified sets (`Geo`, `Conf`) at the 4 spec starts' settled states (a run, not a proof) |
+| `make termhunt` / `termhunt-lean` | End-test falsifier for the Rust / Lean gate: escapes that pass the end-of-escape test, flown on; exits 1 on any contact (`witnesses/termsound-lean.txt`, `flight/witnesses/termsound-rust.txt`) |
+| `make sweepcheck` | `AirframeNear` margins and escape outputs on extreme manoeuvres (`ARGS=steady`: each escape's settled climb) |
 | `make verify` / `make proofs` | Build the Lean proofs and audit their axioms / the Mathlib proofs |
 | `make gate`, `gate-example`, `gate-check`, `export` | libgate for JSBSim hosts; the city as plain files for other simulators |
 | `make pdf` | The informal TermSound proof (`docs/termsound-proof.pdf`) |
