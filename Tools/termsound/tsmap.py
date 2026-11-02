@@ -54,7 +54,7 @@ class TsMap:
         """Batched frames, pipelined."""
         lines = [" ".join(["M", b(psi), b(north), b(h)] + [b(v) for v in y]) for h, y in zip(hs, ys)]
         out = []
-        chunk = 256
+        chunk = 32
         for i in range(0, len(lines), chunk):
             self.p.stdin.write("\n".join(lines[i:i + chunk]) + "\n")
             self.p.stdin.flush()
@@ -68,10 +68,10 @@ class TsMap:
         """Batched frames: array of rows [h', y'(32), east, north]."""
         lines = [" ".join(["M", b(psi), b(north), b(h)] + [b(v) for v in y]) for h, y in zip(hs, ys)]
         out = []
-        for i in range(0, len(lines), 256):
-            self.p.stdin.write("\n".join(lines[i:i + 256]) + "\n")
+        for i in range(0, len(lines), 32):                  # small chunks: both pipes must not fill at once
+            self.p.stdin.write("\n".join(lines[i:i + 32]) + "\n")
             self.p.stdin.flush()
-            for _ in lines[i:i + 256]:
+            for _ in lines[i:i + 32]:
                 out.append([f(s) for s in self.p.stdout.readline().split()])
         return np.array(out)
 

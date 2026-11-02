@@ -445,6 +445,8 @@ Lemma~\ref{lem:nframe}, with the LMI for the linear part and the enclosures for 
   \end{itemize}
 \end{itemize}
 
+\paragraph{This route is paused (2026-11-01).} Enlarging $D$ to a physically meaningful size (metres, m/s) would need the remainder bound to shrink by about $10^5$. It is also more than safety needs. Terminal safety needs only ``the altitude stays above $\zTop$ forever'', not convergence to the trim, and level flight at 1{,}000\,m has about 66\,m of slack over $\zTop$. The certificate is therefore redone on a coarse set sized in metres, proved for a low-dimensional abstraction, with the plant's details (tables, the $|\beta|$ kink, Coriolis, inner loops) entering as one measured per-frame residual: the model ladder of \#30 (Section~\ref{sec:abstract}).
+
 \subsection{Latitude and held track: the slowly varying parameter, and a recommendation}\label{sec:levelparam}
 
 \textbf{How the trim moves} (\texttt{level\_param.py}; settled real-loop runs, so these are measurements, not bounds):
@@ -468,6 +470,93 @@ Lemma~\ref{lem:nframe}, with the LMI for the linear part and the enclosures for 
 \textbf{Climb-to-level handover} (\texttt{handover.py}): 30 runs from the new law's climb, perturbed within the settled box ($\pm0.5$\,m/s speed and climb, $\pm0.02$\,rad bank and heading) at 900--960\,m, all reach the level-off. None descends below $\zTop$ after first reaching it: the lowest altitude after the first crossing is 934.02\,m, and all end at 1{,}000.20\,m. This is numerical evidence, not a proof; the handover remains a gap.
 
 \paragraph{Known issue.} On boxes much larger than those used here, the interval evaluation stops with ``index out of bounds'' inside \texttt{JsbExact}'s gear code. The likely cause is that joined branches carry arrays of different lengths (the friction multipliers when ground contact is undecided). It does not occur on the boxes the certificate uses. Fixing it needs a \texttt{Join} instance for arrays of unequal length, or settling the contact decision before the gear code.
+
+\section{Terminal safety by abstraction: level flight above $\zTop$}\label{sec:abstract}
+
+Safety above $\zTop$ needs only that the altitude stays above $\zTop$ forever. Level flight at $h^\star = 1{,}000.22$\,m has 66\,m of slack. So the certified set is coarse and sized in metres, and its proof needs invariance, not convergence. The plant's details enter as one per-frame residual, rung 2 of the model ladder of \#30. Everything here is for the law of \texttt{docs/escape-law-terminal.md} holding track east at latitude 0 (\texttt{abstract.py}).
+
+\subsection{The abstraction (proved part)}
+
+\textbf{Coordinates.} $e = (e_h, s, e_V)$, with:
+\begin{itemize}
+\item $e_h = h - h^\star$, the altitude error;
+\item $s = v_z + a\,e_h$, where $a = V^\star K_{\mathrm{HOLD}}$, the climb-rate error against the level-off command $V^\star g_c(h)$;
+\item $e_V = V - V^\star$, the airspeed error.
+\end{itemize}
+
+\textbf{Model}, one frame $\Delta t = 1/128$\,s, in the spirit of rung 1's point mass (\#38):
+\begin{align*}
+v_z' &= v_z + \Delta t\,\bigl(-K_G V^\star K_{\mathrm{HOLD}}\,e_h - K_G\,v_z\bigr) && \text{(flight-path loop on the level-off command)}\\
+h' &= h + \Delta t\, v_z\\
+V' &= V + \Delta t\,\bigl(-k_D\,e_V - g\,v_z/V^\star\bigr) && \text{(climbing costs speed; drag restores it)}
+\end{align*}
+\begin{itemize}
+\item $K_G = 2.5$ and $K_{\mathrm{HOLD}} = 0.005$ are the law's gains.
+\item $k_D$ is fitted to \texttt{JsbExact} from the speed decay of a $+3$\,m/s start.
+\item Attitude, rates, $\alpha$, the engine, the inner loops, the tables, the $|\beta|$ kink and Coriolis are all in the residual $d$: $e' = A e + d$.
+\end{itemize}
+
+\textbf{Set.} $S = \{e^\top P e \le r^2\}$, with $P$ from the continuous Lyapunov equation in coordinates scaled by $(20\,\mathrm{m}, 2\,\mathrm{m/s}, 8\,\mathrm{m/s})$, and $r$ chosen so that $|e_h| \le 30$\,m on $S$.
+
+\begin{lemma}[robust invariance, rung 1's \texttt{q\_robust\_step}]\label{lem:absinv}
+Let $c = \|A\|_P$ and $K = \max\{w^\top P w : |w_i| \le \delta_i\}$ (attained at a vertex of the box). If $c\,r + \sqrt{K} \le r$, which is the budget $(1+t)c^2r^2 + (1+1/t)K \le r^2$ at its best $t$, then $e \in S$ and $|d_i| \le \delta_i$ imply $Ae + d \in S$.
+\end{lemma}
+\begin{proof}
+$\|Ae + d\|_P \le c\,\|e\|_P + \|d\|_P \le c\,r + \sqrt{K} \le r$.
+\end{proof}
+
+On $S$, $h \ge h^\star - 30 = 970.2$\,m $> \zTop$. So, for the abstraction with $|d_i| \le \delta_i$ every frame, a state starting in $S$ never goes below $\zTop$.
+
+\subsection{Results}
+
+\begin{cert}[level-flight abstraction, \texttt{abstract.py}]\label{cert:abstract}
+\textbf{Proved part:}
+\begin{itemize}
+\item $k_D = 0.0893$\,s$^{-1}$; the model's poles are $-0.089$, $-0.43$ and $-2.09$\,s$^{-1}$; $c = \|A\|_P = 0.999372$ per frame.
+\item $S$ spans $|e_h| \le 30$\,m (so $h \ge 970.2$\,m), $|s| \le 8.1$\,m/s, $|e_V| \le 7.4$\,m/s, and climb rates up to 12.9\,m/s.
+\item Lemma~\ref{lem:absinv} holds with the per-frame budget $\delta = (3.2\times10^{-7}\,\mathrm{m},\ 3.2\times10^{-3}\,\mathrm{m/s},\ 3.2\times10^{-3}\,\mathrm{m/s})$, that is $0.41$\,m/s$^2$ of unmodelled acceleration in climb rate and in speed.
+\end{itemize}
+
+\textbf{Measured part,} 240 \texttt{JsbExact} states across $S$: 120 on its boundary, 120 inside, half of them with attitude, rates, integrators and rpm offset within the boxes $\pm0.02$\,rad, $\pm0.05$\,rad/s, $\pm0.02$ and $\pm50$\,rpm. The largest one-frame residual is:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+& altitude & climb rate & speed\\
+\midrule
+measured & $3.9\times10^{-8}$\,m & $20.2$\,m/s$^2$ & $2.1$\,m/s$^2$\\
+budget & $3.2\times10^{-7}$\,m & $0.41$\,m/s$^2$ & $0.41$\,m/s$^2$\\
+ratio & $0.12$ & $\mathbf{49}$ & $\mathbf{5.2}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Rollouts.} 40 rollouts of 40\,s on the plain loop, from those states:
+\begin{itemize}
+\item $\|e\|_P/r$ reaches $1.05$, so $S$ itself is left by 5\,\%;
+\item the altitude never goes below $970.45$\,m;
+\item the fast states leave their boxes: pitch by $9.3\times$, pitch rate by $10.3\times$, the $\alpha$ integrator by $4.4\times$.
+\end{itemize}
+\end{cert}
+
+\textbf{Verdict: the residual does not fit the budget. It is $49\times$ over in climb rate and $5\times$ over in speed.}
+\begin{itemize}
+\item \textbf{Why the climb-rate residual is large.} The model treats the flight-path loop as first order, $\dot v_z = -K_G(a\,e_h + v_z)$, acting at once. In the real aircraft the climb rate responds through $\alpha$, through the pitch and $\alpha$ inner loops ($K_A$, $K_Q$, the $\alpha$ integrator), and through the airframe's short-period dynamics. A state placed with a climb-rate error of several m/s and $\alpha$ at trim feels no immediate vertical acceleration, while the model predicts up to $-32$\,m/s$^2$. The residual is large even with the fast states at trim: $20.1$\,m/s$^2$.
+\item \textbf{Why the fast states leave their boxes.} $S$'s ellipsoid couples a 30\,m altitude range with climb rates up to 13\,m/s, and those need pitch excursions of about 0.2\,rad, not 0.02.
+\item \textbf{Why $S$ must be that shape.} A quadratic invariant set for this loop cannot be narrow in climb rate while wide in altitude: the level-off command, $a = V^\star K_{\mathrm{HOLD}} = 0.35$\,s$^{-1}$, turns 30\,m of altitude error into 10\,m/s of commanded climb.
+\end{itemize}
+
+\textbf{The abstraction needs the inner loop, and probably a different norm.}
+\begin{itemize}
+\item \textbf{Add the inner loop.} Include the flight-path angle and $\alpha$ (or pitch rate) with the inner-loop gains, giving four or five states. The residual is then the remaining aerodynamic and engine detail, which is small.
+\item \textbf{Or measure along trajectories.} Use one-second maps with the residual measured along trajectories, where the inner loop has settled.
+\item \textbf{Or change the set's geometry.} Use a non-quadratic set (a box in altitude, plus a sublevel set of the tracking error), with a barrier argument for $h \ge \zTop$.
+\end{itemize}
+
+What already holds, measured: every rollout from $S$ stays above 970\,m, 36\,m clear of $\zTop$. The safety margin is there; the proof shape is not yet.
+
+\textbf{The climb} (rising through $\zTop$ into the level set) is not done yet. Its set must keep $v_z > 0$ until the level set takes over. It needs the same inner-loop abstraction.
+
 
 \section{Certificates and reproduction}\label{sec:certs}
 
