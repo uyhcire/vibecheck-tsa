@@ -74,7 +74,7 @@ pub struct Brain {
     /// Where each neuron sits in the brain, and wiring to draw (`flybrain/layout.py`), if exported.
     pub layout: Option<Layout>,
     /// Saliency (GUI only, off by default): per LC10, how strongly its input moves bank, flight path and the fire
-    /// logit (gradient magnitudes, each output scaled to its largest), refreshed one output per tick.
+    /// logit (gradient magnitudes, each output scaled to its largest), one output refreshed every ten ticks.
     pub saliency_on: bool,
     pub saliency: Vec<f32>,
     sal_parts: [Vec<f32>; 3],
@@ -290,8 +290,8 @@ impl Brain {
     /// One decision: bank and flight-path references [rad], throttle, and fire (1) or hold (0).
     pub fn act(&mut self, obs: &[f32; NOBS]) -> [f64; NACT] {
         self.ticks += 1;
-        // Saliency: one output's gradient on each of three ticks out of ten.
-        let sal_out = (self.saliency_on && self.ticks % 10 < 3).then(|| [0usize, 1, 3][(self.ticks % 10) as usize]);
+        // Saliency: one output's gradient every ten ticks, in turn (each refreshes every 0.6 s).
+        let sal_out = (self.saliency_on && self.ticks % 10 == 0).then(|| [0usize, 1, 3][(self.ticks / 10 % 3) as usize]);
         self.run(obs, sal_out)
     }
 

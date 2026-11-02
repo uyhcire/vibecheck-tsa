@@ -1228,7 +1228,7 @@ impl App {
                 let Some(q) = to_px(eye + (f * c[0] + l * c[1] + u * c[2]) * 1000.0).filter(|q| inside(q)) else { continue };
                 let sal = br.saliency[a].clamp(0.0, 1.0);
                 let r = (br.rf_s2[a].sqrt() * focal).clamp(3.0, 60.0);
-                draw_circle(q.x, q.y, 1.2, Color::new(1.0, 1.0, 1.0, 0.18));
+                draw_rectangle(q.x - 1.0, q.y - 1.0, 2.0, 2.0, Color::new(1.0, 1.0, 1.0, 0.18));
                 if sal > 0.06 {
                     let col = viridis(sal);
                     for (k, rr) in [(0.05, 1.6), (0.09, 1.0), (0.16, 0.55)] {
@@ -2513,8 +2513,8 @@ async fn main() {
         app.sim.set_filter(false);
     }
     // The fly's view for the dogfight HUD, rendered offscreen by the classic renderer.
-    let dpi = screen_dpi_scale();
-    let fly_rt = render_target_ex((FLY_VIEW.0 * dpi) as u32, (FLY_VIEW.1 * dpi) as u32, RenderTargetParams { sample_count: 1, depth: true });
+    // At 1x (not the screen's DPI): a quarter of the pixels, and it sits under overlays anyway.
+    let fly_rt = render_target_ex(FLY_VIEW.0 as u32, FLY_VIEW.1 as u32, RenderTargetParams { sample_count: 1, depth: true });
     fly_rt.texture.set_filter(FilterMode::Linear);
     let mut fly_cam_last: Option<Camera3D> = None;
     let mut frame = 0u32;
