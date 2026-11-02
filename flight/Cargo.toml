@@ -12,6 +12,8 @@ jsb = []
 [dependencies]
 macroquad = { version = "0.4", optional = true, default-features = false }
 image = { version = "0.24", optional = true, default-features = false, features = ["jpeg"] }
+# PNG output of the `dome` heat-maps.
+png = "0.17"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc = { package = "objc-rs", version = "0.2" }
@@ -75,4 +77,9 @@ required-features = ["jsb"]
 [[bin]]
 name = "termhunt"
 path = "src/bin/termhunt.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "dome"
+path = "src/bin/dome.rs"
 required-features = ["jsb"]
