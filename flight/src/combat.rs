@@ -5,7 +5,7 @@
 use crate::flybrain::Brain;
 use crate::model::*;
 use crate::pilot::Fbw;
-use crate::world::{Rng, World, MAP_HALF};
+use crate::world::{Rng, World};
 use std::f64::consts::PI;
 
 /// Muzzle velocity [m/s], bullet lifetime [s], time between rounds [s] (12.5 rounds/s).
@@ -20,7 +20,7 @@ pub const GUN_RANGE: f64 = 650.0;
 const AIM_CONE: f64 = 0.045;
 /// Seconds before a new bandit appears (after a kill, and at the start).
 const RESPAWN: f64 = 6.0;
-const FIRST_SPAWN: f64 = 1.5;
+const FIRST_SPAWN: f64 = 0.8;
 
 pub struct Bullet {
     pub p: [f64; 3],
@@ -204,13 +204,14 @@ pub fn pursuit_law(s: &State, aim: [f64; 3], d: f64, los_rate: f64) -> [f64; NAC
 impl Bandit {
     /// A bandit 1.1-1.6 km from the player, at or above its height and clear of the city, heading at it.
     pub fn spawn(w: &World, player: &State, rng: &mut Rng) -> Bandit {
-        let lim = MAP_HALF - 300.0;
-        let mut s = trimmed(0.0, 0.0, 600.0, 50.0, 0.0, 0.0, 0.8);
+        let m = 300.0;
+        let c = w.center();
+        let mut s = trimmed(c[0], c[1], 600.0, 50.0, 0.0, 0.0, 0.8);
         for _ in 0..40 {
             let a = rng.range(0.0, 2.0 * PI);
             let d = rng.range(1100.0, 1600.0);
-            let x = (player[X] + d * a.cos()).clamp(-lim, lim);
-            let y = (player[Y] + d * a.sin()).clamp(-lim, lim);
+            let x = (player[X] + d * a.cos()).clamp(w.x0 + m, w.x1 - m);
+            let y = (player[Y] + d * a.sin()).clamp(w.y0 + m, w.y1 - m);
             let mut z = (player[Z] + rng.range(20.0, 120.0)).max(w.surface(x, y) + 120.0);
             while w.true_clearance([x, y, z]) < 60.0 && z < 2000.0 {
                 z += 40.0;
@@ -282,9 +283,10 @@ impl Bandit {
         for k in 1..=8 {
             let t = 0.5 * k as f64;
             let q = add(pos(&s), mul(fwd, s[V] * t));
-            if q[0].abs() > MAP_HALF - 150.0 || q[1].abs() > MAP_HALF - 150.0 {
+            if q[0] < w.x0 + 150.0 || q[0] > w.x1 - 150.0 || q[1] < w.y0 + 150.0 || q[1] > w.y1 - 150.0 {
                 // Map edge ahead: turn toward the middle.
-                let back = (-s[Y]).atan2(-s[X]);
+                let c = w.center();
+                let back = (c[1] - s[Y]).atan2(c[0] - s[X]);
                 self.fbw.phi_ref = (1.8 * wrap(back - s[PSI])).clamp(-60f64.to_radians(), 60f64.to_radians());
                 self.fbw.g_ref = self.fbw.g_ref.max(0.0);
                 avoiding = true;
@@ -421,7 +423,7 @@ impl Dogfight {
                     return false;
                 }
             }
-            let off = b.p[0].abs() > MAP_HALF || b.p[1].abs() > MAP_HALF;
+            let off = !w.inside(b.p[0], b.p[1]);
             if !off && (b.p[2] < w.terrain(b.p[0], b.p[1]) || w.seg_building_dist(p0, b.p, 0.3) < 0.3) {
                 impacts.push(b.p);
                 return false;

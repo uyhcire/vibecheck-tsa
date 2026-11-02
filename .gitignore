@@ -15,3 +15,7 @@ flight/target/
 gate/target/
 dist/
 Tools/city-export/target/
+
+# San Francisco raw downloads (regenerate with flight/data/sf/fetch.py)
+flight/data/sf/raw/
+flight/data/sf/__pycache__/

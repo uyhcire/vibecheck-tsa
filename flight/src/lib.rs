@@ -3,6 +3,7 @@ pub mod combat;
 pub mod escape;
 pub mod filter;
 pub mod flybrain;
+pub mod golden_gate;
 pub mod harness;
 pub mod runway;
 #[cfg(feature = "jsb")]

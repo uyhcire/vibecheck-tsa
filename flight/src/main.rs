@@ -9,8 +9,11 @@ mod assets;
 mod atmos;
 mod c172;
 mod ground;
+mod gun;
+mod hotas;
 mod photo;
 mod rt;
+mod sfscene;
 mod shaders;
 
 use cityflight::combat::{self, Dogfight, FxKind, HITS_TO_KILL};
@@ -28,6 +31,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 const SUN: [f32; 3] = [-0.45, -0.55, 0.70];
+/// San Francisco's sun matches the aerial photo's shadows, so the rendered ones fall the same way.
+const SF_SUN: [f32; 3] = [0.40, -0.50, 0.77];
 const FOG: [f32; 3] = [0.74, 0.81, 0.89];
 const SKY_TOP: Color = Color::new(0.30, 0.50, 0.82, 1.0);
 const TEX: usize = 4096;
@@ -55,6 +60,30 @@ fn window_conf() -> Conf {
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+/// Photoreal sun elevation and azimuth (degrees) on a map.
+fn sun_angles(map: MapId) -> (f32, f32) {
+    let s = if map == MapId::SanFrancisco { SF_SUN } else { SUN };
+    let n = (s[0] * s[0] + s[1] * s[1] + s[2] * s[2]).sqrt();
+    ((s[2] / n).asin().to_degrees(), s[1].atan2(s[0]).to_degrees())
+}
+
+/// One map's world and the GPU scenes built for it (once, on first use).
+struct MapScenes {
+    world: &'static World,
+    scene: StaticScene,
+    photo: Option<photo::Photo>,
+}
+
+impl MapScenes {
+    fn new(world: World) -> MapScenes {
+        let world: &'static World = Box::leak(Box::new(world));
+        let (terrain_px, tw, th) = terrain_texture(world);
+        let scene = StaticScene::new(world, &terrain_px, tw, th);
+        let photo = if use_gl() { None } else { Some(photo::Photo::new(world)) };
+        MapScenes { world, scene, photo }
     }
 }
 
@@ -260,7 +289,11 @@ fn ground_color(w: &World, x: f64, y: f64) -> [f64; 3] {
     c
 }
 
-fn terrain_texture(w: &World) -> Vec<u8> {
+/// The classic renderer's ground texture over the map, with its width and height.
+fn terrain_texture(w: &World) -> (Vec<u8>, usize, usize) {
+    if w.map == MapId::SanFrancisco {
+        return sfscene::painted_ground(w);
+    }
     let mut px = vec![0u8; TEX * TEX * 4];
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     let rows_per = TEX.div_ceil(threads);
@@ -269,9 +302,9 @@ fn terrain_texture(w: &World) -> Vec<u8> {
             sc.spawn(move || {
                 for (ri, row) in chunk.chunks_mut(TEX * 4).enumerate() {
                     let py = ci * rows_per + ri;
-                    let y = -MAP_HALF + (py as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
+                    let y = -GRID_HALF + (py as f64 + 0.5) * 2.0 * GRID_HALF / TEX as f64;
                     for i in 0..TEX {
-                        let x = -MAP_HALF + (i as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
+                        let x = -GRID_HALF + (i as f64 + 0.5) * 2.0 * GRID_HALF / TEX as f64;
                         let c = ground_color(w, x, y);
                         row[i * 4] = (c[0].clamp(0.0, 1.0) * 255.0) as u8;
                         row[i * 4 + 1] = (c[1].clamp(0.0, 1.0) * 255.0) as u8;
@@ -282,7 +315,7 @@ fn terrain_texture(w: &World) -> Vec<u8> {
             });
         }
     });
-    px
+    (px, TEX, TEX)
 }
 
 fn building_color(b: &Building) -> [f32; 3] {
@@ -298,34 +331,35 @@ fn building_color(b: &Building) -> [f32; 3] {
 }
 
 impl StaticScene {
-    fn new(w: &World, px: &[u8]) -> StaticScene {
+    fn new(w: &World, px: &[u8], tw: usize, th: usize) -> StaticScene {
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
         // Terrain: same vertices and triangle split as the collision truth.
-        let mut tv = Vec::with_capacity(TN * TN);
-        for j in 0..TN {
-            for i in 0..TN {
-                let x = -MAP_HALF + i as f64 * TSP;
-                let y = -MAP_HALF + j as f64 * TSP;
-                let hh = |a: usize, b: usize| w.terr[b.min(TN - 1) * TN + a.min(TN - 1)];
+        let (tnx, tny) = (w.tnx, w.tny);
+        let mut tv = Vec::with_capacity(tnx * tny);
+        for j in 0..tny {
+            for i in 0..tnx {
+                let x = w.x0 + i as f64 * TSP;
+                let y = w.y0 + j as f64 * TSP;
+                let hh = |a: usize, b: usize| w.terr[b.min(tny - 1) * tnx + a.min(tnx - 1)];
                 let dx = hh(i + 1, j) - hh(i.saturating_sub(1), j);
                 let dy = hh(i, j + 1) - hh(i, j.saturating_sub(1));
                 let n = vec3(-dx, -dy, 2.0 * TSP as f32).normalize();
                 tv.push(SV {
-                    pos: [x as f32, y as f32, w.terr[j * TN + i]],
+                    pos: [x as f32, y as f32, w.terr[j * tnx + i]],
                     nrm: [n.x, n.y, n.z],
                     col: [1.0, 1.0, 1.0],
-                    uv: [((x + MAP_HALF) / (2.0 * MAP_HALF)) as f32, ((y + MAP_HALF) / (2.0 * MAP_HALF)) as f32],
+                    uv: [((x - w.x0) / (w.x1 - w.x0)) as f32, ((y - w.y0) / (w.y1 - w.y0)) as f32],
                     win: 0.0,
                 });
             }
         }
-        let mut ti: Vec<u32> = Vec::with_capacity((TN - 1) * (TN - 1) * 6);
-        for j in 0..TN - 1 {
-            for i in 0..TN - 1 {
-                let a = (j * TN + i) as u32;
+        let mut ti: Vec<u32> = Vec::with_capacity((tnx - 1) * (tny - 1) * 6);
+        for j in 0..tny - 1 {
+            for i in 0..tnx - 1 {
+                let a = (j * tnx + i) as u32;
                 let b = a + 1;
-                let c = a + TN as u32 + 1;
-                let d = a + TN as u32;
+                let c = a + tnx as u32 + 1;
+                let d = a + tnx as u32;
                 ti.extend_from_slice(&[a, b, c, a, c, d]);
             }
         }
@@ -338,8 +372,8 @@ impl StaticScene {
                 min_filter: mq::FilterMode::Linear,
                 mag_filter: mq::FilterMode::Linear,
                 mipmap_filter: mq::MipmapFilterMode::Linear,
-                width: TEX as u32,
-                height: TEX as u32,
+                width: tw as u32,
+                height: th as u32,
                 allocate_mipmaps: true,
                 ..Default::default()
             },
@@ -350,23 +384,31 @@ impl StaticScene {
         // Buildings: five faces per box.
         let mut bv: Vec<SV> = Vec::with_capacity(w.boxes.len() * 20);
         let mut bi: Vec<u32> = Vec::with_capacity(w.boxes.len() * 30);
-        for b in &w.boxes {
+        // A wall per footprint edge plus the roof (a box is four walls). Bridge and freeway collision
+        // curtains are not drawn.
+        for b in w.boxes.iter().filter(|b| matches!(b.kind, Kind::Building | Kind::BridgeTower | Kind::GoldenGate)) {
             let col = building_color(b);
             let roof = [col[0] * 0.62 + 0.08, col[1] * 0.62 + 0.08, col[2] * 0.62 + 0.09];
-            let (x0, x1, y0, y1, z0, z1) = (b.x0 as f32, b.x1 as f32, b.y0 as f32, b.y1 as f32, b.z0 as f32, b.z1 as f32);
-            let faces: [([f32; 3], [[f32; 3]; 4], [f32; 3], f32); 5] = [
-                ([1.0, 0.0, 0.0], [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], col, 1.0),
-                ([-1.0, 0.0, 0.0], [[x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]], col, 1.0),
-                ([0.0, 1.0, 0.0], [[x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]], col, 1.0),
-                ([0.0, -1.0, 0.0], [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], col, 1.0),
-                ([0.0, 0.0, 1.0], [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], roof, 0.0),
-            ];
-            for (n, q, c, wflag) in faces {
+            let (z0, z1) = (b.z0 as f32, b.z1 as f32);
+            let wflag = if b.kind == Kind::Building { 1.0 } else { 0.0 };
+            let poly = w.outline(b);
+            for e in 0..poly.len() {
+                let (p, q) = (poly[e], poly[(e + 1) % poly.len()]);
+                let (ex, ey) = ((q[0] - p[0]) as f32, (q[1] - p[1]) as f32);
+                let l = (ex * ex + ey * ey).sqrt().max(1e-4);
+                let (px, py, qx, qy) = (p[0] as f32, p[1] as f32, q[0] as f32, q[1] as f32);
                 let base = bv.len() as u32;
-                for p in q {
-                    bv.push(SV { pos: p, nrm: n, col: c, uv: [0.5, 0.5], win: wflag });
+                for pos in [[px, py, z0], [qx, qy, z0], [qx, qy, z1], [px, py, z1]] {
+                    bv.push(SV { pos, nrm: [ey / l, -ex / l, 0.0], col, uv: [0.5, 0.5], win: wflag });
                 }
                 bi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
+            let base = bv.len() as u32;
+            for p in &poly {
+                bv.push(SV { pos: [p[0] as f32, p[1] as f32, z1], nrm: [0.0, 0.0, 1.0], col: roof, uv: [0.5, 0.5], win: 0.0 });
+            }
+            for t in 1..poly.len().saturating_sub(1) as u32 {
+                bi.extend_from_slice(&[base, base + t, base + t + 1]);
             }
         }
         let mk = |ctx: &mut dyn mq::RenderingBackend, v: &[SV], i: &[u32], img: mq::TextureId| mq::Bindings {
@@ -473,7 +515,8 @@ fn ribbon(pts: &[Vec3], cols: &[Color], width: f32, cam: Vec3) {
         let c = cols[i.min(cols.len() - 1)];
         let p0 = pts[i] - side;
         let p1 = pts[i] + side;
-        if verts.len() + 2 > 60000 {
+        // macroquad clamps a draw call at 5,000 indices.
+        if idx.len() + 6 >= 5000 {
             flush(&mut verts, &mut idx);
         }
         let base = verts.len() as u16;
@@ -520,7 +563,8 @@ fn draw_aircraft(p: Vec3, (f, l, u): (Vec3, Vec3, Vec3), ctl: &c172::Controls, t
             Vertex::new(wp.x, wp.y, wp.z, 0.0, 0.0, Color::new(c(0), c(1), c(2), 1.0))
         })
         .collect();
-    for chunk in m.i.chunks(60_000 / 3 * 3) {
+    // macroquad clamps a draw call at 5,000 indices: whole triangles under that.
+    for chunk in m.i.chunks(4998) {
         let lo = *chunk.iter().min().unwrap();
         let hi = *chunk.iter().max().unwrap();
         draw_mesh(&Mesh {
@@ -615,6 +659,32 @@ fn fly_paint(part: f32, q: Vec3) -> [f32; 3] {
         _ if q.x < -0.9 && (q.x * 1.25).rem_euclid(1.0) < 0.4 => dark,
         _ => tan,
     }
+}
+
+/// A camera's view and projection without its render target (`Camera3D` is not `Clone`).
+fn cam_copy(c: &Camera3D) -> Camera3D {
+    Camera3D { position: c.position, target: c.target, up: c.up, fovy: c.fovy, aspect: c.aspect, z_near: c.z_near, z_far: c.z_far, ..Default::default() }
+}
+
+/// Viridis (matplotlib's), from its eleven tenth-steps: the fly panel's colour for firing and saliency.
+fn viridis(t: f32) -> Color {
+    const V: [[f32; 3]; 11] = [
+        [0.267, 0.005, 0.329],
+        [0.282, 0.141, 0.459],
+        [0.255, 0.267, 0.529],
+        [0.208, 0.373, 0.553],
+        [0.165, 0.471, 0.557],
+        [0.129, 0.569, 0.549],
+        [0.133, 0.659, 0.518],
+        [0.267, 0.749, 0.439],
+        [0.478, 0.820, 0.318],
+        [0.741, 0.875, 0.149],
+        [0.993, 0.906, 0.144],
+    ];
+    let x = t.clamp(0.0, 1.0) * 10.0;
+    let (i, f) = ((x as usize).min(9), x - (x as usize).min(9) as f32);
+    let c: [f32; 3] = std::array::from_fn(|k| V[i][k] + (V[i + 1][k] - V[i][k]) * f);
+    Color::new(c[0], c[1], c[2], 1.0)
 }
 
 /// The fly brain for the dogfight, with saliency on (it costs a backward pass on 3 ticks in 10).
@@ -718,11 +788,22 @@ struct App {
     /// Fly-by camera position, re-placed ahead of the aircraft once it has passed.
     flyby: Option<Vec3>,
     crash_logged: bool,
+    /// Tab pressed: switch to the other map before the next frame.
+    switch_map: bool,
     show_paths: bool,
+    /// Wingtip anti-collision strobes (off by default; `--strobes` or key 7).
+    strobes: bool,
     show_help: bool,
     cam_mode: usize,
     invert: bool,
     stick: (f64, f64),
+    hotas: hotas::Hotas,
+    /// The HOTAS report seen last frame (`None`: no stick yet), for lever moves and button presses.
+    hotas_prev: Option<hotas::Sticks>,
+    /// Cosmetic guns (`gun.rs`); `trigger` is Shift or the HOTAS trigger held this frame, `fire_hold` is `--fire`.
+    guns: gun::Guns,
+    trigger: bool,
+    fire_hold: bool,
     acc: f64,
     /// The aircraft and its control surfaces as drawn between ticks, and the `sim.k` they were last pushed at.
     drawn: Drawn,
@@ -752,9 +833,10 @@ struct App {
     fstop: f32,
     /// Caption pill for demos (`--label`).
     label: Option<String>,
-    /// Dogfight mode (Tab): a fly hunting the player; Shift fires.
+    /// Dogfight: a fly hunting the player. It starts when the trigger is pulled in normal flight (if
+    /// `fly_summon`, toggled with 8); during it the trigger fires the dogfight's guns instead of the cosmetic ones.
     dogfight: Option<Dogfight>,
-    trigger: bool,
+    fly_summon: bool,
 }
 
 /// (name, focal length mm, f-stop, hexagonal aperture, cat's-eye strength, tilt-shift).
@@ -777,7 +859,7 @@ fn filter_button() -> Rect {
 
 impl App {
     fn cfg(&self, filter_on: bool) -> SimCfg {
-        SimCfg { filter_on, filter: FilterCfg { phase: self.phase, robust: self.robust }, mismatch: self.mismatch, seed: self.seed }
+        SimCfg { filter_on, filter: FilterCfg { phase: self.phase, robust: self.robust }, wind: self.mismatch, model_error: self.mismatch, seed: self.seed }
     }
 
     fn reset(&mut self, scenario: usize) {
@@ -792,6 +874,7 @@ impl App {
         self.sim = Sim::new(self.world, s0, self.cfg(on));
         self.fbw = Fbw::from_state(&s0);
         self.trail.clear();
+        self.guns.clear();
         self.paths.clear();
         self.plan_path.clear();
         self.acc = 0.0;
@@ -843,13 +926,39 @@ impl App {
         if is_key_down(KeyCode::Q) {
             self.fbw.thr = (self.fbw.thr - 0.5 * dt).max(0.0);
         }
+        // HOTAS: the stick sets pitch and roll unless a key is held; the lever sets the throttle when it
+        // moves, so Q/E and a reset's throttle hold until then.
+        let hs = self.hotas.get();
+        let prev = std::mem::replace(&mut self.hotas_prev, hs);
+        let mut hotas_pressed = 0;
+        if let Some(hs) = hs {
+            if prev.is_none() {
+                eprintln!("HOTAS: stick connected");
+            }
+            if !down(KeyCode::W, KeyCode::Up) && !down(KeyCode::S, KeyCode::Down) {
+                let p = hotas::deadzone(hs.pitch, 0.1);
+                self.stick.0 = if self.invert { -p } else { p };
+            }
+            if !down(KeyCode::A, KeyCode::Left) && !down(KeyCode::D, KeyCode::Right) {
+                self.stick.1 = hotas::deadzone(hs.roll, 0.1);
+            }
+            if prev.is_some_and(|p| p.throttle != hs.throttle) {
+                self.fbw.thr = hs.throttle;
+            }
+            hotas_pressed = hs.buttons & !prev.map_or(0, |p| p.buttons);
+        }
+        // Guns: for as long as Shift or the trigger is held.
+        self.trigger = down(KeyCode::LeftShift, KeyCode::RightShift) || hs.is_some_and(|h| h.buttons & hotas::BTN_TRIGGER != 0);
         let clicked = is_mouse_button_pressed(MouseButton::Left) && filter_button().contains(mouse_position().into());
-        if is_key_pressed(KeyCode::Space) || clicked {
+        if is_key_pressed(KeyCode::Space) || clicked || hotas_pressed & hotas::BTN_FILTER != 0 {
             let on = !self.sim.cfg.filter_on;
             self.sim.set_filter(on);
         }
         if is_key_pressed(KeyCode::B) {
             self.show_paths = !self.show_paths;
+        }
+        if is_key_pressed(KeyCode::Key7) {
+            self.strobes = !self.strobes;
         }
         if is_key_pressed(KeyCode::M) {
             self.mismatch = !self.mismatch;
@@ -882,7 +991,7 @@ impl App {
                 h.visible = false;
             }
         }
-        if is_key_pressed(KeyCode::K) {
+        if is_key_pressed(KeyCode::K) || hotas_pressed & hotas::BTN_KAMIKAZE != 0 {
             self.kamikaze = if self.kamikaze.is_some() { None } else { Some(Kamikaze::new(self.seed)) };
             self.showcase = None;
             if self.kamikaze.is_none() {
@@ -892,21 +1001,31 @@ impl App {
         if is_key_pressed(KeyCode::R) {
             self.reset(self.scenario);
         }
+        let scenarios = scenario_names(self.world.map).len();
         for (key, id) in [(KeyCode::Key1, 0), (KeyCode::Key2, 1), (KeyCode::Key3, 2), (KeyCode::Key4, 3), (KeyCode::Key5, 4)] {
-            if is_key_pressed(key) {
+            if is_key_pressed(key) && id < scenarios {
                 self.reset(id);
             }
         }
-        if is_key_pressed(KeyCode::Y) {
+        if is_key_pressed(KeyCode::Tab) {
+            self.switch_map = true;
+        }
+        if is_key_pressed(KeyCode::Y) && self.world.map == MapId::Grid {
             self.start_showcase(self.showcase.is_none());
         }
         if is_key_pressed(KeyCode::T) {
             self.toggle_harness();
         }
-        if is_key_pressed(KeyCode::Tab) {
-            self.dogfight = if self.dogfight.is_some() { None } else { Some(Dogfight::new(self.seed, gui_brain())) };
+        if is_key_pressed(KeyCode::Key8) {
+            self.fly_summon = !self.fly_summon;
+            if !self.fly_summon {
+                self.dogfight = None;
+            }
         }
-        self.trigger = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+        // Normal flight until the trigger is pulled: then the fly appears and hunts you.
+        if self.trigger && self.fly_summon && self.dogfight.is_none() && !self.sim.crashed {
+            self.dogfight = Some(Dogfight::new(self.seed, gui_brain()));
+        }
         if is_key_down(KeyCode::Comma) {
             self.sun_el = (self.sun_el - 12.0 * dt as f32).max(-4.0);
         }
@@ -939,6 +1058,11 @@ impl App {
 
     /// The aircraft state to draw this frame: between the last two ticks at the accumulated fraction of a tick,
     /// or the sim's own state if no tick has run since the sim was (re)built.
+    /// The aircraft has crashed and gone in the explosion's fireball: draw no aircraft and no lights.
+    fn wrecked(&self) -> bool {
+        self.sim.crashed && self.guns.boom_age().map_or(true, |a| a > gun::SWALLOWED)
+    }
+
     fn drawn_state(&self) -> State {
         if self.drawn_k == Some(self.sim.k) {
             self.drawn.at(self.acc / DT_F)
@@ -993,26 +1117,29 @@ impl App {
         let (f, l, u) = self.aircraft_axes();
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
         let t = get_time() as f32;
-        let strobe = if (t * 1.1).fract() < 0.05 { 1.0 } else { 0.0 };
+        // Real C172 wingtip strobes: about 66 flashes a minute, about 50 ms each; nav lights stay steady.
+        let strobe = if self.strobes && (t * 1.1).fract() < 0.05 { 1.0 } else { 0.0 };
         let navs = [(vec3(0.1, 5.47, 1.07), [3.0, 0.15, 0.08]), (vec3(0.1, -5.47, 1.07), [0.15, 3.0, 0.6]), (vec3(-5.78, 0.0, 0.36), [2.5, 2.5, 2.5])];
         let mut nav = [[0.0f32; 4]; 3];
+        let shown = self.cam_mode != 1 && !self.wrecked();
+        let on = if self.wrecked() { 0.0 } else { 1.0 };
         for (k, (q, c)) in navs.iter().enumerate() {
             let w = to_w(*q);
             let r = (0.12 + (w - cam).length() * 0.0015).min(1.5);
-            if self.cam_mode != 1 {
+            if shown {
                 photo::glow(ov, oi, w, r, [c[0], c[1], c[2], 1.0], right, up);
                 if k < 2 && strobe > 0.0 {
-                    photo::glow(ov, oi, w, r * 2.5, [60.0, 60.0, 60.0, 1.0], right, up);
+                    photo::glow(ov, oi, w, r * 1.5, [12.0, 12.0, 12.0, 1.0], right, up);
                 }
             }
-            nav[k] = [w.x, w.y, w.z, 3.0];
+            nav[k] = [w.x, w.y, w.z, 3.0 * on];
         }
         let lp = to_w(vec3(0.55, 1.9, 0.86));
         let ld = (f * 0.99 - u * 0.09).normalize();
-        if self.cam_mode != 1 && (cam - lp).normalize().dot(ld) > 0.85 {
+        if shown && (cam - lp).normalize().dot(ld) > 0.85 {
             photo::glow(ov, oi, lp, 0.4 + (lp - cam).length() * 0.002, [30.0, 28.0, 25.0, 1.0], right, up);
         }
-        (lp.extend(1500.0).to_array(), ld.extend(13f32.to_radians().cos()).to_array(), nav)
+        (lp.extend(1500.0 * on).to_array(), ld.extend(13f32.to_radians().cos()).to_array(), nav)
     }
 
     fn player_dead(&self) -> bool {
@@ -1079,7 +1206,7 @@ impl App {
         let (x0, y0) = (w - pw - 14.0, h - 30.0 - ph - 12.0);
         let inside = |q: &Vec2| q.x > x0 && q.x < x0 + pw && q.y > y0 && q.y < y0 + ph;
         let dimw = Color::new(1.0, 1.0, 1.0, 0.65);
-        let red = Color::new(1.0, 0.3, 0.22, 1.0);
+        let red = viridis(1.0);
         let fly = self.dogfight.as_ref().and_then(|d| d.bandit.as_ref());
         match view {
             Some((rt, _)) => {
@@ -1104,12 +1231,7 @@ impl App {
                 let r = (br.rf_s2[a].sqrt() * focal).clamp(3.0, 60.0);
                 draw_circle(q.x, q.y, 1.2, Color::new(1.0, 1.0, 1.0, 0.18));
                 if sal > 0.06 {
-                    // Heat ramp: purple (low) through orange to yellow-white (high).
-                    let col = if sal < 0.5 {
-                        Color::new(0.55 + 0.9 * sal, 0.1 + 0.5 * sal, 0.6 - 0.9 * sal, 1.0)
-                    } else {
-                        Color::new(1.0, 0.35 + 1.1 * (sal - 0.5), 0.15 + 1.4 * (sal - 0.5), 1.0)
-                    };
+                    let col = viridis(sal);
                     for (k, rr) in [(0.05, 1.6), (0.09, 1.0), (0.16, 0.55)] {
                         draw_circle(q.x, q.y, r * rr, Color { a: k * (0.4 + sal), ..col });
                     }
@@ -1135,33 +1257,38 @@ impl App {
                 }
             }
         }
-        // The brain: neurons at their FlyWire positions, lit by firing, and the strongest wiring.
+        // The brain, as a thumbnail in the bottom right: neurons at their FlyWire positions, lit by firing, and the
+        // strongest wiring.
         if let Some(lay) = &br.layout {
-            let (bx, by, bw, bh) = (x0 + 14.0, y0 + 40.0, pw - 28.0, ph - 130.0);
+            let (tw, th) = (200.0, 132.0);
+            let (tx, ty) = (x0 + pw - tw - 8.0, y0 + ph - 84.0 - th - 8.0);
+            draw_rectangle(tx, ty, tw, th, Color::new(0.02, 0.03, 0.05, 0.6));
+            draw_rectangle_lines(tx, ty, tw, th, 1.0, Color::new(1.0, 1.0, 1.0, 0.2));
+            ui.text("brain", tx + 6.0, ty + 13.0, 10.0, dimw, false);
+            let (bx, by, bw, bh) = (tx + 6.0, ty + 16.0, tw - 12.0, th - 20.0);
             let (sx, sy) = (lay.hi[0] - lay.lo[0], lay.hi[1] - lay.lo[1]);
             let k = (bw / sx).min(bh / sy);
             let (ox, oy) = (bx + 0.5 * (bw - sx * k), by + 0.5 * (bh - sy * k));
             let at = |v: usize| vec2(ox + (lay.pos[v][0] - lay.lo[0]) * k, oy + (lay.pos[v][1] - lay.lo[1]) * k);
+            // Colour is firing on viridis; size tells the classes apart (descending largest, LC10 smallest).
             let (na, ne) = (br.n_aff, br.n_eff);
-            let class = |v: usize| if v < na { 0 } else if v >= br.n - ne { 2 } else { 1 };
-            let cols = [Color::new(0.3, 0.85, 1.0, 1.0), Color::new(1.0, 0.72, 0.25, 1.0), Color::new(1.0, 0.35, 0.8, 1.0)];
+            let size = |v: usize| if v < na { 0.8 } else if v >= br.n - ne { 1.4 } else { 1.0 };
             let mean = br.activity.iter().sum::<f32>() / br.n as f32;
             let scale = (3.0 * mean).max(0.02);
             let lit = |v: usize| (br.activity[v] / scale).clamp(0.0, 1.0);
-            for &(s, d, wt) in &lay.edges {
+            for &(s, d, _) in &lay.edges {
                 let b = lit(s as usize);
-                let c = if wt < 0.0 { Color::new(0.45, 0.55, 1.0, 1.0) } else { cols[class(s as usize)] };
                 let (p, q) = (at(s as usize), at(d as usize));
-                draw_line(p.x, p.y, q.x, q.y, 1.0, Color { a: 0.03 + 0.35 * b * b, ..c });
+                draw_line(p.x, p.y, q.x, q.y, 0.7, Color { a: 0.04 + 0.4 * b * b, ..viridis(0.25 + 0.75 * b) });
             }
             for v in 0..br.n {
-                let (p, c, b) = (at(v), cols[class(v)], lit(v));
+                let (p, b) = (at(v), lit(v));
+                let c = viridis(0.12 + 0.88 * b);
                 if b > 0.2 {
-                    draw_circle(p.x, p.y, 2.0 + 5.0 * b, Color { a: 0.18 * b, ..c });
+                    draw_circle(p.x, p.y, 1.5 + 3.0 * b, Color { a: 0.2 * b, ..c });
                 }
-                let core = Color::new(c.r + (1.0 - c.r) * b * 0.7, c.g + (1.0 - c.g) * b * 0.7, c.b + (1.0 - c.b) * b * 0.7, 0.25 + 0.75 * b);
-                let r = 0.9 + 0.8 * b;
-                draw_rectangle(p.x - r, p.y - r, 2.0 * r, 2.0 * r, core);
+                let r = size(v) * (0.55 + 0.5 * b);
+                draw_rectangle(p.x - r, p.y - r, 2.0 * r, 2.0 * r, Color { a: 0.45 + 0.55 * b, ..c });
             }
         }
         // Title and legend over a dark band; the motor readout along the bottom.
@@ -1170,7 +1297,7 @@ impl App {
         let sub = format!("view · saliency · FlyGM on FlyWire v783, {} neurons", br.n);
         ui.text(&sub, x0 + 44.0, y0 + 19.0, 12.0, dimw, false);
         if br.last[3] > 0.5 && fly.is_some() {
-            ui.text("FIRE", x0 + pw - ui.width("FIRE", 15.0, false) - 10.0, y0 + 20.0, 15.0, Color::new(1.0, 0.35, 0.2, 1.0), false);
+            ui.text("FIRE", x0 + pw - ui.width("FIRE", 15.0, false) - 10.0, y0 + 20.0, 15.0, viridis(1.0), false);
         }
         if fly.is_none() {
             let t = "fly inbound…";
@@ -1178,13 +1305,21 @@ impl App {
         }
         let band = y0 + ph - 84.0;
         draw_rectangle(x0, band, pw, 84.0, Color::new(0.02, 0.03, 0.05, 0.72));
-        let mut lx = x0 + 10.0;
-        let cols = [Color::new(0.3, 0.85, 1.0, 1.0), Color::new(1.0, 0.72, 0.25, 1.0), Color::new(1.0, 0.35, 0.8, 1.0), Color::new(1.0, 0.6, 0.2, 1.0)];
+        // Legend: the viridis scale shared by firing and saliency, then the classes by marker size.
+        ui.text("quiet", x0 + 10.0, band + 20.0, 11.0, dimw, false);
+        let (cx, cw) = (x0 + 12.0 + ui.width("quiet", 11.0, false), 90.0);
+        for i in 0..30 {
+            let t = i as f32 / 29.0;
+            draw_rectangle(cx + 4.0 + t * cw, band + 11.0, cw / 29.0 + 0.5, 9.0, viridis(t));
+        }
+        ui.text("firing / salient", cx + cw + 10.0, band + 20.0, 11.0, dimw, false);
         let (na, ne) = (br.n_aff, br.n_eff);
-        for (i, label) in [format!("LC10 eyes ({na})"), format!("central ({})", br.n - na - ne), format!("descending ({ne})"), "saliency".to_string()].iter().enumerate() {
-            draw_circle(lx + 4.0, band + 16.0, 4.0, cols[i]);
-            ui.text(label, lx + 12.0, band + 20.0, 11.0, dimw, false);
-            lx += ui.width(label, 11.0, false) + 24.0;
+        let mut lx = cx + cw + 20.0 + ui.width("firing / salient", 11.0, false);
+        for (r, label) in [(0.8, format!("LC10 {na}")), (1.0, format!("central {}", br.n - na - ne)), (1.4, format!("descending {ne}"))] {
+            let rr = 2.2 * r;
+            draw_rectangle(lx + 3.0 - rr, band + 16.0 - rr, 2.0 * rr, 2.0 * rr, viridis(0.8));
+            ui.text(&label, lx + 9.0, band + 20.0, 11.0, dimw, false);
+            lx += ui.width(&label, 11.0, false) + 18.0;
         }
         let [bank, climb, thr, _] = br.last;
         let my = band + 34.0;
@@ -1192,7 +1327,7 @@ impl App {
             ui.text(label, x, my + 10.0, 11.0, dimw, false);
             let gw = 96.0;
             draw_rectangle(x, my + 16.0, gw, 7.0, Color::new(1.0, 1.0, 1.0, 0.12));
-            let c = Color::new(1.0, 0.35, 0.8, 1.0);
+            let c = viridis(0.75);
             if signed {
                 let m = x + gw * 0.5;
                 let e = m + val.clamp(-1.0, 1.0) * gw * 0.5;
@@ -1241,7 +1376,7 @@ impl App {
         let world = self.world;
         std::thread::spawn(move || {
             let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).saturating_sub(2).max(1);
-            let opts = HarnessOpts { episodes: 200, threads, kamikaze_secs: 300.0, extended: false };
+            let opts = HarnessOpts { only: None, episodes: 200, threads, kamikaze_secs: 300.0, extended: false };
             let t0 = std::time::Instant::now();
             let rep = run_harness(world, &opts, &|n, d, t| *p2.lock().unwrap() = (n.to_string(), d, t));
             let text = format!("{}\n{} threads, {:.0} s", format_report(&rep), threads, t0.elapsed().as_secs_f64());
@@ -1308,6 +1443,11 @@ impl App {
                 if !self.crash_logged {
                     self.crash_logged = true;
                     eprintln!("crashed at t={:.1} s", self.sim.time());
+                    // A dogfight explodes the aircraft itself (`Dogfight::kill_player`).
+                    if self.dogfight.is_none() {
+                        let s = self.sim.s;
+                        self.guns.explode(sv3(&s), body_axes(&s).0 * s[V] as f32);
+                    }
                 }
                 break;
             }
@@ -1320,6 +1460,15 @@ impl App {
             self.path_t = 0.1;
             self.update_paths();
         }
+    }
+
+    /// The guns, once per frame after `step`: cosmetic, fired from the aircraft as drawn, never inside `Sim::tick`.
+    fn update_guns(&mut self, dt: f64) {
+        let s = self.drawn_state();
+        let mount = gun::Mount { p: sv3(&s), axes: self.aircraft_axes(), vel: body_axes(&s).0 * s[V] as f32 };
+        // In a dogfight the trigger fires the dogfight's guns (`combat.rs`), not these.
+        let held = (self.trigger || self.fire_hold) && !self.sim.crashed && self.dogfight.is_none();
+        self.guns.update(self.world, held, dt as f32, &mount);
     }
 
     fn update_paths(&mut self) {
@@ -1367,7 +1516,7 @@ impl App {
             if let Some(pl) = self.sim.fs.plan {
                 let mut p = Vec::new();
                 let (hold, te) = pl.tail(self.sim.k);
-                pred.rollout(&s, hold, pl.esc, te, pl.psi0, f64::NEG_INFINITY, Some(&mut p));
+                pred.rollout(&s, hold, pl.esc, te, pl.eref, f64::NEG_INFINITY, Some(&mut p));
                 self.plan_path = p.iter().map(|q| v3(*q)).collect();
             }
         }
@@ -1506,12 +1655,13 @@ impl App {
             draw_sphere(t, 6.0 + 4.0 * pulse, None, Color::new(1.0, 0.1, 0.1, 0.6));
             draw_line_3d(t, t + vec3(0.0, 0.0, 120.0), Color::new(1.0, 0.2, 0.2, 0.8));
         }
-        if self.cam_mode != 1 && !self.player_dead() {
+        if self.cam_mode != 1 && !self.wrecked() {
             draw_aircraft(p, self.aircraft_axes(), &self.surfaces().0, self.player_tint(), false);
         }
         if let Some((bp, axes, tint)) = self.bandit_drawn() {
             draw_aircraft(bp, axes, &c172::Controls::default(), tint, true);
         }
+        self.guns.draw(&gun::View::of(cam));
         self.draw_combat_classic(cam);
     }
 
@@ -1542,7 +1692,8 @@ impl App {
                 FxKind::Debris => Color::new(0.08, 0.08, 0.08, 1.0),
             };
             let rim = if f.kind == FxKind::Debris { col } else { Color { a: 0.0, ..col } };
-            if verts.len() + 11 > 60000 {
+            // macroquad clamps a draw call at 5,000 indices.
+            if idx.len() + 30 >= 5000 {
                 draw_mesh(&Mesh { vertices: std::mem::take(&mut verts), indices: std::mem::take(&mut idx), texture: None });
             }
             let (c, r, base) = (dv3(f.p), f.radius() as f32, verts.len() as u16);
@@ -1567,7 +1718,8 @@ impl App {
         let (mut lv, mut li) = (Vec::new(), Vec::new());
         let (f, l, u) = self.aircraft_axes();
         let cockpit = self.cam_mode == 1;
-        let dead = self.player_dead();
+        // Hidden once wrecked: after a crash's fireball, or when shot down in a dogfight.
+        let dead = self.wrecked();
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
         let mut push_mesh = |m: &c172::Mesh, to_w: &dyn Fn(Vec3) -> Vec3, (f, l, u): (Vec3, Vec3, Vec3), tint: [f32; 3], livery: f32| {
             let base = lv.len() as u32;
@@ -1827,10 +1979,15 @@ impl App {
         }
         // Bottom bar.
         let hint = format!(
-            "{} · H help · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-5 scenarios · Y showcase · K kamikaze · Tab dogfight · T harness · R reset",
-            SCENARIOS[self.scenario],
+            "{} · {} · H help · Tab map · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-{} scenarios{} · K kamikaze · T harness · R reset{}{}",
+            self.world.map.name(),
+            scenario_names(self.world.map)[self.scenario],
             CAM_NAMES[self.cam_mode],
-            RENDERER_NAMES[self.renderer]
+            RENDERER_NAMES[self.renderer],
+            scenario_names(self.world.map).len(),
+            if self.world.map == MapId::Grid { " · Y showcase" } else { "" },
+            if self.hotas_prev.is_some() { " · HOTAS" } else { "" },
+            if self.world.map == MapId::SanFrancisco { " · map data: DataSF, © OpenStreetMap contributors, USGS" } else { "" }
         );
         draw_rectangle(0.0, h - 30.0, w, 30.0, Color::new(0.04, 0.06, 0.09, 0.55));
         ui.text(&hint, 14.0, h - 10.0, 13.0, dim, false);
@@ -1885,7 +2042,7 @@ impl App {
         draw_rectangle(x0 - 12.0, y, 484.0, 34.0, Color::new(0.04, 0.06, 0.09, 0.55));
         bar(x0, "YOU", d.player_hits, Color::new(0.3, 0.8, 1.0, 1.0));
         match &d.bandit {
-            Some(b) => bar(x0 + 210.0, "FLY", b.hits, red),
+            Some(b) => bar(x0 + 210.0, "FLY", b.hits, viridis(0.9)),
             None => ui.text("fly inbound…", x0 + 210.0, y + 22.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.6), false),
         }
         ui.text(&format!("kills {}", d.kills), x0 + 410.0, y + 22.0, 14.0, WHITE, false);
@@ -1957,20 +2114,23 @@ impl App {
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 23] = [
+        let lines: [(&str, &str); 27] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
             ("Space", "safety filter on / off"),
+            ("Shift", "guns: hold to fire. The first shot summons the fly (a connectome brain), which you can shoot down"),
             ("F", "filter: P1 blend+commit · P2 closed-form · permissive"),
             ("G", "Phase 3 robust margins on / off"),
             ("B", "show escape paths (green valid, red not, yellow committed)"),
+            ("7", "wingtip strobes on/off"),
             ("M", "model mismatch: wind and a weaker, slower aircraft"),
             ("C", "camera: chase · cockpit · orbit · overhead · fly-by"),
-            ("1 2 3 4 5", "tower run · dive · ridge · slow and low · tower gap"),
-            ("Y", "tower gap with the scripted showcase pilot (threads the gap, turns into a tower)"),
+            ("1 2 3 4 5", "tower run (Salesforce run) · dive · ridge (Nob Hill) · slow and low · tower gap (grid only)"),
+            ("Y", "tower gap with the scripted showcase pilot (grid city; threads the gap, turns into a tower)"),
+            ("Tab", "map: grid city · San Francisco"),
             ("K", "kamikaze autopilot (flies at buildings and terrain)"),
-            ("Tab", "dogfight: a fly hunts you; Shift fires"),
+            ("8", "fly opponent on the trigger: on (default) / off"),
             ("T", "run the 200-episode headless harness"),
             ("R", "reset the scenario"),
             ("V", "renderer: classic · photoreal · ray traced (Metal RT + MetalFX)"),
@@ -1979,6 +2139,7 @@ impl App {
             ("L  O  Z/X  N/J", "footage look · lens preset · f-stop · focal length"),
             ("6", "cinematic: fly-by camera, clear weather, 50 mm f/4"),
             ("U", "ray traced: MetalFX denoiser on / off"),
+            ("HOTAS", "stick pitch / roll · lever throttle · trigger guns · stick button 2 filter · USB button 3 kamikaze"),
             ("H / Esc", "toggle / close this help"),
             ("", ""),
         ];
@@ -2180,16 +2341,22 @@ async fn main() {
 
     clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
     next_frame().await;
-    let world: &'static World = Box::leak(Box::new(World::new(1337)));
-    let terrain_px = terrain_texture(world);
-    let scene = StaticScene::new(world, &terrain_px);
-    let mut photo = if use_gl() { None } else { Some(photo::Photo::new(world)) };
-    drop(terrain_px);
+    // San Francisco unless `--map grid`.
+    let map = match arg("--map") {
+        None => MapId::SanFrancisco,
+        Some(m) => MapId::parse(&m).unwrap_or_else(|| {
+            eprintln!("--map takes grid or sf");
+            std::process::exit(2);
+        }),
+    };
+    // The other map's scenes, parked while it is not shown (Tab builds them on first use).
+    let mut parked: [Option<MapScenes>; 2] = [None, None];
+    let MapScenes { world, mut scene, mut photo } = MapScenes::new(World::load(map));
     let ui = Ui {
         mono: load_font(&["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"]),
         sans: load_font(&["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"]),
     };
-    let scenario: usize = arg("--scenario").and_then(|s| s.parse::<usize>().ok()).map(|s| s.clamp(1, SCENARIOS.len()) - 1).unwrap_or(0);
+    let scenario: usize = arg("--scenario").and_then(|s| s.parse::<usize>().ok()).map(|s| s.clamp(1, scenario_names(map).len()) - 1).unwrap_or(0);
     let s0 = scenario_start(world, scenario);
     let sim = Sim::new(world, s0, SimCfg::default());
     let drawn = Drawn::new(&sim);
@@ -2206,11 +2373,18 @@ async fn main() {
         showcase: None,
         flyby: None,
         crash_logged: false,
+        switch_map: false,
         show_paths: args.iter().any(|a| a == "--paths"),
+        strobes: args.iter().any(|a| a == "--strobes"),
         show_help: shot.is_none(),
         cam_mode: arg("--cam").and_then(|s| s.parse().ok()).unwrap_or(0),
         invert: false,
         stick: (0.0, 0.0),
+        hotas: hotas::Hotas::open(),
+        hotas_prev: None,
+        guns: gun::Guns::new(),
+        trigger: false,
+        fire_hold: args.iter().any(|a| a == "--fire"),
         acc: 0.0,
         drawn,
         drawn_ctl: [(c172::Controls::default(), 0.0); 2],
@@ -2230,11 +2404,11 @@ async fn main() {
         lens: 0,
         focal_mm: LENSES[0].1,
         fstop: LENSES[0].2,
-        sun_el: SUN[2].asin().to_degrees(),
-        sun_az: SUN[1].atan2(SUN[0]).to_degrees(),
+        sun_el: sun_angles(map).0,
+        sun_az: sun_angles(map).1,
         label: None,
         dogfight: None,
-        trigger: false,
+        fly_summon: true,
         renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
             (true, false, true) => 2,
             (true, false, false) => 1,
@@ -2295,7 +2469,7 @@ async fn main() {
     // pilot), 1000 + i is scenario i + 1 with a kamikaze pilot.
     if let Some(e) = arg("--episode").and_then(|s| s.parse::<u64>().ok()) {
         let (s0, kami) = if e >= 1000 {
-            (scenario_start(world, ((e - 1000) as usize).min(SCENARIOS.len() - 1)), true)
+            (scenario_start(world, ((e - 1000) as usize).min(scenario_names(map).len() - 1)), true)
         } else {
             let mut rng = Rng::new(e.wrapping_mul(7919) ^ 0xE915);
             (random_start(world, &mut rng), e % 4 == 3)
@@ -2308,6 +2482,18 @@ async fn main() {
         app.trail.clear();
         let (f, _, _) = body_axes(&s0);
         app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
+    }
+    // --at x,y,agl,heading_deg: start anywhere (map metres), level at 50 m/s.
+    if let Some(at) = arg("--at") {
+        let v: Vec<f64> = at.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        if v.len() == 4 {
+            let s0 = trimmed(v[0], v[1], world.terrain(v[0], v[1]) + v[2], 50.0, 0.0, v[3].to_radians(), 0.64);
+            app.sim = Sim::new(world, s0, app.cfg(true));
+            app.fbw = Fbw::from_state(&s0);
+            app.trail.clear();
+            let (f, _, _) = body_axes(&s0);
+            app.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
+        }
     }
     // Boundary-regime demos: a given start (`--start x,y,z,v,gamma°,heading°,bank°,throttle`), optionally moved
     // back `--lead S` seconds along its velocity, flown by the released sticks (holding flight path and bank).
@@ -2331,10 +2517,34 @@ async fn main() {
     let dpi = screen_dpi_scale();
     let fly_rt = render_target_ex((FLY_VIEW.0 * dpi) as u32, (FLY_VIEW.1 * dpi) as u32, RenderTargetParams { sample_count: 1, depth: true });
     fly_rt.texture.set_filter(FilterMode::Linear);
+    let mut fly_cam_last: Option<Camera3D> = None;
     let mut frame = 0u32;
     let mut perf = (0.0f64, 0u32, 0.0f64, 0.0f64);
     let mut perf_t = std::time::Instant::now();
     loop {
+        if std::mem::take(&mut app.switch_map) {
+            let next = app.world.map.next();
+            let settings = photo.as_ref().map(|p| p.settings);
+            let ms = match parked[next as usize].take() {
+                Some(ms) => ms,
+                None => {
+                    clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
+                    let t = format!("Loading {}...", next.name());
+                    ui.text(&t, (screen_width() - ui.width(&t, 28.0, false)) * 0.5, screen_height() * 0.5, 28.0, WHITE, false);
+                    next_frame().await;
+                    MapScenes::new(World::load(next))
+                }
+            };
+            parked[app.world.map as usize] = Some(MapScenes { world: app.world, scene, photo });
+            MapScenes { world: app.world, scene, photo } = ms;
+            if let (Some(ph), Some(st)) = (photo.as_mut(), settings) {
+                ph.settings = st;
+            }
+            (app.sun_el, app.sun_az) = sun_angles(next);
+            app.kamikaze = None;
+            app.showcase = None;
+            app.reset(0);
+        }
         let loop_start = std::time::Instant::now();
         let dt = get_frame_time().min(0.1) as f64;
         if shot.is_none() {
@@ -2343,7 +2553,9 @@ async fn main() {
                 photo_keys(&mut app, ph);
             }
         }
-        app.step(if shot.is_some() { 1.0 / 60.0 } else { dt });
+        let step_dt = if shot.is_some() { 1.0 / 60.0 } else { dt };
+        app.step(step_dt);
+        app.update_guns(step_dt);
         let target = if !app.sim.cfg.filter_on {
             0.0
         } else if app.sim.fs.mode == Mode::Commit {
@@ -2355,7 +2567,16 @@ async fn main() {
 
         let cam = app.camera(dt as f32);
         clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
-        let fly_cam = app.render_fly_view(&scene, &fly_rt);
+        // The fly's view re-renders the whole city, so every other frame (the panel keeps the last one, and the
+        // camera it was rendered with, so its overlays stay aligned).
+        let fly_cam = if app.bandit_drawn().is_none() || app.dogfight.as_ref().is_none_or(|d| d.brain.is_none()) {
+            None
+        } else if frame % 2 == 1 && fly_cam_last.is_some() {
+            fly_cam_last.as_ref().map(cam_copy)
+        } else {
+            app.render_fly_view(&scene, &fly_rt)
+        };
+        fly_cam_last = fly_cam.as_ref().map(cam_copy);
         match (app.renderer, photo.as_mut()) {
             (1 | 2, Some(ph)) => {
                 let (lv, li, mut ov, mut oi) = app.photo_dynamic(cam.position, 1.0);
@@ -2366,6 +2587,7 @@ async fn main() {
                 ph.lamp_sprites(&mut ov, &mut oi, cam.position, right, up, night);
                 let lights = app.aircraft_lights(&mut ov, &mut oi, cam.position, right, up);
                 app.photo_combat(&mut ov, &mut oi, cam.position, right, up);
+                app.guns.photo(&mut ov, &mut oi, &gun::View::of(&cam));
                 ph.draw(&photo::FrameIn {
                     cam_pos: cam.position,
                     cam_target: cam.target,

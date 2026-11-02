@@ -91,7 +91,7 @@ enum PilotKind {
 }
 
 fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<Rec>, Vec<(f64, Vec<[f32; 3]>)>, Stats) {
-    let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed: e };
+    let cfg = SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, wind: false, model_error: false, seed: e };
     let mut sim = Sim::new(world, s0, cfg);
     let mut fbw = Fbw::from_state(&s0);
     let mut hostile = Hostile::new(e);
@@ -147,7 +147,7 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
                 let pred = Pred { accept: false, ..sim.pred() };
                 let mut p = Vec::new();
                 let (hold, te) = pl.tail(sim.k);
-                pred.rollout(&sim.s, hold, pl.esc, te, pl.psi0, f64::NEG_INFINITY, Some(&mut p));
+                pred.rollout(&sim.s, hold, pl.esc, te, pl.eref, f64::NEG_INFINITY, Some(&mut p));
                 plans.push((sim.time(), p));
             }
         }
