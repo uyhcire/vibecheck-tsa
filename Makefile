@@ -125,7 +125,7 @@ present:
 # Re-record every clip and replay in docs/explainer/clips.json, check them against clips.lock.json (the simulation
 # is deterministic, so a mismatch means the code changed), then encode. JOBS recordings run at once.
 JOBS ?= 2
-PRESENT_MEDIA_MINUTES = 25
+PRESENT_MEDIA_MINUTES = 12
 .PHONY: present-media
 present-media:
 	$(CITY) cargo build --release --features jsb --bin cityflight && cargo build --release --no-default-features --features jsb --bin proofdump
