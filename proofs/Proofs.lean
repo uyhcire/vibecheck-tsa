@@ -10,3 +10,4 @@ import Proofs.Robust.EndSets
 import Proofs.Audit
 import Proofs.TermSound.Checks
 import Proofs.SafeRegion
+import Proofs.TermSound.Glue
