@@ -25,6 +25,7 @@ Everything is a one-word `make` target; `make help` lists them.
 | `make crashes` / `crashes-lean` | Headless crash test (N hostile episodes plus the kamikaze scenarios) |
 | `make adversary`, `make harness`, `make regimes` | Gap-guided adversary; point-mass acceptance harness; boundary-regime slices |
 | `make plantcheck` | Plant, state-import and Lean-gate spot checks, plus the 4 spec starts |
+| `make termcheck` | The `TermSoundR` skeleton's certified sets (`Geo`, `Conf`) at the 4 spec starts' settled states (a run, not a proof) |
 | `make verify` / `make proofs` | Build the Lean proofs and audit their axioms / the Mathlib proofs |
 | `make gate`, `gate-example`, `gate-check`, `export` | libgate for JSBSim hosts; the city as plain files for other simulators |
 | `make pdf` | The informal TermSound proof (`docs/termsound-proof.pdf`) |
