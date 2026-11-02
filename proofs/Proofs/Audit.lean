@@ -1,6 +1,7 @@
 import Proofs.Examples
 import Proofs.Robust.Example
 import Proofs.Robust.EndSets
+import Proofs.TermSound.Glue
 
 open Vibecheck.Ideal
 
@@ -22,3 +23,6 @@ open Vibecheck.Ideal
 #print axioms Proofs.Robust.cityGate_spec_safe_of_sublevels
 #print axioms Proofs.Robust.Example.invariant_of_deriv
 #print axioms Proofs.Robust.Example.obs_x0
+#print axioms Proofs.TermSound.Glue.helixAbs_inv
+#print axioms Proofs.TermSound.Glue.rayAbs_inv
+#print axioms Proofs.TermSound.Glue.termSoundR_glue
