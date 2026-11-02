@@ -56,7 +56,7 @@ def GAM_TURN : Float := 0.03
 
 /-! Terminal phase (`docs/escape-law-terminal.md`), once the pull-up ends: equivalent-airspeed references per end-set
 kind (straight, 30° helix, 40° helix), gains and gradient limits; and the level-off at `H_LEVEL` for every escape. -/
-def V_EAS_T : Array Float := #[35.2, 37.8, 40.3]
+def V_EAS_T : Array Float := #[35.2, 37.8, 40.3, 40.3]
 def KV_T : Float := 0.06
 def KI_A_T : Float := 6.0
 def GC_LO_T : Float := 0.0
@@ -106,9 +106,10 @@ def Law.turning (l : Law) : Bool := !l.psiRef.isNaN
 /-- Turn direction of the terminal set (0 = a straight climb). -/
 def Law.dir (l : Law) : Float := if l.esc == STREET then l.side else ESC_DIR[l.esc]!
 
-/-- End-set kind (`Law::kind`): 0 a straight climb, 1 a 30° helix, 2 a 40° helix. -/
+/-- End-set kind (`Law::kind`): 0 a straight climb, 1 a 30° helix, 2 a 40° helix, 3 the street escape still on its
+street (no ending but the level-off). -/
 def Law.kind (l : Law) : Nat :=
-  if l.dir == F0_0 then 0 else if l.esc == STREET || ESC_BANK[l.esc]! > F0_6 then 2 else 1
+  if l.dir == F0_0 then (if l.esc == STREET then 3 else 0) else if l.esc == STREET || ESC_BANK[l.esc]! > F0_6 then 2 else 1
 
 /-! Observation fields (`CityJsb.obs`). -/
 def obN (o : FloatArray) : Float := o[3]!
@@ -126,7 +127,7 @@ def Law.capture (l : Law) (o : FloatArray) : Law :=
 /-- Street escape, every 0.25 s once the climb is established on the axis: start the helix toward the first side
 (left, then right) whose predicted annulus is clear at the current height. -/
 def Law.streetTurn (l : Law) (p : Plane) : Law :=
-  if l.esc != STREET || l.axis.isNaN || l.side != F0_0 || !l.turning || l.t < l.nextTry || l.t ≥ T_TERM then l
+  if l.esc != STREET || l.axis.isNaN || l.side != F0_0 || !l.turning || l.t < l.nextTry then l
   else
     let l := { l with nextTry := l.t + F0_25 }
     let o := p.ob

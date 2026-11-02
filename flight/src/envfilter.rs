@@ -127,7 +127,7 @@ pub struct LawP {
     /// Terminal phase (`docs/escape-law-terminal.md`), once the pull-up ends: an equivalent-airspeed reference per
     /// end-set kind (straight, 30° and 40° helix; m/s, 0 = no terminal phase), its speed gain, α-integrator gain
     /// and gradient limits; and for every escape a level-off at `h_level` (m) with gain `k_hold` (rad/m).
-    pub v_eas_t: [f64; 3],
+    pub v_eas_t: [f64; 4],
     pub kv_t: f64,
     pub ki_a_t: f64,
     pub gc_lo_t: f64,
@@ -175,7 +175,7 @@ pub const LAW: LawP = LawP {
     keep_bank: false,
     t_pull_max: 6.0,
     gam_turn: 0.03,
-    v_eas_t: [0.0; 3],
+    v_eas_t: [0.0; 4],
     kv_t: 0.06,
     ki_a_t: 6.0,
     gc_lo_t: 0.0,
@@ -189,7 +189,7 @@ pub const LAW_CEGIS2: LawP = LawP {
     keep_bank: true,
     t_pull_min: [1.5, 1.5, 1.5, 0.0, 0.0, 1.5],
     nmax: 3.5, amax: 0.24, kv: 0.02, gc_lo: 0.05, kq: 1.2, vs: 50.0, kqf: 0.6,
-    v_eas_t: [V_EAS_T, V_EAS_T30, V_EAS_T40], h_level: 1000.0, ..LAW };
+    v_eas_t: [V_EAS_T, V_EAS_T30, V_EAS_T40, V_EAS_T40], h_level: 1000.0, ..LAW };
 
 /// Terminal equivalent-airspeed references (m/s): the straight climb's, and the helices' at the same α (the
 /// straight value times `1/√cos φ` at 0.52 and 0.7 rad), which keeps the turns clear of the post-stall branch.
@@ -313,8 +313,7 @@ impl Law {
     /// Street escape, every 0.25 s once the climb is established on the axis: start the helix toward the
     /// first side (left, then right) whose predicted annulus is clear at the current height.
     fn street_turn(&mut self, world: &World, q: &JsbPlant) {
-        // Before the first end test only, so the end-set kind an end test accepts never changes afterwards.
-        if self.esc != STREET || self.axis.is_nan() || self.side != 0.0 || !self.turning() || self.t < self.next_try || self.t >= T_TERM {
+        if self.esc != STREET || self.axis.is_nan() || self.side != 0.0 || !self.turning() || self.t < self.next_try {
             return;
         }
         self.next_try = self.t + 0.25;
@@ -343,9 +342,11 @@ impl Law {
         self.frame(q);
     }
 
-    /// The end-set kind this escape is heading for: 0 a straight climb, 1 a 30° helix, 2 a 40° helix.
+    /// The end-set kind this escape is heading for: 0 a straight climb, 1 a 30° helix, 2 a 40° helix, 3 the street
+    /// escape still on its street (no ending but the level-off: it may yet roll into a helix, so a ray accepted now
+    /// could change kind after acceptance).
     pub fn kind(&self) -> usize {
-        if self.dir() == 0.0 { 0 } else if self.esc == STREET || self.tbank > 0.6 { 2 } else { 1 }
+        if self.dir() == 0.0 { if self.esc == STREET { 3 } else { 0 } } else if self.esc == STREET || self.tbank > 0.6 { 2 } else { 1 }
     }
 
     pub fn turning(&self) -> bool {
@@ -481,7 +482,7 @@ pub const GRAD_MAX: f64 = 0.11;
 /// Helix ending: lowest settled airspeed per end-set kind (m/s), above the post-stall branch (`termhunt trim`); the
 /// halves' mean airspeeds agree within `V_SETTLED`; radii and centres agree within these fractions of the radius;
 /// the annulus is widened by the airframe's half-size `E_AIR` (m).
-pub const V_HELIX_MIN: [f64; 3] = [0.0, 37.5, 39.5];
+pub const V_HELIX_MIN: [f64; 4] = [0.0, 37.5, 39.5, 0.0];
 pub const V_SETTLED: f64 = 1.0;
 pub const R_SETTLED: f64 = 0.1;
 pub const C_SETTLED: f64 = 0.1;
@@ -554,6 +555,8 @@ pub enum TermFail {
     Unsettled,
     /// Helix: airspeed below `V_HELIX_MIN` or unsettled, or specific energy falling in a half.
     Slow,
+    /// The street escape has not rolled into its helix (its ray ending is not accepted).
+    StreetRay,
     /// Track rate, radius or centre not steady across the two halves.
     Wobble,
     /// The straight escape's climb gradient is too shallow for a ray.
@@ -854,6 +857,9 @@ fn terminal(world: &World, dir: f64, kind: usize, hist: &[Hist], margin: f64) ->
     }
     let e = b.end;
     let top = top(world);
+    if kind == 3 {
+        return Err(TermFail::StreetRay);
+    }
     if dir == 0.0 {
         // Straight: settled heading and climb rate, then a climbing ray at 80% of the slower half's gradient, capped.
         if a.omega.abs().max(b.omega.abs()) > 0.01 {
@@ -889,9 +895,10 @@ fn terminal(world: &World, dir: f64, kind: usize, hist: &[Hist], margin: f64) ->
         }
         // Radial slack: fit disagreement, plus outward the radius growth of a constant-EAS turn up to the top.
         let m = 5.0 + 3.0 * (d_r + d_c);
-        let grow = if e.z < top { rb * (rho_of(e.z) / rho_of(top) - 1.0) } else { 0.0 };
-        let (r0, r1) = ((rb - m - E_AIR).max(0.0), rb + m + grow + E_AIR);
-        helix_check_annulus(world, cb, r0, r1, e.z, top, margin)?;
+        let gk = if e.z < top { rb } else { 0.0 };
+        let (r0, r1) = ((rb - m - E_AIR).max(0.0), rb + m + E_AIR);
+        helix_check_annulus(world, cb, r0, r1, gk, e.z, top, margin)?;
+        let r1 = if gk > 0.0 { r1 + gk * (rho_of(e.z) / rho_of(top) - 1.0) } else { r1 };
         let tail = (0..=72).map(|i| {
             let th = i as f64 * PI / 36.0;
             [cb[0] + rb * th.cos(), cb[1] + rb * th.sin(), e.z + b.vz_mean * (i as f64 / 72.0) * 2.0 * PI * rb / b.vh.max(1.0)]
@@ -909,23 +916,28 @@ pub fn helix_clear(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64)
 
 /// `helix_clear` with the vertical margin `margin` in place of `MARGIN`, saying what blocks the annulus.
 pub fn helix_check(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64, margin: f64) -> Result<(), TermFail> {
-    helix_check_annulus(world, c, (r - m - R_BODY).max(0.0), r + m + R_BODY, z, top, margin)
+    helix_check_annulus(world, c, (r - m - R_BODY).max(0.0), r + m + R_BODY, 0.0, z, top, margin)
 }
 
 /// Every raw cell within the annulus `[r0, r1]` around `c` is at least `R_BODY + margin` below `z`.
-pub fn helix_check_annulus(world: &World, c: [f64; 2], r0: f64, r1: f64, z: f64, top: f64, margin: f64) -> Result<(), TermFail> {
+pub fn helix_check_annulus(world: &World, c: [f64; 2], r0: f64, r1: f64, gk: f64, z: f64, top: f64, margin: f64) -> Result<(), TermFail> {
     let floor = z - R_BODY - margin;
     if floor > top {
         return Ok(());
     }
-    if !on_map(c[0] - r1, c[1] - r1) || !on_map(c[0] + r1, c[1] + r1) {
+    // A cell of height h matters only while the floor is below h, so the outer radius it must clear grows by
+    // `gk·(ρ(z)/ρ(h') − 1)`, h' = min(h + R_BODY + margin, top): a constant-EAS turn's radius grows as 1/ρ.
+    let rz = rho_of(z);
+    let r1_at = |h: f64| r1 + gk * (rz / rho_of((h + R_BODY + margin).min(top)) - 1.0);
+    let r1m = if gk > 0.0 { r1_at(top) } else { r1 };
+    if !on_map(c[0] - r1m, c[1] - r1m) || !on_map(c[0] + r1m, c[1] + r1m) {
         return Err(TermFail::HelixOffMap);
     }
     // Cell centres within half a cell diagonal of the annulus.
     let pad = CELL * std::f64::consts::FRAC_1_SQRT_2;
-    let (lo2, hi2) = ((r0 - pad).max(0.0).powi(2), (r1 + pad).powi(2));
+    let (lo2, hi2, hi2m) = ((r0 - pad).max(0.0).powi(2), (r1 + pad).powi(2), (r1m + pad).powi(2));
     let ci = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
-    let (i0, i1, j0, j1) = (ci(c[0] - r1 - pad), ci(c[0] + r1 + pad), ci(c[1] - r1 - pad), ci(c[1] + r1 + pad));
+    let (i0, i1, j0, j1) = (ci(c[0] - r1m - pad), ci(c[0] + r1m + pad), ci(c[1] - r1m - pad), ci(c[1] + r1m + pad));
     let floor = floor as f32;
     for j in j0..=j1 {
         let dy = -MAP_HALF + (j as f64 + 0.5) * CELL - c[1];
@@ -936,7 +948,7 @@ pub fn helix_check_annulus(world: &World, c: [f64; 2], r0: f64, r1: f64, z: f64,
             }
             let dx = -MAP_HALF + (i as f64 + 0.5) * CELL - c[0];
             let d2 = dx * dx + dy * dy;
-            if d2 >= lo2 && d2 <= hi2 {
+            if d2 >= lo2 && (d2 <= hi2 || (d2 <= hi2m && d2 <= (r1_at(row[i] as f64) + pad).powi(2))) {
                 return Err(TermFail::HelixBlocked { x: c[0] + dx, y: c[1] + dy, h: row[i] as f64 });
             }
         }

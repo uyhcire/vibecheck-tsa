@@ -134,7 +134,7 @@ def VZ_SETTLED : Float := 1.0
 def GRAD_MAX : Float := 0.11
 /-- Helix ending (`V_HELIX_MIN` … `E_AIR` in Rust): lowest settled airspeed per end-set kind, airspeed agreement of
 the halves, radius and centre agreement as fractions of the radius, and the airframe half-size widening the annulus. -/
-def V_HELIX_MIN : Array Float := #[0.0, 37.5, 39.5]
+def V_HELIX_MIN : Array Float := #[0.0, 37.5, 39.5, 0.0]
 def V_SETTLED : Float := 1.0
 def R_SETTLED : Float := 0.1
 def C_SETTLED : Float := 0.1
@@ -188,26 +188,32 @@ def seg (h : Array Hist) : Seg :=
     e := b }
 
 /-- `helix_check_annulus`: every raw cell within the annulus `[r0, r1]` around `c` is at least `R_BODY + MARGIN`
-below `z` (or `z` is that far above the map's top); an annulus reaching past the map's edge fails. -/
-def helixClearAnn (cx cy r0 r1 z : Float) : Bool := Id.run do
+below `z` (or `z` is that far above the map's top); with growth coefficient `gk > 0` a cell of height `h` must also
+clear the outer radius `r1 + gk·(ρ(z)/ρ(min(h + R_BODY + MARGIN, top)) − 1)`. An annulus past the map's edge fails. -/
+def helixClearAnn (cx cy r0 r1 gk z : Float) : Bool := Id.run do
   let floor := z - R_BODY - MARGIN
   if floor > top then return true
-  if !onMap (cx - r1) (cy - r1) || !onMap (cx + r1) (cy + r1) then return false
+  let rz := rhoT z
+  let r1At := fun (h : Float) => r1 + gk * (rz / rhoT (fmin (h + R_BODY + MARGIN) top) - F1_0)
+  let r1m := if gk > F0_0 then r1At top else r1
+  if !onMap (cx - r1m) (cy - r1m) || !onMap (cx + r1m) (cy + r1m) then return false
   let pad := CELL * FRAC_1_SQRT_2
   let lo2 := let d := fmax (r0 - pad) F0_0; d * d
   let hi2 := let d := r1 + pad; d * d
+  let hi2m := let d := r1m + pad; d * d
   let floor := toF32 floor
-  for j in [cellIdx (cy - r1 - pad):cellIdx (cy + r1 + pad) + 1] do
+  for j in [cellIdx (cy - r1m - pad):cellIdx (cy + r1m + pad) + 1] do
     let dy := -MAP_HALF + (j.toFloat + F0_5) * CELL - cy
-    for i in [cellIdx (cx - r1 - pad):cellIdx (cx + r1 + pad) + 1] do
-      if raster[j * NC + i]! ≤ floor then continue
+    for i in [cellIdx (cx - r1m - pad):cellIdx (cx + r1m + pad) + 1] do
+      let h := raster[j * NC + i]!
+      if h ≤ floor then continue
       let dx := -MAP_HALF + (i.toFloat + F0_5) * CELL - cx
       let d2 := dx * dx + dy * dy
-      if d2 ≥ lo2 && d2 ≤ hi2 then return false
+      if d2 ≥ lo2 && (d2 ≤ hi2 || (d2 ≤ hi2m && d2 ≤ (let d := r1At h + pad; d * d))) then return false
   return true
 
 /-- `helix_clear`: `helixClearAnn` on the annulus `r ± (m + R_BODY)`. -/
-def helixClear (cx cy r m z : Float) : Bool := helixClearAnn cx cy (fmax (r - m - R_BODY) F0_0) (r + m + R_BODY) z
+def helixClear (cx cy r m z : Float) : Bool := helixClearAnn cx cy (fmax (r - m - R_BODY) F0_0) (r + m + R_BODY) F0_0 z
 
 /-- `ray_clear`: a climbing ray from `p` along track `psi` at gradient `grad`, in a corridor widening 2% of the
 distance, stays `R_BODY + MARGIN` above every raw cell until it is that far above the map's top. Off the map the
@@ -242,6 +248,7 @@ def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run d
   if fmin a.zMin b.zMin ≥ Z_LEVEL && b.vMean ≥ V_LEVEL then return true
   if fmin a.vzMin b.vzMin < VZ_MIN then return false
   let e := b.e
+  if kind == 3 then return false
   if dir == F0_0 then
     if fmax a.omega.abs b.omega.abs > F0_01 then return false
     -- during the zoom climb vz is still falling and its gradient overstates the settled climb
@@ -263,7 +270,7 @@ def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run d
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
     if dR > R_SETTLED * rb || dC > C_SETTLED * rb then return false
     let m := F5_0 + F3_0 * (dR + dC)
-    let grow := if e.z < top then rb * (rhoT e.z / rhoT top - F1_0) else F0_0
-    return helixClearAnn cbx cby (fmax (rb - m - E_AIR) F0_0) (rb + m + grow + E_AIR) e.z
+    let gk := if e.z < top then rb else F0_0
+    return helixClearAnn cbx cby (fmax (rb - m - E_AIR) F0_0) (rb + m + E_AIR) gk e.z
 
 end CityGate.Esc

@@ -156,10 +156,9 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
 - **Escapes.** A straight climb-out, and climbing turns left and right at 30° and 40° bank, after a pull-up
   of at least 1.5 s. A street escape captures the nearest street axis when the track is within 25° of one
   (bank ≤ 20° while capturing), climbs wings level along it, and every 0.25 s looks for a 40° helix whose
-  predicted annulus is clear at its height (10 m margin, left side first); then it rolls in, but only before
-  the first end test (6 s), so the kind of ending an end test accepts never changes afterwards. It never
-  verifies through its ray ending from below the rooftops: a ray along a street axis must clear the
-  ~900 m rim of the map. `--escapes 5` drops the street escape, `3` also the 40° turns.
+  predicted annulus is clear at its height (10 m margin, left side first); then it rolls in. It ends only in
+  that helix (or the level-off band), never through a ray along its street, so the kind of ending an end
+  test accepts never changes afterwards (a ray along a street axis rarely cleared the ~900 m rim anyway). `--escapes 5` drops the street escape, `3` also the 40° turns.
 - **Airframe.** Path samples and the crash check use `World::airframe_clearance`: the 4.5 m sphere plus the
   wing, a 0.8 m capsule around the line through both wingtips (11 m span, as `c172.rs` draws it), placed by
   the bank, heading, flight path and drawn angle of attack. Buildings are exact (segment to box); terrain

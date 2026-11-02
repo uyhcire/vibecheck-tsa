@@ -153,7 +153,7 @@ fn main() {
     match args.first().map(|s| s.as_str()) {
         Some("starts") => starts(&args[1], args.get(2).and_then(|s| s.parse().ok()).unwrap_or(40)),
         Some("laws") => laws(&args[1], &args[2], threads),
-        Some("reftraj") => reftraj(if args.iter().any(|a| a == "--gate-law") { LawP { v_eas_t: [0.0; 3], h_level: f64::INFINITY, ..law_params() } } else { law_params() }, args.iter().any(|a| a == "-v")),
+        Some("reftraj") => reftraj(if args.iter().any(|a| a == "--gate-law") { LawP { v_eas_t: [0.0; 4], h_level: f64::INFINITY, ..law_params() } } else { law_params() }, args.iter().any(|a| a == "-v")),
         _ => eprintln!("usage: gatefaith starts OUT [N] | laws STARTS OUT [--threads T] | reftraj [--gate-law]"),
     }
 }

@@ -60,6 +60,7 @@ def terminalWork (dir : Float) (kind : Nat) (hist : Array Hist) : Bool × Nat ×
   if fmin a.zMin b.zMin ≥ Z_LEVEL && b.vMean ≥ V_LEVEL then return (true, 0, 0, 0)
   if fmin a.vzMin b.vzMin < VZ_MIN then return (false, 0, 0, 0)
   let e := b.e
+  if kind == 3 then return (false, 0, 0, 0)
   if dir == 0.0 then
     if fmax a.omega.abs b.omega.abs > 0.01 then return (false, 0, 0, 0)
     if !((a.vzMean - b.vzMean).abs ≤ VZ_SETTLED) then return (false, 0, 0, 0)
@@ -80,8 +81,9 @@ def terminalWork (dir : Float) (kind : Nat) (hist : Array Hist) : Bool × Nat ×
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
     if dR > R_SETTLED * rb || dC > C_SETTLED * rb then return (false, 0, 0, 0)
     let m := 5.0 + 3.0 * (dR + dC)
-    let grow := if e.z < top then rb * (rhoT e.z / rhoT top - 1.0) else 0.0
-    let (ok, w) := helixWork cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + grow + E_AIR) e.z
+    let gk := if e.z < top then rb else 0.0
+    let ok := helixClearAnn cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + E_AIR) gk e.z
+    let (_, w) := helixWork cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + E_AIR) e.z
     return (ok, 2, 0, w)
 
 end CityGate.Esc
