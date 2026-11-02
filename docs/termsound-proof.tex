@@ -585,6 +585,78 @@ Lemma~\ref{lem:absinv}'s condition for the one-second map, with $\delta$ equal t
 \textbf{The climb} (rising through $\zTop$ into the level set) is not done yet. Its set must keep $v_z > 0$ until the level set takes over. It needs the same inner-loop abstraction.
 
 
+\section{Membership in the $k$-step contraction family (issue \#58)}\label{sec:member}
+
+Issue \#58 separates two questions: a family of parameterised properties $P[\theta](f)$ is proved \emph{sufficient} once, in Lean; this section tests \emph{membership} of the real closed loop $f$ (\texttt{JsbExact}, fuel frozen, the law of \texttt{docs/escape-law-terminal.md} levelling off at 1{,}000\,m, flying east) in the $k$-step contraction family (\texttt{membership.py}, \texttt{membership\_verify.py}).
+
+\paragraph{The parameter $\theta$ and the start set.}
+\begin{itemize}
+\item \textbf{Steps.} The number of frames $k$ per step.
+\item \textbf{Slow coordinates.} $e = (h - h^\star, s, V - V^\star)$ as in Section~\ref{sec:abstract}.
+\item \textbf{The map.} A $3 \times 3$ matrix $A_k$, fitted by least squares to $(e(t), e(t+k))$ pairs on settled rollouts.
+\item \textbf{The ellipsoid.} $\{e^\top P e \le r^2\}$, with $P$ from the Lyapunov equation of $A_k$ and $r$ set by an altitude half-width $w_h$.
+\item \textbf{Explicit fast-state boxes.} All 30 remaining chart coordinates (attitude, rates, the Adams--Bashforth memories, rpm, manifold pressure, the law's integrators) lie within $b$ of their \emph{quasi-steady values} $\bar f(e) = f^\star + M e$, an affine fit to settled rollouts.
+\item \textbf{The start set} is $X_0 = \{e : e^\top P e \le r^2\} \times \{f : |f - \bar f(e)| \le b\}$, fully explicit; it replaces ``3\,s into a rollout''.
+\end{itemize}
+
+\paragraph{The property $P[\theta](f)$.} For every $x \in X_0$, after $k$ frames:
+\begin{enumerate}
+\item[(a)] the residual $d = e_k - A_k e$ has $\|d\|_P \le (1 - \|A_k\|_P)\,r$, which is rung 1's \texttt{q\_robust\_step} budget, so the slow part stays in the ellipsoid;
+\item[(b)] the fast states are back within $b$ of $\bar f(e_k)$;
+\item[(c)] every intermediate frame sinks at most $\bar v$, where $h^\star - w_h - \bar v\,k\,\Delta t \ge \zTop + e = 941$\,m.
+\end{enumerate}
+Then by induction the altitude never goes below 941\,m. That implication is the sufficiency theorem, proved elsewhere.
+
+\paragraph{The search is adversarial, not random sampling.} For each $\theta$:
+\begin{itemize}
+\item screen 120 starts: slow corners of the ellipsoid combined with fast-box corners, faces (one slow axis at $\pm1$ with fast corners), and interior points;
+\item run multi-start Nelder--Mead (3 starts, 300 evaluations each) on each of the three violation ratios over the whole of $X_0$;
+\item update $b$ by a fixed-point iteration: widen each fast box to $1.1\times$ the largest exit found, and search again.
+\end{itemize}
+
+\begin{cert}[$k$-step membership search, \texttt{membership.py}, \texttt{membership\_verify.py}]\label{cert:member}
+Worst violation ratio found for each $\theta$ tried; below 1 is required for all three:
+
+\begin{center}
+\begin{tabular}{rrlrrrl}
+\toprule
+$k$ & $w_h$ & search & (a) residual & (b) box exit & (c) sink & status\\
+\midrule
+1 & 30\,m & sampled (Section~\ref{sec:abstract}) & 49 & -- & -- & falsified\\
+64 & 30\,m & 4 rounds & 20.1 & 1.97 & 0.20 & falsified\\
+128 & 30\,m & 4 rounds & 7.04 & 2.03 & 0.39 & falsified\\
+256 & 30\,m & 4 rounds & 1.70 & 1.41 & 0.77 & falsified\\
+384 & 30\,m & 1 round & 0.73 & 2.86 & 1.14 & falsified\\
+512 & 15\,m & 4 rounds + re-search & 0.41 & 1.02 & 0.51 & falsified at those boxes\\
+\textbf{512} & \textbf{20\,m} & 4 rounds + re-search & \textbf{0.40} & \textbf{0.94} & \textbf{0.76} & \textbf{survives search}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{The surviving $\theta$} ($k = 512$ frames, 4\,s; $w_h = 20$\,m):
+\begin{itemize}
+\item \textbf{The map and ellipsoid.} $\|A_k\|_P = 0.726$. The ellipsoid's half-widths are 20\,m in altitude ($h \ge 980.2$\,m), 2.17\,m/s in climb-rate error and 6.01\,m/s in airspeed, and $\bar v = 9.8$\,m/s.
+\item \textbf{Fast boxes} (half-widths around $\bar f(e)$): pitch 0.0020\,rad, roll 0.0043, heading 0.0032, pitch rate 0.0012\,rad/s, roll and yaw rates 0.0025 and 0.0027\,rad/s, cross-track speed 0.17\,m/s, rpm 5.7, manifold pressure 54\,Pa, integrators 0.013, 0.0043 and 0.0044. The Adams--Bashforth memories are at their settled spreads (accelerations about 0.05--0.07\,m/s$^2$).
+\item \textbf{The re-search.} After one widening pass, an independent search (new seed, 300 screening starts, 4 Nelder--Mead starts of 600 evaluations per objective, 15{,}060 rollouts in all) found nothing worse than (a) 0.40, (b) 0.94 and (c) 0.76.
+\end{itemize}
+\end{cert}
+
+\textbf{What the result says.}
+\begin{itemize}
+\item \textbf{Short steps fail.} For $k \le 256$, the inner loops' transients from the box corners make the residual too large. Lengthening the step to 4\,s lets them decay ($\|A_k\|_P$ falls to 0.73, so the allowance grows) while the slow model still holds.
+\item \textbf{The remaining residual is slow-model nonlinearity.} At the worst slow state, putting the fast states at $\bar f$ still gives (a) $= 0.39$.
+\item \textbf{The binding constraint is (b), the lateral fast states.} Roll, heading, cross-track speed and roll rate exit their boxes by up to 0.94 of the box size; the lateral dynamics are not in the slow model. The boxes are a fixed point of the widening iteration.
+\item \textbf{The altitude-range trade-off.} A larger $w_h$ shrinks the sink allowance (c): $w_h = 30$\,m fails (c) at $k = 384$.
+\item \textbf{The start set is thin in the fast directions.} Pitch must be within about $0.1^\circ$ of its quasi-steady value, and rpm within 6.
+\end{itemize}
+
+\textbf{Status.} \emph{Survives search}: an adversarial search, not a validated bound. A validated bound would enclose the 512-frame map over a 33-dimensional start set; interval subdivision at that dimension and composition depth is far out of reach of the current tooling (Section~\ref{sec:level}). The next step is a validated bound on a reduced form, for example one-frame Jacobian enclosures over the reachable tube composed by a logarithmic-norm bound.
+\begin{itemize}
+\item \textbf{Rounding} is not folded in.
+\item \textbf{The law} is the harness law. It must be re-checked against the gate's own implementation once \texttt{eric/helix-round} lands it.
+\end{itemize}
+
+
 \section{Certificates and reproduction}\label{sec:certs}
 
 \begin{center}
@@ -603,11 +675,12 @@ Certificate & Code & Margin or status\\
 \ref{cert:level} level-off & \texttt{leveloff.py} & $0.932$ per second (linear)\\
 \ref{cert:newlaw} new law & \texttt{terminal.py}, \texttt{reftraj.py} & one norm, $0.902$ per second (linear)\\
 \ref{cert:abstract}, \ref{cert:abstract1s} level abstraction & \texttt{abstract.py}, \texttt{abstract1s.py} & one second: measured residual within budget, headroom 4.5\\
+\ref{cert:member} $k$-step membership & \texttt{membership.py}, \texttt{membership\_verify.py} & $k = 512$, $w_h = 20$\,m: survives search (0.40 / 0.94 / 0.76)\\
 \ref{cert:levelcert2} level trim & \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{TsInterval.lean} & factor $0.990$ at $r = 10^{-7}$ (microscopic $D$)\\
 \bottomrule
 \end{tabular}
 \end{center}
-Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py}, \texttt{terminal.py}, \texttt{reftraj.py}, \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{handover.py}, \texttt{abstract.py}, \texttt{abstract1s.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
+Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py}, \texttt{terminal.py}, \texttt{reftraj.py}, \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{handover.py}, \texttt{abstract.py}, \texttt{abstract1s.py}, \texttt{membership.py}, \texttt{membership\_verify.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
 
 \section{Gaps}\label{sec:gaps}
 
