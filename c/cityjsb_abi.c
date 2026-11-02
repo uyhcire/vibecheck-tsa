@@ -137,6 +137,7 @@ lean_object *citygate_obs_lean(lean_obj_arg g);
 lean_object *citygate_bypass_lean(lean_obj_arg g, double elev, double ail, double rud, double thr);
 lean_object *citygate_restart_lean(lean_obj_arg g);
 lean_object *citygate_trace_lean(lean_obj_arg g);
+lean_object *citygate_probe_lean(lean_obj_arg g, double elev, double ail, double rud, double thr, lean_obj_arg w);
 uint64_t citygate_frames_lean(lean_obj_arg g, double elev, double ail, double rud, double thr);
 
 struct citygate { lean_object *g; uint32_t par, round; };
@@ -209,6 +210,18 @@ API uint64_t citygate_frames(const citygate *h, double elev, double ail, double 
   lean_rt_ensure();
   lean_inc(h->g);
   return citygate_frames_lean(h->g, elev, ail, rud, thr);
+}
+
+API size_t citygate_probe(const citygate *h, double elev, double ail, double rud, double thr, double *out, size_t max) {
+  lean_rt_ensure();
+  lean_inc(h->g);
+  lean_object *res = citygate_probe_lean(h->g, elev, ail, rud, thr, lean_io_mk_world());
+  if (!lean_io_result_is_ok(res)) { lean_dec_ref(res); return 0; }
+  lean_object *fa = lean_io_result_get_value(res);
+  size_t n = lean_sarray_size(fa);
+  memcpy(out, lean_float_array_cptr(fa), sizeof(double) * (n < max ? n : max));
+  lean_dec_ref(res);
+  return n;
 }
 
 API void citygate_set_parallel(citygate *h, unsigned par, unsigned round) {

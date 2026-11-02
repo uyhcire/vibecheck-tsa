@@ -1,4 +1,4 @@
-import CityGate.SpecBridgeNear
+import CityGate.SpecBridgeObs
 import CityGate.SafetyR
 
 /-! Axioms of the bridge from the city gate to `CitySafety.Safe`. Run: `lake env lean Tools/SpecBridgeAudit.lean`. -/
@@ -9,6 +9,7 @@ import CityGate.SafetyR
 #print axioms CityGate.SpecBridge.outputsInRange
 #print axioms CityGate.SpecBridge.airframeNearGate
 #print axioms CityGate.SpecBridge.poseBounded_of
+#print axioms CityGate.SpecBridge.reportMatchesObs
 #print axioms CityGate.SpecBridge.reach_corr
 #print axioms CityGate.SpecBridge.clear_soundH
 #print axioms CityGate.SpecBridge.cityMap_terrain

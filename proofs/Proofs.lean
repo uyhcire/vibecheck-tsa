@@ -5,6 +5,8 @@ import Proofs.EulerFlow
 import Proofs.CodeEuler
 import Proofs.Fidelity
 import Proofs.Examples
+import Proofs.Robust.Example
+import Proofs.Robust.EndSets
 import Proofs.Audit
 import Proofs.TermSound.Checks
 import Proofs.SafeRegion

@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -88,6 +88,11 @@ fly-off:
 showcase:
 	$(MAKE) fly ARGS="--showcase --cinematic --paths $(ARGS)"
 
+# Record the demo frame by frame into OUT (PNGs plus frames.csv), e.g.
+# `make record OUT=/tmp/dive ARGS="--showcase --cinematic --frames 1800 --record-every 2 --record-scale 2"`.
+record:
+	$(MAKE) fly ARGS="--record $(OUT) $(ARGS)"
+
 # Fly while sampling the process (macOS `sample`) and logging tick times, for later analysis: results in OUT.
 profile:
 	lake build $(LAKE_OPTS) libcityjsb
@@ -130,6 +135,7 @@ pdf:
 
 help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
+	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | test   (N=..., OUT=...)"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"

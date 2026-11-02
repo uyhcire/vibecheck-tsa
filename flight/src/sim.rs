@@ -377,9 +377,7 @@ impl<'w> Sim<'w> {
     #[cfg(feature = "jsb")]
     fn env_after_state(&mut self) {
         self.k += STEPS_PER_TICK;
-        // Leaving the map climbing is not a crash for these filters: their escapes climb out straight.
-        let off = self.s[X].abs() > crate::world::MAP_HALF || self.s[Y].abs() > crate::world::MAP_HALF;
-        let c = if off { f64::INFINITY } else { self.world.airframe_clearance(&self.s, 200.0) };
+        let c = self.world.airframe_clearance(&self.s, 200.0);
         self.true_clear = c;
         self.min_true_clear = self.min_true_clear.min(c);
         if c < 0.0 {

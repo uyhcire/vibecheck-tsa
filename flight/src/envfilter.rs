@@ -6,7 +6,7 @@
 //! captures the nearest street axis, then turns into a 40° helix once one fits. A rollout verifies when the
 //! airframe (body sphere and wing, `World::airframe_clearance`) keeps `MARGIN` of true clearance at every
 //! path sample until it reaches a terminal set, checked numerically on the settled rollout:
-//! - straight: a climbing ray (with a widening corridor) above everything on the map, or off the map;
+//! - straight: a climbing ray (with a widening corridor) above everything, the terrain continuing the edge profile off the map;
 //! - turns: a steady climbing helix whose ground circle (with margin for radius and centre drift) is clear
 //!   at the current height, so climbing around it from here on never meets anything.
 //!
@@ -438,12 +438,20 @@ pub const SAMPLE: usize = 8;
 pub const MARGIN: f64 = 4.0;
 /// Climb rate the terminal sets require throughout their settling window (m/s).
 pub const VZ_MIN: f64 = 1.0;
+/// Straight ending (as `CityGate/Terminal.lean`): the two halves' mean climb rates must agree within this (m/s),
+/// and the ray's gradient is capped at `GRAD_MAX`, below the settled climb's 0.8 x 0.14, so the pull-up's zoom
+/// climb cannot set it.
+pub const VZ_SETTLED: f64 = 1.0;
+pub const GRAD_MAX: f64 = 0.11;
+/// Steps (half a cell each, 12.5 km in all) after which a climbing ray still below the map's top fails, as in
+/// `CityGate/Terminal.lean`'s `rayClear`; bounds the end test's cost on the real-time path.
+pub const RAY_STEPS: usize = 10_000;
 /// Settling window for terminal tests (samples): two halves of 2 s each.
 const HALF: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Outcome {
-    /// Reached a terminal set (or left the map).
+    /// Reached a terminal set.
     Ok,
     /// Clearance below `MARGIN` at a path sample.
     Hit,
@@ -489,6 +497,8 @@ pub enum TermFail {
     HelixBlocked { x: f64, y: f64, h: f64 },
     /// The helix annulus leaves the map.
     HelixOffMap,
+    /// The climbing ray is still below the map's top after `RAY_STEPS` steps.
+    RayLong,
 }
 
 /// Rollout settings: the clearance every path sample needs, the terminal sets' vertical margin, the horizon (s),
@@ -502,10 +512,9 @@ pub struct RollCfg<'a> {
     pub prefix: &'a [(f64, f64, f64)],
     /// Clearance is checked every this many frames (terminal-test history is kept every `SAMPLE` regardless).
     pub check_every: usize,
-    /// Leaving the map counts as reaching a terminal set (the gate's rule). Off, the aircraft leaving the map is
-    /// not verified, and a climbing ray must clear the edge profile continued beyond the map (`World::surface`
-    /// clamps to the edge), as `docs/safety-objective.md` decides.
-    pub offmap_clear: bool,
+    /// Swept: each check also needs half a frame of travel of any airframe point (`travel`), so no contact can
+    /// occur between checked frames.
+    pub swept: bool,
 }
 
 /// The filters' clearance margin (m, stored as f64 bits) and check spacing (frames): `MARGIN` and `SAMPLE` unless
@@ -518,11 +527,39 @@ pub fn set_filter_margin(m: f64, check_every: usize) {
     FILTER_CHECK.store(check_every.clamp(1, SAMPLE), Ordering::Relaxed);
 }
 
+/// `--swept`: clearance at every frame of every rollout and of the pilot's candidate tick, plus `travel`.
+pub static SWEPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Hand-back spare clearance (m, f64 bits): `HANDBACK_EXTRA` unless `--handback-extra` (measurements only).
+pub static HANDBACK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x4008_0000_0000_0000);
+
+/// Reads `--margin M`, `--check-every K`, `--swept` and `--handback-extra M` from command-line arguments.
+pub fn check_flags(args: &[String]) {
+    let num = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)?.parse::<f64>().ok());
+    let swept = args.iter().any(|a| a == "--swept");
+    SWEPT.store(swept, Ordering::Relaxed);
+    if let Some(m) = num("--margin") {
+        let every = if swept { 1 } else { num("--check-every").map_or(SAMPLE, |k| k as usize) };
+        set_filter_margin(m, every);
+    } else if swept {
+        set_filter_margin(MARGIN, 1);
+    }
+    if let Some(m) = num("--handback-extra") {
+        HANDBACK.store(m.to_bits(), Ordering::Relaxed);
+    }
+}
+
+/// Half a frame of travel of any airframe point (m): speed plus angular rate times the wing semi-span. Clearance
+/// is 1-Lipschitz in position, so a frame's straight-line motion keeps at least the endpoints' clearance minus this.
+pub fn travel(o: &Obs) -> f64 {
+    0.5 * DT_JSB * (o.vt + (o.pqr[0].abs() + o.pqr[1].abs() + o.pqr[2].abs()) * crate::model::WING_TIP)
+}
+
 impl RollCfg<'static> {
     /// What the filters check: the default margin, horizon and spacing unless overridden.
     pub fn filter() -> RollCfg<'static> {
         let m = f64::from_bits(FILTER_MARGIN.load(Ordering::Relaxed));
-        RollCfg { margin: m, term_margin: m, horizon: HORIZON, prefix: &[], check_every: FILTER_CHECK.load(Ordering::Relaxed), offmap_clear: true }
+        let swept = SWEPT.load(Ordering::Relaxed);
+        RollCfg { margin: m, term_margin: m, horizon: HORIZON, prefix: &[], check_every: if swept { 1 } else { FILTER_CHECK.load(Ordering::Relaxed) }, swept }
     }
 }
 
@@ -605,12 +642,9 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
     let mut push = |q: &JsbPlant, t: f64, hist: &mut Vec<Hist>, r: &mut Roll| -> Option<Outcome> {
         let s = q.state();
         r.path.push([s[X], s[Y], s[Z]]);
-        if !on_map(s[X], s[Y]) {
-            return Some(if cfg.offmap_clear { Outcome::Ok } else { Outcome::Horizon });
-        }
         let c = world.airframe_clearance(&s, 50.0);
         r.min_clear = r.min_clear.min(c);
-        if c <= cfg.margin {
+        if c <= cfg.margin + if cfg.swept { travel(&q.obs) } else { 0.0 } {
             return Some(Outcome::Hit);
         }
         let o = &q.obs;
@@ -657,13 +691,10 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
         let t = k as f64 * DT_JSB;
         r.t = t;
         if cfg.check_every < SAMPLE && k % cfg.check_every == 0 && k % SAMPLE != 0 {
-            let s = q.state();
-            if on_map(s[X], s[Y]) {
-                let c = world.airframe_clearance(&s, 50.0);
-                r.min_clear = r.min_clear.min(c);
-                if c <= cfg.margin {
-                    return finish(r, &q, &law, Outcome::Hit);
-                }
+            let c = world.airframe_clearance(&q.state(), 50.0);
+            r.min_clear = r.min_clear.min(c);
+            if c <= cfg.margin + if cfg.swept { travel(&q.obs) } else { 0.0 } {
+                return finish(r, &q, &law, Outcome::Hit);
             }
         }
         if k % SAMPLE == 0 {
@@ -677,7 +708,7 @@ fn rollout_core(world: &World, p: &JsbPlant, mut law: Law, max_frames: usize, de
                 if !law.turning() {
                     r.why = Some(TermFail::NotTurning);
                 } else {
-                    match terminal(world, law.dir(), &hist, cfg.term_margin, cfg.offmap_clear) {
+                    match terminal(world, law.dir(), &hist, cfg.term_margin) {
                         Ok(tail) => {
                             r.tail = tail;
                             return finish(r, &q, &law, Outcome::Ok);
@@ -714,7 +745,7 @@ fn seg(h: &[Hist]) -> Seg {
 
 /// Terminal test on the rollout so far: `Some(continuation points)` if the escape has settled into its
 /// terminal set and that set is clear.
-fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: bool) -> Result<Vec<[f64; 3]>, TermFail> {
+fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
     if hist.len() < 2 * HALF + 1 {
         return Err(TermFail::Unsettled);
     }
@@ -727,12 +758,15 @@ fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: b
     let e = b.end;
     let top = top(world);
     if dir == 0.0 {
-        // Straight: settled heading, then a climbing ray at 80% of the slower half's gradient.
+        // Straight: settled heading and climb rate, then a climbing ray at 80% of the slower half's gradient, capped.
         if a.omega.abs().max(b.omega.abs()) > 0.01 {
             return Err(TermFail::Wobble);
         }
-        let grad = 0.8 * (a.vz_mean / a.vh.max(1.0)).min(b.vz_mean / b.vh.max(1.0));
-        ray_clear_m(world, [e.x, e.y, e.z], e.psi, grad, top, margin, offmap_clear)
+        if (a.vz_mean - b.vz_mean).abs() > VZ_SETTLED {
+            return Err(TermFail::Unsettled);
+        }
+        let grad = (0.8 * (a.vz_mean / a.vh.max(1.0)).min(b.vz_mean / b.vh.max(1.0))).min(GRAD_MAX);
+        ray_clear_m(world, [e.x, e.y, e.z], e.psi, grad, top, margin)
     } else {
         // Turn: radius and centre from each half; both must agree closely.
         let want = -dir; // a right turn (JSBSim +) turns clockwise, i.e. negative omega here
@@ -760,7 +794,8 @@ fn terminal(world: &World, dir: f64, hist: &[Hist], margin: f64, offmap_clear: b
 }
 
 /// Every raw cell within the annulus `r ± (m + R_BODY)` around `c` is at least `R_BODY + MARGIN` below `z`
-/// (or `z` is that far above everything on the map).
+/// (or `z` is that far above everything on the map). An annulus reaching past the map edge fails, as in
+/// `CityGate/Terminal.lean`'s `helixClear`.
 pub fn helix_clear(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64) -> bool {
     helix_check(world, c, r, m, z, top, MARGIN).is_ok()
 }
@@ -800,22 +835,23 @@ pub fn helix_check(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64,
 
 /// A climbing ray from `p` along track `psi` (point-mass convention) at gradient `grad`, inside a corridor
 /// of half-width `R_BODY + 5 m + 2% of the distance`: every raw cell under the corridor stays `R_BODY +
-/// MARGIN` below the ray until the ray is that far above the map's top or leaves the map.
+/// MARGIN` below the ray until the ray is that far above the map's top, within `RAY_STEPS` steps. Off the map
+/// the terrain continues the edge profile (`surface` clamps to the edge cells).
 pub fn ray_clear(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64) -> Option<Vec<[f64; 3]>> {
-    ray_clear_m(world, p, psi, grad, top, MARGIN, true).ok()
+    ray_clear_m(world, p, psi, grad, top, MARGIN).ok()
 }
 
 /// `ray_clear` with the vertical margin `margin` in place of `MARGIN`, saying what blocks the ray.
-pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, margin: f64, offmap_clear: bool) -> Result<Vec<[f64; 3]>, TermFail> {
+pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, margin: f64) -> Result<Vec<[f64; 3]>, TermFail> {
     if grad < 0.02 {
         return Err(TermFail::Shallow);
     }
     let (c, s) = (psi.cos(), psi.sin());
     let mut d = 0.0;
-    loop {
+    for _ in 0..RAY_STEPS {
         let (x, y, z) = (p[0] + d * c, p[1] + d * s, p[2] + d * grad);
         let floor = z - R_BODY - margin;
-        if floor > top || (offmap_clear && !on_map(x, y)) {
+        if floor > top {
             return Ok(vec![p, [x, y, z]]);
         }
         let w = R_BODY + 5.0 + 0.02 * d;
@@ -829,6 +865,7 @@ pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, ma
         }
         d += 0.5 * CELL;
     }
+    Err(TermFail::RayLong)
 }
 
 /// Fly escape `esc` from `p` for `secs` with no checks: the path (every `SAMPLE` frames) and the end state.
@@ -1357,7 +1394,15 @@ impl Gate {
         // Hysteresis (proposal logic: staying committed is always safe): no hand-back check during the hold.
         let holding = self.law.is_some() && self.run_len < HOLD_TICKS;
         let full = CHECK_THREADS.load(Ordering::Relaxed) > 0;
-        let (cand_surf, dump) = cand.advance_pilot_dump(u_p, dt, full && filter_on && !holding);
+        // Swept checks also cover the frames of the pilot's own tick.
+        let swept = SWEPT.load(Ordering::Relaxed);
+        let margin = f64::from_bits(FILTER_MARGIN.load(Ordering::Relaxed));
+        let mut cand_clear = true;
+        let (cand_surf, dump) = cand.advance_pilot_each(u_p, dt, full && filter_on && !holding, &mut |q| {
+            if swept && cand_clear && world.airframe_clearance(&q.state(), 50.0) <= margin + travel(&q.obs) {
+                cand_clear = false;
+            }
+        });
         if !filter_on {
             *plant = cand;
             self.tick_surfaces = cand_surf;
@@ -1372,8 +1417,8 @@ impl Gate {
         let cands: Vec<Cand> = laws.iter().map(|&law| Cand { plant: &cand, seed: seed.as_ref(), law }).collect();
         // After the hold, hand back only with `HANDBACK_EXTRA` of spare clearance.
         let committed = self.law.is_some();
-        let mut v = if holding { Verdict::empty(f0) } else { verify_first(world, &cands, f0, deadline) };
-        if committed && v.found.as_ref().is_some_and(|(_, r)| r.min_clear < MARGIN + HANDBACK_EXTRA) {
+        let mut v = if holding || !cand_clear { Verdict::empty(f0) } else { verify_first(world, &cands, f0, deadline) };
+        if committed && v.found.as_ref().is_some_and(|(_, r)| r.min_clear < margin + f64::from_bits(HANDBACK.load(Ordering::Relaxed))) {
             v.last = v.found.take().map(|(_, r)| r);
         }
         let n = n_esc();
