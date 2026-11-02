@@ -145,7 +145,8 @@ target libcityjsb pkg : FilePath := do
   let vcf ← (← VcFilter.get).static.fetch
   let city ← (← CityJsb.get).static.fetch
   let exact ← (← JsbExact.get).static.fetch
-  (Job.collectArray #[abi, jx, gate, gsafe, vcf, city, exact]).mapM fun files => do
+  let spec ← (← Spec.get).static.fetch
+  (Job.collectArray #[abi, jx, gate, gsafe, vcf, spec, city, exact]).mapM fun files => do
     buildFileUnlessUpToDate' lib do
       IO.FS.createDirAll (pkg.buildDir / "lib")
       let rest := (files.extract 1).map (·.toString)

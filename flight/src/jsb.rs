@@ -348,6 +348,11 @@ impl JsbPlant {
     /// `advance_pilot`, also returning the surfaces flown on each frame and, if `want_dump`, the state dump after
     /// the last frame (`None` if no frame ran), for `seed`.
     pub fn advance_pilot_dump(&mut self, u: &Pilot, dt: f64, want_dump: bool) -> (Vec<[f64; 4]>, Option<Vec<f64>>) {
+        self.advance_pilot_each(u, dt, want_dump, &mut |_| {})
+    }
+
+    /// `advance_pilot_dump`, calling `each` with the plant after every frame.
+    pub fn advance_pilot_each(&mut self, u: &Pilot, dt: f64, want_dump: bool, each: &mut dyn FnMut(&JsbPlant)) -> (Vec<[f64; 4]>, Option<Vec<f64>>) {
         let mut surfs = Vec::with_capacity(4);
         let mut dump = None;
         self.lag -= dt;
@@ -368,6 +373,7 @@ impl JsbPlant {
             self.step_surf(surf);
             self.lag += DT_JSB;
             surfs.push(surf);
+            each(self);
         }
         (surfs, dump)
     }
