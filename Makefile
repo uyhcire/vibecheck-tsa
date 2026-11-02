@@ -145,6 +145,12 @@ harness:
 regimes:
 	$(CITY) $(CARGO_HEADLESS) regimes -- run $(ARGS) && $(CARGO_HEADLESS) regimes -- index
 
+# The circle-safe dome: the city gate's terminal set (altitude at which a circle of radius r passes) over the city
+# as f32 grids, JSON headers, heat-map PNGs and stats in OUT; see docs/dome.md.
+.PHONY: dome
+dome:
+	$(CITY) $(CARGO_HEADLESS) dome -- $(OUT) $(ARGS)
+
 # Plant and Lean-gate spot checks: the JsbExact plant, state import, the Lean gate's street escape, the 4 spec starts.
 # Run, not proof: the TermSoundR skeleton's Geo and Conf halves hold at the 4 spec starts' settled states.
 .PHONY: termcheck
@@ -187,7 +193,7 @@ help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
-	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
+	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"
