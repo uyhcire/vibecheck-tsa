@@ -7,13 +7,23 @@
 
 use crate::jsb::{fbw_bumpless, fbw_law, Gains, Obs, Pilot, DT_JSB, GAINS, NOBS};
 use crate::model::*;
+use crate::world::{MapId, World};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 /// Set once at startup (`--safety-filter exact-rollout-lean`); every new `Sim` then flies the Lean gate.
 pub static LEAN_GATE: AtomicBool = AtomicBool::new(false);
 
 pub fn enabled() -> bool {
     LEAN_GATE.load(Ordering::Relaxed)
+}
+
+/// Maps the Lean gate checks against their own geometry: the default city built into it, and San Francisco passed
+/// in from `World` (`map_handle`).
+pub fn covers_map(map: MapId) -> bool {
+    match map {
+        MapId::Grid | MapId::SanFrancisco => true,
+    }
 }
 
 #[repr(C)]
@@ -27,7 +37,31 @@ const OUT_ACCEPTED: usize = 4;
 const OUT_OBS: usize = 5;
 const OUT_POS: usize = 27;
 
+#[repr(C)]
+struct RawMap {
+    _p: [u8; 0],
+}
+
 extern "C" {
+    #[allow(clippy::too_many_arguments)]
+    fn citygate_map_new(
+        x0: f64,
+        y0: f64,
+        x1: f64,
+        y1: f64,
+        tnx: usize,
+        tny: usize,
+        terr: *const f64,
+        nboxes: usize,
+        boxes: *const f64,
+        rnx: usize,
+        rny: usize,
+        raster: *const f64,
+        top: f64,
+    ) -> *mut RawMap;
+    #[allow(clippy::too_many_arguments)]
+    fn citygate_new_on(m: *const RawMap, x: f64, y: f64, z: f64, v: f64, gam: f64, psi: f64, phi: f64, n: f64, thr: f64) -> *mut Raw;
+    fn citygate_rollout(g: *const Raw, esc: u32, max_frames: u32, out: *mut f64, max: usize) -> usize;
     fn citygate_new(x: f64, y: f64, z: f64, v: f64, gam: f64, psi: f64, phi: f64, n: f64, thr: f64) -> *mut Raw;
     fn citygate_start_ok(g: *const Raw) -> i32;
     fn citygate_frame(g: *mut Raw, elev: f64, ail: f64, rud: f64, thr: f64, out: *mut f64);
@@ -40,6 +74,61 @@ extern "C" {
     fn citygate_set_parallel(g: *mut Raw, par: u32, round: u32);
     fn citygate_trace(g: *const Raw, out: *mut f64, max: usize) -> usize;
     fn citygate_free(g: *mut Raw);
+}
+
+/// The Lean gate's map for San Francisco, built once: its terrain, the boxes covering its prisms
+/// (`covering::cover`, checked to contain them) and its raster.
+struct MapHandle(*mut RawMap);
+// The map is persistent on the Lean side (never freed) and only read.
+unsafe impl Send for MapHandle {}
+unsafe impl Sync for MapHandle {}
+
+static SF_MAP: OnceLock<MapHandle> = OnceLock::new();
+
+fn map_handle(w: &World) -> *const RawMap {
+    match w.map {
+        MapId::Grid => std::ptr::null(),
+        MapId::SanFrancisco => SF_MAP.get_or_init(|| MapHandle(new_map(w))).0,
+    }
+}
+
+/// `w` as a Lean gate map.
+fn new_map(w: &World) -> *mut RawMap {
+    let t0 = std::time::Instant::now();
+    let c = crate::covering::cover(w);
+    let mut by: Vec<Vec<[f64; 6]>> = vec![Vec::new(); w.boxes.len()];
+    for (b, &k) in c.boxes.iter().zip(&c.of) {
+        by[k as usize].push(*b);
+    }
+    let ok = crate::covering::par_range(w.boxes.len(), |k| {
+        let b = &w.boxes[k];
+        crate::covering::covers(&w.outline(b), b.z0, b.z1, &by[k])
+    });
+    assert!(ok.iter().all(|&o| o), "covering boxes miss a building");
+    let t1 = t0.elapsed().as_secs_f64();
+    let terr: Vec<f64> = w.terr.iter().map(|&h| h as f64).collect();
+    let boxes: Vec<f64> = c.boxes.iter().flatten().copied().collect();
+    let raster: Vec<f64> = w.raw.v.iter().map(|&h| h as f64).collect();
+    let m = unsafe {
+        citygate_map_new(
+            w.x0,
+            w.y0,
+            w.x1,
+            w.y1,
+            w.tnx,
+            w.tny,
+            terr.as_ptr(),
+            c.boxes.len(),
+            boxes.as_ptr(),
+            w.raw.nx,
+            w.raw.ny,
+            raster.as_ptr(),
+            w.raw_top,
+        )
+    };
+    assert!(!m.is_null(), "libcityjsb: the Lean gate rejected the {} map", w.map.name());
+    eprintln!("lean gate: {} map, {} boxes covering {} buildings, built in {:.1} s ({:.1} s covering)", w.map.name(), c.boxes.len(), w.boxes.len(), t0.elapsed().as_secs_f64(), t1);
+    m
 }
 
 /// Trace values per frame (`CityGate.traceE`).
@@ -118,9 +207,16 @@ impl Drop for LeanGate {
 }
 
 impl LeanGate {
-    /// The gate at point-mass state `s` (as `JsbPlant::new`).
-    pub fn new(s: &State) -> LeanGate {
-        let raw = unsafe { citygate_new(s[X], s[Y], s[Z], s[V], s[GAM], s[PSI], s[PHI], s[N], s[THR]) };
+    /// The gate on `w`'s map at point-mass state `s` (as `JsbPlant::new`).
+    pub fn new(w: &World, s: &State) -> LeanGate {
+        let m = map_handle(w);
+        let raw = unsafe {
+            if m.is_null() {
+                citygate_new(s[X], s[Y], s[Z], s[V], s[GAM], s[PSI], s[PHI], s[N], s[THR])
+            } else {
+                citygate_new_on(m, s[X], s[Y], s[Z], s[V], s[GAM], s[PSI], s[PHI], s[N], s[THR])
+            }
+        };
         assert!(!raw.is_null(), "libcityjsb: Lean runtime failed to initialise");
         let env = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<u32>().ok());
         if env("CITYGATE_PAR").is_some() || env("CITYGATE_ROUND").is_some() {
@@ -266,6 +362,17 @@ impl LeanGate {
             o.nz,
             self.surf[3],
         ]
+    }
+
+    /// Tooling only: escape `esc` flown as a fresh candidate from the current aircraft (`citygate_rollout`): per
+    /// frame the position after it and the surfaces applied, and how it ended (0 clearance failed, 1 cap or street
+    /// test, 3 end test passed, 4 frames ran out).
+    pub fn rollout(&self, esc: usize, max_frames: usize) -> (Vec<([f64; 3], [f64; 4])>, u32) {
+        let mut buf = vec![0.0; 7 * max_frames + 2];
+        let n = unsafe { citygate_rollout(self.raw, esc as u32, max_frames as u32, buf.as_mut_ptr(), buf.len()) };
+        let frames = buf[n - 2] as usize;
+        let path = buf[..7 * frames].chunks_exact(7).map(|c| ([c[0], c[1], c[2]], [c[3], c[4], c[5], c[6]])).collect();
+        (path, buf[n - 1] as u32)
     }
 
     /// Display only: the held controller's predicted path (map metres).

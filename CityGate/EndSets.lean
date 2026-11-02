@@ -18,8 +18,11 @@ theorem airframeNearAt_iff {h : Rat} {s : JsbExact.State Float} {pl : Plane} :
   Iff.rfl
 
 theorem spec_solid_of_solid {x y z : Rat} (h : Solid x y z) : CitySafety.Solid cityMap ⟨x, y, z⟩ := by
-  rcases h with ⟨b, hb, hc⟩ | ht
-  · exact Or.inr ⟨toBox b, List.mem_map.mpr ⟨b, Array.mem_toList_iff.mpr hb, rfl⟩, hc⟩
+  rcases h with ⟨k, hk0, hc⟩ | ht
+  · have hk : k < boxes.size := hk0
+    have e : gridMap.box k = boxes[k] := by simp [gridMap, Array.getD, hk]
+    rw [e] at hc
+    exact Or.inr ⟨toBox boxes[k], List.mem_map.mpr ⟨boxes[k], Array.mem_toList_iff.mpr (Array.getElem_mem hk), rfl⟩, hc⟩
   · exact Or.inl (by rw [cityMap_terrain]; exact ht)
 
 theorem not_crashH_of_clear {h : Rat} {pl : Plane} {c : Rat × Rat × Rat} (hc : exactPos pl = some c)

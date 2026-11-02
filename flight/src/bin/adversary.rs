@@ -145,7 +145,7 @@ fn fly(world: &World, p: &Prog) -> (f64, bool) {
 
 fn verified_start(world: &World, s: &State) -> bool {
     if cityflight::leangate::enabled() {
-        return cityflight::leangate::LeanGate::new(s).start_ok;
+        return cityflight::leangate::LeanGate::new(world, s).start_ok;
     }
     let p = JsbPlant::new(s);
     match envfilter::kind() {

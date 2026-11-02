@@ -114,7 +114,34 @@ def raster : FloatArray := buildRaster
 /-- Highest raw cell on the map (`World::raw_top`). -/
 def top : Float := raster.foldl (fun m h => fmax m h) (-1.7976931348623157e308)
 
+/-- A map in Rust's representation, as the end-of-escape test and the street escape read it: `World`'s rectangle
+`[x0, x1] × [y0, y1]`, its 2.5 m max-height raster `raw` (`nx × ny` cells from `(x0, y0)`, row-major) and
+`raw_top`. -/
+structure EMap where
+  x0 : Float
+  y0 : Float
+  x1 : Float
+  y1 : Float
+  nx : Nat
+  ny : Nat
+  raster : FloatArray
+  top : Float
+
+/-- The default city. -/
+def gridE : EMap := ⟨-MAP_HALF, -MAP_HALF, MAP_HALF, MAP_HALF, NC, NC, raster, top⟩
+
+/-- Raster column of `x` (`CellMap::cell`), clamped to the map. -/
+@[inline] def EMap.cellX (E : EMap) (x : Float) : Nat := Nat.min (fmax ((x - E.x0) / CELL).floor F0_0).toUInt64.toNat (E.nx - 1)
+/-- Raster row of `y`, clamped to the map. -/
+@[inline] def EMap.cellY (E : EMap) (y : Float) : Nat := Nat.min (fmax ((y - E.y0) / CELL).floor F0_0).toUInt64.toNat (E.ny - 1)
+
 /-- `World::surface`: ground or roof height below `(x, y)`. -/
+@[inline] def EMap.surface (E : EMap) (x y : Float) : Float := E.raster[E.cellY y * E.nx + E.cellX x]!
+
+/-- Strictly inside the map's rectangle (`on_map`). -/
+@[inline] def EMap.onMap (E : EMap) (x y : Float) : Bool := x > E.x0 && x < E.x1 && y > E.y0 && y < E.y1
+
+/-- `World::surface` in the default city. -/
 def surface (x y : Float) : Float := raster[cellIdx y * NC + cellIdx x]!
 
 def onMap (x y : Float) : Bool := x.abs < MAP_HALF && y.abs < MAP_HALF
@@ -162,21 +189,21 @@ def seg (h : Array Hist) : Seg :=
 
 /-- `helix_clear`: every raw cell within the annulus `r ± (m + R_BODY)` around `c` is at least `R_BODY + MARGIN`
 below `z` (or `z` is that far above the map's top). -/
-def helixClear (cx cy r m z : Float) : Bool := Id.run do
+def helixClear (E : EMap) (cx cy r m z : Float) : Bool := Id.run do
   let floor := z - R_BODY - MARGIN
-  if floor > top then return true
+  if floor > E.top then return true
   let r0 := fmax (r - m - R_BODY) F0_0
   let r1 := r + m + R_BODY
-  if !onMap (cx - r1) (cy - r1) || !onMap (cx + r1) (cy + r1) then return false
+  if !E.onMap (cx - r1) (cy - r1) || !E.onMap (cx + r1) (cy + r1) then return false
   let pad := CELL * FRAC_1_SQRT_2
   let lo2 := let d := fmax (r0 - pad) F0_0; d * d
   let hi2 := let d := r1 + pad; d * d
   let floor := toF32 floor
-  for j in [cellIdx (cy - r1 - pad):cellIdx (cy + r1 + pad) + 1] do
-    let dy := -MAP_HALF + (j.toFloat + F0_5) * CELL - cy
-    for i in [cellIdx (cx - r1 - pad):cellIdx (cx + r1 + pad) + 1] do
-      if raster[j * NC + i]! ≤ floor then continue
-      let dx := -MAP_HALF + (i.toFloat + F0_5) * CELL - cx
+  for j in [E.cellY (cy - r1 - pad):E.cellY (cy + r1 + pad) + 1] do
+    let dy := E.y0 + (j.toFloat + F0_5) * CELL - cy
+    for i in [E.cellX (cx - r1 - pad):E.cellX (cx + r1 + pad) + 1] do
+      if E.raster[j * E.nx + i]! ≤ floor then continue
+      let dx := E.x0 + (i.toFloat + F0_5) * CELL - cx
       let d2 := dx * dx + dy * dy
       if d2 ≥ lo2 && d2 ≤ hi2 then return false
   return true
@@ -184,7 +211,7 @@ def helixClear (cx cy r m z : Float) : Bool := Id.run do
 /-- `ray_clear`: a climbing ray from `p` along track `psi` at gradient `grad`, in a corridor widening 2% of the
 distance, stays `R_BODY + MARGIN` above every raw cell until it is that far above the map's top. Off the map the
 lookups clamp to the edge cells, as the terrain continues the edge; a ray still low after 10,000 steps fails. -/
-def rayClear (px py pz psi grad : Float) : Bool := Id.run do
+def rayClear (E : EMap) (px py pz psi grad : Float) : Bool := Id.run do
   if grad < F0_02 then return false
   let c := psi.cos
   let s := psi.sin
@@ -194,18 +221,18 @@ def rayClear (px py pz psi grad : Float) : Bool := Id.run do
     let y := py + d * s
     let z := pz + d * grad
     let floor := z - R_BODY - MARGIN
-    if floor > top then return true
+    if floor > E.top then return true
     let w := R_BODY + F5_0 + F0_02 * d
     let mut l := -w
     while l ≤ w do
-      if surface (x - l * s) (y + l * c) > floor then return false
+      if E.surface (x - l * s) (y + l * c) > floor then return false
       l := l + F0_5 * CELL
     d := d + F0_5 * CELL
   return false
 
 /-- `terminal`: the escape has settled into its terminal set (climbing ray or helix, by `dir`) and that set is
 clear, judged on the last `2·HALF + 1` samples. -/
-def terminalOK (dir : Float) (hist : Array Hist) : Bool := Id.run do
+def terminalOK (E : EMap) (dir : Float) (hist : Array Hist) : Bool := Id.run do
   if hist.size < 2 * HALF + 1 then return false
   let n := hist.size
   let a := seg (hist.extract (n - 2 * HALF - 1) (n - HALF))
@@ -217,7 +244,7 @@ def terminalOK (dir : Float) (hist : Array Hist) : Bool := Id.run do
     -- during the zoom climb vz is still falling and its gradient overstates the settled climb
     if !((a.vzMean - b.vzMean).abs ≤ VZ_SETTLED) then return false
     let grad := fmin (F0_8 * fmin (a.vzMean / fmax a.vh F1_0) (b.vzMean / fmax b.vh F1_0)) GRAD_MAX
-    return rayClear e.x e.y e.z e.psi grad
+    return rayClear E e.x e.y e.z e.psi grad
   else
     let want := -dir
     if a.omega * want ≤ F0_02 || b.omega * want ≤ F0_02 then return false
@@ -230,6 +257,6 @@ def terminalOK (dir : Float) (hist : Array Hist) : Bool := Id.run do
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
     if dR > F0_1 * rb || dC > F0_1 * rb then return false
     let m := F5_0 + F3_0 * (dR + dC)
-    return helixClear cbx cby rb m e.z
+    return helixClear E cbx cby rb m e.z
 
 end CityGate.Esc

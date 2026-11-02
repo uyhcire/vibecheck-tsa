@@ -32,49 +32,51 @@ theorem floor_int_div (a : Int) (d : Nat) (hd : 0 < d) : (((a : Rat)) / (d : Rat
     simp only [Rat.intCast_mul, Rat.intCast_natCast] at this
     exact Rat.not_lt.mpr this
 
-/-- `squareOf` in integers: the grid square under `v` (units) along an axis from `x0` (m). -/
-def squareOfI (x0 v : Int) : Nat := min ((v - 16 * x0) / 320).toNat 299
+/-- `squareOfN` in integers: the grid square (of `n` vertices) under `v` (units) along an axis from `x0` (m). -/
+@[inline] def squareOfI (n : Nat) (x0 v : Int) : Nat := min ((v - 16 * x0) / 320).toNat (n - 2)
 
-theorem squareOfI_eq (x0 v : Int) : squareOfI x0 v = squareOf x0 v := by
+theorem squareOfI_eq (n : Nat) (x0 v : Int) : squareOfI n x0 v = squareOfN n x0 v := by
   have hg : ((v : Rat) / S - (x0 : Rat)) / (gridStep : Rat) = (((v - 16 * x0 : Int) : Rat)) / ((320 : Nat) : Rat) := by
     simp only [S, gridStep, Rat.intCast_sub, Rat.intCast_mul]
     grind
   have hfl := floor_int_div (v - 16 * x0) 320 (by decide)
   rw [← hg] at hfl
-  unfold squareOfI squareOf square gridCoord
+  unfold squareOfI squareOfN squareN gridCoordN
   generalize ((v : Rat) / S - (x0 : Rat)) / (gridStep : Rat) = g at hfl ⊢
   have h1 := Rat.floor_le g
   have h2 := Rat.lt_floor_add_one g
   rw [hfl] at h1 h2
   have e320 : ((320 : Nat) : Int) = 320 := rfl
   rw [e320] at h1 h2 hfl
-  generalize (v - 16 * x0) / 320 = n at h1 h2 hfl ⊢
-  simp only [gridN, Nat.reduceSub, Rat.natCast_ofNat]
-  by_cases hn0 : n < 0
-  · have : max 0 (min 300 g) = (0 : Rat) := by
+  generalize (v - 16 * x0) / 320 = q at h1 h2 hfl ⊢
+  have hN : ((n - 1 : Nat) : Rat) = (((n - 1 : Nat) : Int) : Rat) := (Rat.intCast_natCast _).symm
+  rw [hN]
+  generalize hM : ((n - 1 : Nat) : Int) = M
+  have hM0 : 0 ≤ M := by omega
+  by_cases hq0 : q < 0
+  · have : max 0 (min (M : Rat) g) = (0 : Rat) := by
       simp only [Rat.intCast_add] at h2
       have : g < 0 := by
-        have : (n : Rat) + 1 ≤ 0 := by
-          have := Rat.intCast_le_intCast.mpr (show n + 1 ≤ 0 by omega)
+        have : (q : Rat) + 1 ≤ 0 := by
+          have := Rat.intCast_le_intCast.mpr (show q + 1 ≤ 0 by omega)
           simpa [Rat.intCast_add] using this
         grind
+      have : (0 : Rat) ≤ (M : Rat) := by have := Rat.intCast_le_intCast.mpr hM0; simpa using this
       grind
     rw [this]
     have : (0 : Rat).floor = 0 := rfl
     rw [this]; omega
-  · by_cases hn3 : 300 ≤ n
-    · have : max 0 (min 300 g) = (300 : Rat) := by
-        have : (300 : Rat) ≤ n := by
-          have := Rat.intCast_le_intCast.mpr hn3; simpa using this
+  · by_cases hqM : M ≤ q
+    · have : max 0 (min (M : Rat) g) = (M : Rat) := by
+        have : (M : Rat) ≤ q := Rat.intCast_le_intCast.mpr hqM
+        have : (0 : Rat) ≤ (M : Rat) := by have := Rat.intCast_le_intCast.mpr hM0; simpa using this
         grind
-      rw [this]
-      have : (300 : Rat).floor = 300 := rfl
-      rw [this]; omega
-    · have : max 0 (min 300 g) = g := by
-        have a : (0 : Rat) ≤ n := by
-          have := Rat.intCast_le_intCast.mpr (show (0 : Int) ≤ n by omega); simpa using this
-        have b : (n : Rat) + 1 ≤ 300 := by
-          have := Rat.intCast_le_intCast.mpr (show n + 1 ≤ 300 by omega); simpa [Rat.intCast_add] using this
+      rw [this, Rat.floor_intCast]; omega
+    · have : max 0 (min (M : Rat) g) = g := by
+        have a : (0 : Rat) ≤ q := by
+          have := Rat.intCast_le_intCast.mpr (show (0 : Int) ≤ q by omega); simpa using this
+        have b : (q : Rat) + 1 ≤ M := by
+          have := Rat.intCast_le_intCast.mpr (show q + 1 ≤ M by omega); simpa [Rat.intCast_add] using this
         simp only [Rat.intCast_add] at h2
         grind
       rw [this, hfl]
@@ -88,24 +90,27 @@ theorem allFrom_eq (f : Nat → Bool) : ∀ a n, allFrom f a n = (List.range' a 
   | _, 0 => rfl
   | a, n + 1 => by simp only [allFrom, List.range'_succ, List.all_cons, allFrom_eq f (a + 1) n]
 
-def boxesClearI (xl xh yl yh zl zh : Int) : Bool :=
+def GateGeo.boxesClearI (G : GateGeo) (xl xh yl yh zl zh : Int) : Bool :=
+  let I := G.idx
   allFrom (fun i => allFrom (fun j =>
-      (cellBoxes.getD (j * 100 + i) []).all fun b =>
+      (G.cells.getD (j * I.cx + i) []).all fun b =>
         !(meets xl xh b.xmin b.xmax && meets yl yh b.ymin b.ymax && meets zl zh b.zmin b.zmax))
-    (cellIdx yl) (cellIdx yh + 1 - cellIdx yl)) (cellIdx xl) (cellIdx xh + 1 - cellIdx xl)
+    (cellIdxN I.oy I.cy I.sz yl) (cellIdxN I.oy I.cy I.sz yh + 1 - cellIdxN I.oy I.cy I.sz yl))
+    (cellIdxN I.ox I.cx I.sz xl) (cellIdxN I.ox I.cx I.sz xh + 1 - cellIdxN I.ox I.cx I.sz xl)
 
-def terrainClearI (xl xh yl yh zl : Int) : Bool :=
-  allFrom (fun i => allFrom (fun j => decide (squareTop i j < zl))
-      (squareOfI gridY0 yl) (squareOfI gridY0 yh + 1 - squareOfI gridY0 yl))
-    (squareOfI gridX0 xl) (squareOfI gridX0 xh + 1 - squareOfI gridX0 xl)
+def GateGeo.terrainClearI (G : GateGeo) (xl xh yl yh zl : Int) : Bool :=
+  let M := G.map
+  allFrom (fun i => allFrom (fun j => decide (G.squareTop i j < zl))
+      (squareOfI M.ny M.y0 yl) (squareOfI M.ny M.y0 yh + 1 - squareOfI M.ny M.y0 yl))
+    (squareOfI M.nx M.x0 xl) (squareOfI M.nx M.x0 xh + 1 - squareOfI M.nx M.x0 xl)
 
-theorem boxesClearI_eq : @boxesClearI = @boxesClear := by
-  funext xl xh yl yh zl zh
-  simp only [boxesClearI, boxesClear, allFrom_eq]
+theorem boxesClearI_eq : @GateGeo.boxesClearI = @GateGeo.boxesClear := by
+  funext G xl xh yl yh zl zh
+  simp only [GateGeo.boxesClearI, GateGeo.boxesClear, allFrom_eq]
 
-theorem terrainClearI_eq : @terrainClearI = @terrainClear := by
-  funext xl xh yl yh zl
-  simp only [terrainClearI, terrainClear, allFrom_eq, squareOfI_eq]
+theorem terrainClearI_eq : @GateGeo.terrainClearI = @GateGeo.terrainClear := by
+  funext G xl xh yl yh zl
+  simp only [GateGeo.terrainClearI, GateGeo.terrainClear, allFrom_eq, squareOfI_eq]
 
 theorem toNat_bits (b : UInt64) :
     ((b >>> 52) &&& 0x7FF).toNat = b.toNat / 2 ^ 52 % 2 ^ 11 ∧ (b &&& 0xFFFFFFFFFFFFF).toNat = b.toNat % 2 ^ 52 ∧
@@ -458,7 +463,7 @@ theorem posFt_report (s : JsbExact.State Float) :
 
 /-- `clearAt` in scalar integers: the position's doubles as sign, mantissa and exponent (`decN`), scaled exactly to
 units by integer and remainder parts (`split16`, `splitFt`, `fc2`), and integer loops. -/
-def clearAtFast (extra : Float) (p : Plane) : Bool :=
+def clearAtFast (G : GateGeo) (extra : Float) (p : Plane) : Bool :=
   let (ly, lz, hs) := posFt p.st
   match decN p.ox.toBits, decN ly.toBits, decN p.oy.toBits, decN lz.toBits, decN hs.toBits with
   | some (sa, a, ea), some (sm, m, em), some (sb, b, eb), some (sn, n, en), some (sh, h, eh) =>
@@ -466,13 +471,13 @@ def clearAtFast (extra : Float) (p : Plane) : Bool :=
     let (yf, yc) := fc2 sb (split16 b eb) sn (splitFt n en)
     let (zf, zc) := fc2 false (0, 0, 0) sh (splitFt h eh)
     let k : Int := keepBase + extraUnits extra
-    terrainClearI (xf - k) (xc + k) (yf - k) (yc + k) (zf - k) &&
-      boxesClearI (xf - k) (xc + k) (yf - k) (yc + k) (zf - k) (zc + k)
+    G.terrainClearI (xf - k) (xc + k) (yf - k) (yc + k) (zf - k) &&
+      G.boxesClearI (xf - k) (xc + k) (yf - k) (yc + k) (zf - k) (zc + k)
   | _, _, _, _, _ => false
 
-@[csimp] theorem clearAt_eq_fast : @clearAt = @clearAtFast := by
-  funext e p
-  simp only [clearAt, clearAtFast, exactPos, posFt_report, ratOf_eq, ratOfBits_decN, boxesClearI_eq, terrainClearI_eq]
+@[csimp] theorem clearAt_eq_fast : @clearAtOn = @clearAtFast := by
+  funext G e p
+  simp only [clearAtOn, clearAtFast, exactPos, posFt_report, ratOf_eq, ratOfBits_decN, boxesClearI_eq, terrainClearI_eq]
   cases decN p.ox.toBits <;> cases decN (CitySafety.report p.st).loc.y.toBits <;>
     cases decN p.oy.toBits <;> cases decN (CitySafety.report p.st).loc.z.toBits <;>
     cases decN (CitySafety.report p.st).hsl.toBits <;> try rfl
@@ -480,6 +485,38 @@ def clearAtFast (extra : Float) (p : Plane) : Bool :=
   obtain ⟨sa, a, ea⟩ := a; obtain ⟨sm, m, em⟩ := m; obtain ⟨sb, b, eb⟩ := b; obtain ⟨sn, n, en⟩ := n
   obtain ⟨sh, h, eh⟩ := h
   simp only [Option.map_some, Option.bind_eq_bind, Option.bind_some, Option.pure_def, fc_xy, fc_z]
+
+/-- `(⌊16·v⌋, ⌈16·v⌉)` for the exact value `v` of a double (0 if it is not finite), in scalar arithmetic. -/
+def unitsF (f : Float) : Int × Int :=
+  match decN f.toBits with
+  | some (s, m, e) => fc2 s (split16 m e) false (0, 0, 0)
+  | none => (0, 0)
+
+theorem unitsF_eq (f : Float) :
+    unitsF f = ((((CitySafety.ratOf f).getD 0) * S).floor, (((CitySafety.ratOf f).getD 0) * S).ceil) := by
+  unfold unitsF
+  rw [ratOf_eq, ratOfBits_decN]
+  cases decN f.toBits with
+  | none =>
+    simp only [Option.map_none, Option.getD_none, Rat.zero_mul]
+    rfl
+  | some x =>
+    obtain ⟨s, m, e⟩ := x
+    have h0 : splitFt 0 0 = (0, 0, 0) := rfl
+    have := fc_xy s m e false 0 0
+    rw [h0] at this
+    simp only [Option.map_some, Option.getD_some]
+    rw [this, show ((0 : Nat) : Int) = 0 from rfl, dyadic_zero]
+    have e1 : (sgn s (dyadic (m : Int) e) + sgn false 0 * CitySafety.ft) * S = sgn s (dyadic (m : Int) e) * S := by
+      simp only [sgn, Bool.false_eq_true, ↓reduceIte]; grind
+    rw [e1]
+
+/-- A box of doubles rounded outward to units, in scalar arithmetic: `roundOut` of its exact values. -/
+def roundOutF (b : Box Float) : Box Int :=
+  ⟨(unitsF b.xmin).1, (unitsF b.ymin).1, (unitsF b.xmax).2, (unitsF b.ymax).2, (unitsF b.zmin).1, (unitsF b.zmax).2⟩
+
+theorem roundOutF_eq (b : Box Float) : roundOutF b = roundOut (b.map fun f => (CitySafety.ratOf f).getD 0) := by
+  simp only [roundOutF, roundOut, Box.map, unitsF_eq]
 
 #guard [0.0, -0.0, 1.0, -1.0, 0.03125, 0.1, -0.1, 2999.97, -1234.5678, 5e-324, 1e300, -1e300].all fun f =>
   (decN f.toBits).map (fun x => sgn x.1 (dyadic x.2.1 x.2.2)) == CitySafety.ratOf f

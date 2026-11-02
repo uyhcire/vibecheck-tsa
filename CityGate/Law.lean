@@ -110,7 +110,7 @@ def Law.capture (l : Law) (o : FloatArray) : Law :=
 
 /-- Street escape, every 0.25 s once the climb is established on the axis: start the helix toward the first side
 (left, then right) whose predicted annulus is clear at the current height. -/
-def Law.streetTurn (l : Law) (p : Plane) : Law :=
+def Law.streetTurn (l : Law) (p : Plane) (E : EMap := gridE) : Law :=
   if l.esc != STREET || l.axis.isNaN || l.side != F0_0 || !l.turning || l.t < l.nextTry then l
   else
     let l := { l with nextTry := l.t + F0_25 }
@@ -124,7 +124,7 @@ def Law.streetTurn (l : Law) (p : Plane) : Law :=
       let c := psi.cos
       let sn := psi.sin
       let sideOK := fun (side : Float) =>
-        helixClear (x + vh * c + side * r * sn) (y + vh * sn - side * r * c) r M_TRIGGER z
+        helixClear E (x + vh * c + side * r * sn) (y + vh * sn - side * r * c) r M_TRIGGER z
       if sideOK (-F1_0) then { l with side := -F1_0 } else if sideOK F1_0 then { l with side := F1_0 } else l
 
 /-- Elevator (+1 nose up) from the cegis law, and the updated α integral. -/
@@ -184,9 +184,9 @@ def Law.controls (l : Law) (o : FloatArray) : Surf × Law :=
   let ib := if rud == rudRaw || beta * l.ib > F0_0 then clamp (l.ib - KI_B * beta * DT_JSB) (-F0_5) F0_5 else l.ib
   (⟨-e, ail, rud, F1_0⟩, { l with iphi, ib })
 
-/-- One frame of the escape (`Law::step`): capture, street turn, surfaces; the clock advances. -/
-def Law.step (l : Law) (p : Plane) : Surf × Law :=
-  let l := (l.capture p.ob).streetTurn p
+/-- One frame of the escape (`Law::step`) on map `E`: capture, street turn, surfaces; the clock advances. -/
+def Law.step (l : Law) (p : Plane) (E : EMap := gridE) : Surf × Law :=
+  let l := (l.capture p.ob).streetTurn p E
   let (u, l) := l.controls p.ob
   (u, { l with t := l.t + DT_JSB })
 

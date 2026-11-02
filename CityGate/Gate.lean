@@ -62,13 +62,13 @@ def clampIn (lo hi x : Float) : Float := if lo ≤ x then (if x ≤ hi then x el
 def Surf.clamp (u : Surf) : Surf :=
   ⟨clampIn (-1) 1 u.elev, clampIn (-1) 1 u.ail, clampIn (-1) 1 u.rud, clampIn 0 1 u.thr⟩
 
-/-- One frame: the latched pilot surfaces, or a frame of the law (recording a sample every `SAMPLE` law
+/-- One frame on map `E`: the latched pilot surfaces, or a frame of the law (recording a sample every `SAMPLE` law
 frames), clamped to their ranges. -/
-def Ctl.ctl (c : Ctl) (p : Plane) : Surf × Ctl :=
+def Ctl.ctl (c : Ctl) (p : Plane) (E : EMap := gridE) : Surf × Ctl :=
   if c.pf > 0 then (c.pilot.clamp, { c with pf := c.pf - 1 })
   else
     let c := if c.lk % SAMPLE == 0 then c.record p else c
-    let (u, law) := c.law.step p
+    let (u, law) := c.law.step p E
     (u.clamp, { c with law, lk := c.lk + 1 })
 
 /-- The street escape fails a rollout that captures no street axis (`rollout_law`'s early return). -/
@@ -77,9 +77,9 @@ def Ctl.streetOK (c : Ctl) (p : Plane) : Bool :=
 
 /-- End-of-escape test on the schedule of `rollout_law`: from `T_TERM` every `TERM_EVERY` frames while turning,
 `terminal` on the samples including this one. Leaving the map is not an end: the terrain continues past its edge. -/
-def Ctl.term (c : Ctl) (p : Plane) : Bool :=
+def Ctl.term (c : Ctl) (p : Plane) (E : EMap := gridE) : Bool :=
   if c.pf > 0 || c.lk % SAMPLE != 0 then false
-  else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK c.law.dir (c.record p).hist
+  else if c.lk ≥ 768 && c.lk % TERM_EVERY == 0 && c.law.turning then terminalOK E c.law.dir (c.record p).hist
   else false
 
 /-- The proposal layer's memory: frame counter, whether the held controller is a committed escape, frames since
@@ -140,12 +140,21 @@ def updateM (m : Mem) (p : Plane) (w : Ctl) (_u : Surf) (accepted : Bool) : Mem 
 
 def MEM0 : Mem := { frame := 0, committed := false, runFrames := 0, sinceHandback := 1000000, rr := 0, prevDir := 0.0 }
 
-/-- The gate without its starting controller (which is searched with this gate's rollout check). -/
-def gate0 : Gate Plane Surf Ctl Mem where
+/-- A map for the gate: its exact geometry (what `clearAtOn` checks, and `CrashOn` is about) and Rust's
+representation of it (the raster the end-of-escape test and the street escape read). -/
+structure Site where
+  geo : GateGeo
+  esc : EMap
+
+/-- The default city. -/
+def gridSite : Site := ⟨gridGeo, gridE⟩
+
+/-- The gate on map `S`, without its starting controller (which is searched with this gate's rollout check). -/
+def gate0On (S : Site) : Gate Plane Surf Ctl Mem where
   step := Plane.step
-  ctl := Ctl.ctl
-  clear x := (decide (x.1.lk ≤ x.1.cap) && x.1.streetOK x.2) && clearAt x.1.extra x.2
-  term x := x.1.term x.2
+  ctl c p := c.ctl p S.esc
+  clear x := (decide (x.1.lk ≤ x.1.cap) && x.1.streetOK x.2) && clearAtOn S.geo x.1.extra x.2
+  term x := x.1.term x.2 S.esc
   horizon := CHECK_EVERY + HORIZON_FRAMES
   propose := proposeC
   update := updateM
@@ -154,19 +163,30 @@ def gate0 : Gate Plane Surf Ctl Mem where
 
 /-- `Gate::new`: the first escape that verifies from `p`, else escape 0 (Rust picks the one that survives longest;
 either way such a start is outside `Init`). -/
-def startCtl (p : Plane) : Ctl :=
+def startCtlOn (S : Site) (p : Plane) : Ctl :=
   let c := fun e => Ctl.fresh ⟨0, 0, 0, 0⟩ 0 (Law.new e) 0.0 HORIZON_FRAMES
-  match (List.range N_ESC).find? fun e => gate0.rolloutOK gate0.horizon (c e, p) with
+  match (List.range N_ESC).find? fun e => (gate0On S).rolloutOK (gate0On S).horizon (c e, p) with
   | some e => c e
   | none => c 0
 
-def cityGate : Gate Plane Surf Ctl Mem := { gate0 with start := startCtl }
+/-- The city gate on map `S`. -/
+def gateOn (S : Site) : Gate Plane Surf Ctl Mem := { gate0On S with start := startCtlOn S }
+
+def gate0 : Gate Plane Surf Ctl Mem := gate0On gridSite
+def startCtl (p : Plane) : Ctl := startCtlOn gridSite p
+/-- The city gate in the default city. -/
+def cityGate : Gate Plane Surf Ctl Mem := gateOn gridSite
+
+/-- `(gateOn S).clear` passes only where `clearAtOn S.geo` does. -/
+theorem gateOn_clear (S : Site) (x : Ctl × Plane) (h : (gateOn S).clear x = true) :
+    ∃ e, clearAtOn S.geo e x.2 = true := by
+  refine ⟨x.1.extra, ?_⟩
+  simp only [gateOn, gate0On, Bool.and_eq_true] at h
+  exact h.2
 
 /-- `cityGate.clear` passes only where `clearAt` does. -/
-theorem cityGate_clear (x : Ctl × Plane) (h : cityGate.clear x = true) : ∃ e, clearAt e x.2 = true := by
-  refine ⟨x.1.extra, ?_⟩
-  simp only [cityGate, gate0, Bool.and_eq_true] at h
-  exact h.2
+theorem cityGate_clear (x : Ctl × Plane) (h : cityGate.clear x = true) : ∃ e, clearAt e x.2 = true :=
+  gateOn_clear gridSite x h
 
 /-- `alpha_for`: angle of attack for lift `n` g at airspeed `v` (rough c172p lift curve). -/
 def alphaFor (n v : Float) : Float :=
@@ -183,9 +203,11 @@ def startPlane (x y z v gam psi phi n thr : Float) : Plane :=
   let raw := 1.0 * (0.21 * n + 0.84 * 0.0 - 0.21 * 0.0) - 24.0 * 0.0
   ({ st, ob := FloatArray.empty, ox := x, oy := y } : Plane).step ⟨-(clamp raw (-1.0) 1.0), 0.0, 0.0, clamp thr 0.0 1.0⟩
 
-def startState (x y z v gam psi phi n thr : Float) : Plane × (Mem × Ctl) :=
+def startStateOn (S : Site) (x y z v gam psi phi n thr : Float) : Plane × (Mem × Ctl) :=
   let s := startPlane x y z v gam psi phi n thr
-  (s, (cityGate.m₀, cityGate.start s))
+  (s, ((gateOn S).m₀, (gateOn S).start s))
+
+def startState (x y z v gam psi phi n thr : Float) : Plane × (Mem × Ctl) := startStateOn gridSite x y z v gam psi phi n thr
 
 theorem startState_eq (x y z v gam psi phi n thr : Float) :
     startState x y z v gam psi phi n thr =
@@ -194,13 +216,16 @@ theorem startState_eq (x y z v gam psi phi n thr : Float) :
 
 /-- Display only (called every 0.1 s): points (east, north, up; m) every `SAMPLE` frames along the held controller's escape,
 for at most 5 s (640 frames), until its end-of-escape test passes or its frames run out. -/
-def predictPath (g : Plane × (Mem × Ctl)) : Array (Float × Float × Float) := Id.run do
+def predictPathOn (S : Site) (g : Plane × (Mem × Ctl)) : Array (Float × Float × Float) := Id.run do
+  let G := gateOn S
   let mut x := (g.2.2, g.1)
   let mut out : Array (Float × Float × Float) := #[g.1.pos]
   for k in [0:640] do
-    if cityGate.term x || !decide (x.1.lk ≤ x.1.cap) then break
-    x := cityGate.fly x
+    if G.term x || !decide (x.1.lk ≤ x.1.cap) then break
+    x := G.fly x
     if (k + 1) % SAMPLE == 0 then out := out.push x.2.pos
   return out
+
+def predictPath (g : Plane × (Mem × Ctl)) : Array (Float × Float × Float) := predictPathOn gridSite g
 
 end CityGate

@@ -1,4 +1,5 @@
 //! Backup-CBF city flight: simulation, safety filter and harness (no GUI).
+pub mod covering;
 pub mod escape;
 pub mod filter;
 pub mod golden_gate;

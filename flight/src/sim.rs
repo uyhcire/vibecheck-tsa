@@ -128,7 +128,7 @@ impl<'w> Sim<'w> {
         };
         #[cfg(feature = "jsb")]
         if crate::leangate::enabled() {
-            let g = crate::leangate::LeanGate::new(&s0);
+            let g = crate::leangate::LeanGate::new(world, &s0);
             sim.s = g.state();
             sim.true_clear = world.airframe_clearance(&sim.s, 200.0);
             sim.lean = Some(g);
