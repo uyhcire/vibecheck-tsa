@@ -22,6 +22,7 @@ Everything is a one-word `make` target; `make help` lists them.
 | `make fly` / `fly-lean` / `fly-off` | The city flight demo with the exact-rollout gate (Rust), its Lean implementation, or no filter |
 | `make showcase` | Tower gap with the scripted showcase pilot and the cinematic camera |
 | `make record` | Record the demo frame by frame into `OUT` (PNGs plus a per-frame clearance and camera log), deterministic; see `flight/README.md` |
+| `make proofdump` | Replay a run headless and log the gate's verified paths, failed rollouts and end sets per tick (`RUN=showcase` or `ep<N>`), for drawing over recordings |
 | `make crashes` / `crashes-lean` | Headless crash test (N hostile episodes plus the kamikaze scenarios) |
 | `make adversary`, `make harness`, `make regimes` | Gap-guided adversary; point-mass acceptance harness; boundary-regime slices |
 | `make plantcheck` | Plant, state-import and Lean-gate spot checks, plus the 4 spec starts |
@@ -29,6 +30,7 @@ Everything is a one-word `make` target; `make help` lists them.
 | `make verify` / `make proofs` | Build the Lean proofs and audit their axioms / the Mathlib proofs |
 | `make gate`, `gate-example`, `gate-check`, `export` | libgate for JSBSim hosts; the city as plain files for other simulators |
 | `make pdf` | The informal TermSound proof (`docs/termsound-proof.pdf`) |
+| `make experiments` | **Slow.** Build and axiom-audit every archived, superseded Lean experiment under `experiments/` (not part of `make verify`); see `experiments/README.md` |
 
 Variables: `FILTER` (`exact-rollout`, `exact-rollout-lean`, `exact`, `fitted`, `fitted25`), `ARGS` (extra flags, e.g.
 `make fly ARGS="--episode 59 --paths"`), `N` and `OUT` for the headless runs.

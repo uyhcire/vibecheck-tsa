@@ -1287,7 +1287,7 @@ impl App {
         #[cfg(feature = "jsb")]
         if let Some(g) = &self.sim.lean {
             let e = if g.escaping { "escape" } else { "pilot" };
-            env = Some(("lean gate (proved)".to_string(), e, *g.wall_ms.last().unwrap_or(&0.0) as f64, g.start_ok));
+            env = Some(("lean gate".to_string(), e, *g.wall_ms.last().unwrap_or(&0.0) as f64, g.start_ok));
         }
         #[cfg(feature = "jsb")]
         if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
@@ -1918,6 +1918,10 @@ async fn main() {
     }
     if args.iter().any(|a| a == "--showcase") {
         app.start_showcase(true);
+    }
+    // Footage for overlays drawn afterwards (the explainer's proof section): no escape paths in the frame.
+    if args.iter().any(|a| a == "--no-paths") {
+        app.show_paths = false;
     }
     // Same start, seed and pilot as the harness: episodes 0.. are random starts (every fourth a kamikaze
     // pilot), 1000 + i is scenario i + 1 with a kamikaze pilot.
