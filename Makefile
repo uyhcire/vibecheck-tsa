@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record proofdump profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record proofdump profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -39,6 +39,10 @@ verify:
 
 proofs:
 	cd proofs && lake exe cache get && lake build && lake env lean Proofs/Audit.lean
+
+# point-mass safe region against the spec's Crash (prints its axioms)
+safe-region:
+	cd proofs && lake exe cache get && lake build Proofs.SafeRegion
 
 test: build
 	lake build $(LAKE_OPTS) simtest
@@ -139,7 +143,7 @@ help:
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | test   (N=..., OUT=...)"
-	@echo "Proofs:   make verify | proofs"
+	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"
 	@echo "Lean app: make install | build | run | clean"
