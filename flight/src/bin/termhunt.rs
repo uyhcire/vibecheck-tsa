@@ -244,8 +244,10 @@ fn main() {
     if args.first().map(|s| s.as_str()) == Some("trim") {
         return trim_cmd(&args);
     }
-    if args.first().map(|s| s.as_str()) == Some("scen") {
-        let p = JsbPlant::new(&cityflight::sim::scenario_start(&world, args[1].parse().unwrap()));
+    if args.first().map(|s| s.as_str()) == Some("scen") || args.first().map(|s| s.as_str()) == Some("ep") {
+        let id: u64 = args[1].parse().unwrap();
+        let s0 = if args[0] == "ep" { random_start(&world, &mut Rng::new(id.wrapping_mul(7919) ^ 0xE915)) } else { cityflight::sim::scenario_start(&world, id as usize) };
+        let p = JsbPlant::new(&s0);
         for esc in 0..ESCAPES.len() {
             let r = rollout(&world, &p, esc, usize::MAX);
             let e = r.end;
