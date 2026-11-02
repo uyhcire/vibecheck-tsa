@@ -18,7 +18,6 @@
 <!--
   Sources for every number on this page:
   - flight/README.md (results tables, Tower gap, escape and terminal-set parameters)
-  - docs/gate-proof-status.md (exact / numerical / proved)
   - docs/safety-objective.md (Safe F)
   - flight/src/envfilter.rs (HORIZON 16 s, T_TERM 6 s, SAMPLE 8 frames, MARGIN 4 m, 6 escapes)
   - flight/src/world.rs (R_BODY 4.5 m, MAP_HALF 3000 m)
@@ -302,241 +301,123 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
 @media (prefers-reduced-motion: reduce) {
   video { animation: none; }
 }
+
+/* Slides: one idea per 16:9 screen, a vertical tab index on the left. */
+html, body.deck { height: 100%; }
+body.deck { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); height: 100vh; overflow: hidden; margin: 0; }
+.deck-nav { border-right: 1.5px solid var(--ink); background: var(--paper-2); overflow-y: auto; display: flex; flex-direction: column; }
+.deck-tabs { display: flex; flex-direction: column; padding: 0.5rem 0; }
+.deck-tabs .grp { font: 600 0.75rem/1.2 "Barlow", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); padding: 0.7rem 0.9rem 0.25rem; }
+.deck-tabs button { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 0.4rem 0.9rem 0.4rem 1.1rem; font: 500 0.92rem/1.3 "Barlow", sans-serif; color: var(--ink-2); cursor: pointer; border-left: 4px solid transparent; }
+.deck-tabs button:hover { background: var(--paper); color: var(--ink); }
+.deck-tabs button[aria-selected="true"] { color: var(--ink); background: var(--paper); border-left-color: var(--magenta); font-weight: 600; }
+.deck-tabs button:focus-visible { outline: 3px solid var(--magenta); outline-offset: -3px; }
+.deck-hint { margin: auto 0 0; padding: 0.8rem 0.9rem; font: 400 0.8rem/1.3 "Barlow", sans-serif; color: var(--ink-2); }
+.deck-main { position: relative; overflow: hidden; min-width: 0; }
+.slide { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 0.45rem; padding: 1.2rem 1.8rem 1rem; min-height: 0; }
+.slide[hidden] { display: none; }
+.slide > h2, .slide > h1 { margin: 0; }
+.slide .kicker { margin: 0; font: 500 0.85rem/1.3 "Barlow", sans-serif; color: var(--ink-2); }
+.slide .sub { margin: 0; font: 400 1.05rem/1.45 "Barlow", sans-serif; color: var(--ink-2); max-width: 70rem; }
+.slide > figure, .slide > .two, .slide > .lean, .slide > .tablewrap { flex: 1 1 auto; min-height: 0; }
+.title-slide h1 { font-size: clamp(2rem, 4.2vw, 3.6rem); }
+.hero-shot { position: relative; margin: 0; flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; }
+.hero-shot img { max-height: 100%; width: auto; max-width: 100%; object-fit: contain; }
+.hero-shot .callout { left: auto; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; min-height: 0; }
+.two figure { margin: 0; display: flex; flex-direction: column; min-height: 0; }
+.two figure > img, .two figure > svg { flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; object-fit: contain; background: #1b2530; }
+.two.traj figure > svg { background: none; }
+.two figcaption { padding: 0.4rem 0 0; }
+/* Players inside slides: the picture takes the height that is left. */
+.slide figure.cc, .slide figure.pf { display: flex; flex-direction: column; min-height: 0; margin: 0; }
+.slide figure.cc .cc-head { display: none; }
+.slide .cc-stage { flex: 1 1 auto; min-height: 0; max-height: none; aspect-ratio: auto; height: auto; }
+.slide figure.pf .plate-head { display: none; }
+.slide .pf-body { flex: 1 1 auto; min-height: 0; }
+.slide .pf-body > .pf-stage { height: 100%; }
+.slide .pf-body.side > .pf-aside { overflow-y: auto; }
+.slide .cc-chart { height: 110px; flex: none; }
+.slide .cc-key { padding-top: 0.2rem; }
+.slide figure.pf .badge, .slide figure.pf figcaption, .slide figure.cc figcaption { flex: none; }
+.slide .pf-status { min-height: 0; }
+details.more { padding: 0.2rem 0.75rem 0.5rem; font: 400 0.9rem/1.5 "Barlow", sans-serif; color: var(--ink-2); flex: none; }
+details.more summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+details.more[open], .slide details.precise[open] { position: absolute; z-index: 5; left: 1.8rem; right: 1.8rem; bottom: 1rem; max-height: 60%; overflow-y: auto; background: var(--paper); border: 1.5px solid var(--ink); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 0.6rem 0.9rem; }
+.lean { display: flex; flex-direction: column; justify-content: center; gap: 0.3rem; }
+.lean pre { margin: 0 0 0.6rem; padding: 0.7rem 1rem; background: var(--paper-2); border-left: 4px solid var(--blue); overflow-x: auto; }
+.lean pre code { font-size: clamp(1rem, 1.55vw, 1.55rem); line-height: 1.45; background: none; padding: 0; }
+.lean-what { margin: 0; font: 500 1.05rem/1.4 "Barlow", sans-serif; color: var(--ink-2); }
+.fan-steps { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.fan-steps button { font: 600 0.88rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.45rem 0.7rem; border-radius: 2px; cursor: pointer; }
+.fan-steps button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+#pf-fan .cc-bar.pf-ctl { grid-template-columns: auto auto 1fr; }
+.fan-list { margin: 0.2rem 0 0.5rem; padding-left: 1.4rem; font: 500 0.92rem/1.5 "Barlow", sans-serif; }
+.fan-list li.pass { color: var(--green); } .fan-list li.hit { color: var(--red); } .fan-list li.none { color: var(--off); }
+.fan-list li b { color: var(--ink); }
+.fan-verdict { font: 600 0.95rem/1.4 "Barlow", sans-serif; margin: 0; }
+.dome-map { width: 100%; height: auto; image-rendering: pixelated; background: var(--paper-2); }
+html.trisk :is(.deck-tabs button, .deck-tabs .grp, .deck-hint, .slide .kicker, .slide .sub, .lean-what, .fan-steps button, .fan-list, .fan-verdict, details.more, details.more summary) { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; letter-spacing: 0; font-size: var(--t-sm); line-height: var(--t-sm-lh); text-transform: none; }
+html.trisk .slide .sub { font-size: var(--t-body); line-height: var(--t-body-lh); }
+html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh); }
+.dome-pick button { font: 600 0.8rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.3rem 0.5rem; border-radius: 2px; cursor: pointer; margin-left: 0.3rem; }
+.dome-pick button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 </style>
 </head>
-<body>
+<body class="deck">
+<nav class="deck-nav" aria-label="Slides"><div class="deck-tabs" role="tablist" aria-orientation="vertical"></div><p class="deck-hint">↑ ↓ or Page Up / Down</p></nav>
+<main class="deck-main">
+<section class="slide title-slide" id="s-title" data-nav="A filter keeps a way out">
+  <h1>A pilot flies the city. A filter keeps a way out.</h1>
+  <p class="sub">Every 20 ms the gate test-flies escapes from where the pilot's input leads. The pilot keeps control while one of them gets away clean.</p>
+  <figure class="hero-shot"><img src="media/hero-tower-gap.jpg" width="1600" height="900" alt="A white Cessna 172 banked between two glass towers in a narrow street, with an orange ribbon ahead of it showing the escape the filter is flying, and a blue trail behind where the pilot was flying."><div class="callout" aria-hidden="true" hidden><span><b>8.4 m</b>clearance at t = 3.3 s</span></div></figure>
+</section>
 
-<header class="hero">
-  <figure>
-    <img src="media/hero-tower-gap.jpg" width="1600" height="900" alt="A white Cessna 172 banked between two glass towers in a narrow street, with an orange ribbon ahead of it showing the escape the filter is flying, and a blue trail behind where the pilot was flying.">
-    <div class="callout" aria-hidden="true"><span><b>8.4 m</b>clearance at t = 3.3 s</span></div>
+<section class="slide" id="s-problem" data-nav="The problem" hidden>
+  <h2>The problem</h2>
+  <p class="sub">JSBSim's Cessna 172, reproduced bit for bit, in a procedural city. Anyone can fly it, and fly it into a building.</p>
+  <div class="two">
+    <figure><img src="media/c172-photo.jpg" alt="A Cessna 172 in flight against a blue sky."><figcaption>A real Cessna 172 (N4811V). Photo: Eddie Maloney, <a href="https://creativecommons.org/licenses/by-sa/2.0">CC BY-SA 2.0</a>, via <a href="https://commons.wikimedia.org/wiki/File:Cessna_172_N4811V_(2700356170).jpg">Wikimedia Commons</a>.</figcaption></figure>
+    <figure><img src="media/cc-towergap-off.jpg" alt="The simulated Cessna 172 at the moment it hits a building, filter off."><figcaption>The sim with the filter off: the Tower gap pilot banks into a building, contact at 5.64 s.</figcaption></figure>
+  </div>
+</section>
+
+<section class="slide" id="s-guarantee" data-nav="What it must guarantee" hidden>
+  <h2>What the filter must guarantee</h2>
+  <p class="sub" id="traj-sub">From one allowed start, hostile and kamikaze pilots: with the filter, nothing is touched.</p>
+  <div class="two traj">
+    <figure><svg class="svgtext traj-plan" data-side="on" viewBox="0 0 560 560" role="img" aria-label="Plan view: the pilots' paths with the filter on, over the city."></svg><figcaption class="traj-cap" data-side="on"></figcaption></figure>
+    <figure><svg class="svgtext traj-plan" data-side="off" viewBox="0 0 560 560" role="img" aria-label="Plan view: the same pilots with the filter off; crashes marked."></svg><figcaption class="traj-cap" data-side="off"></figcaption></figure>
+  </div>
+</section>
+
+<section class="slide" id="s-decide" data-nav="How the gate decides" hidden>
+  <h2>How the gate decides, every 20 ms</h2>
+  <p class="sub">After the pilot's next input, it test-flies its escapes in order. The first that gets away clean is kept and the pilot flies on; if none does, it flies the last one that passed.</p>
+  <figure class="plate pf" id="pf-fan">
+    <div class="pf-body side">
+      <div class="cc-stage pf-stage" data-clip="towergap" data-view="fan" data-start="45">
+        <video src="media/proof-towergap.mp4" poster="media/proof-towergap.jpg" muted playsinline preload="metadata" aria-label="Chase view of the Tower gap run with the gate's candidate escapes drawn ahead of the aircraft."></video>
+        <svg class="pf-ov" aria-hidden="true"></svg>
+        <span class="pf-tag" hidden></span>
+      </div>
+      <div class="pf-aside"><h4 class="fan-head">This tick</h4><ol class="fan-list"></ol><p class="fan-verdict"></p></div>
+    </div>
+    <div class="cc-bar pf-ctl">
+      <div class="fan-steps"></div>
+      <span class="cc-time">t = 2.50 s</span>
+      <p class="pf-status" aria-live="polite"></p>
+      <div class="pf-strip" hidden></div><input class="pf-scrub" type="range" min="0" max="0" step="1" value="0" hidden aria-label="Frame">
+      <button class="cc-play" type="button" hidden>Play</button>
+    </div>
+    <figcaption><b>Green: the test flight gets away clean. Red: it would hit something, marked where. Grey: no steady climb within 16 s.</b></figcaption>
   </figure>
-  <div class="hero-text">
-    <h1>A pilot flies the city. A filter keeps a way out.</h1>
-    <p class="lede">Every 20 ms the city flight demo's safety filter asks one question: after the pilot's next input, could the aircraft still fly an escape that clears every building and hillside? If yes, the pilot keeps control. If no, the filter flies the escape it already checked. <strong>Tested, not proved:</strong> no crashes in 198 verified starts, 2,640 adversary flights or 5 kamikaze runs.<a class="fn" href="#src-1" style="color:#e76bb4">1</a></p>
-    <p class="credit">Tower gap scenario, scripted showcase pilot, frame 200 (t = 3.3 s). The pilot has banked hard right toward a 352 m tower; the orange ribbon is the street escape the filter took over with at t = 2.72 s. Clearance from the demo's own readout; a replay of current code gives 8.1 m at 3.30 s and 10.4 m at 3.40 s. Cropped from <code>make showcase ARGS="--shot out.png --frames 200"</code>.</p>
-  </div>
-</header>
-
-<main>
-
-<section id="problem">
-  <div class="col">
-    <h2>The problem</h2>
-    <p>The demo puts a Cessna 172 in a procedural city: a 6 km square map with a downtown of towers up to about 450 m, streets 28 m wide between some of them, and a ridge beyond.<a class="fn" href="#src-1">1</a> The aircraft is JSBSim's c172p, run through <code>JsbExact</code>, a Lean port that reproduces JSBSim 1.3.3 bit for bit on every compared step of its validation data.<a class="fn" href="#src-2">2</a></p>
-    <p>Anyone can fly it, with a keyboard, a script, or an autopilot whose only goal is to hit something. The filter sits between the stick and the aircraft, and it has two jobs that pull against each other:</p>
-    <ul>
-      <li><strong>Never let the aircraft touch anything,</strong> whatever the pilot does next.</li>
-      <li><strong>Stay out of the way</strong> as long as it can. A filter that takes over whenever a wall is close would never let anyone fly a street canyon, where the walls are always close.</li>
-    </ul>
-    <p>The design that reconciles the two is a gatekeeper. It does not ask how close the walls are. It asks whether a way out still exists after the pilot's next input, and steps in only at the last tick where the answer is still yes.</p>
-  </div>
 </section>
 
-<section id="objective">
-  <div class="col">
-    <h2>What the filter must guarantee</h2>
-    <p>The target is a single statement, <code>Safe F</code>: no state the closed loop can reach from an allowed start is a crash.<a class="fn" href="#src-3">3</a> Three choices in that statement matter.</p>
-  </div>
-  <div class="wide">
-    <figure class="plate">
-      <div class="plate-head"><span>The objective, as a picture of state space</span><span>schematic</span></div>
-      <div class="diagram">
-        <svg viewBox="0 0 900 360" role="img" aria-labelledby="obj-t obj-d" class="svgtext">
-          <title id="obj-t">Reachable states never touch the crash set</title>
-          <desc id="obj-d">A field of aircraft states. A small region of allowed starts grows into a large reachable region under every possible pilot input with the filter. The crash set, actual contact, lies along the right edge. The reachable region comes close to it but never touches it. A dotted path without the filter crosses into the crash set.</desc>
-          <defs>
-            <pattern id="hatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <line x1="0" y1="0" x2="0" y2="9" style="stroke:var(--red)" stroke-width="2.5" opacity="0.55"/>
-            </pattern>
-            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--ink)"/></marker>
-            <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--off)"/></marker>
-          </defs>
-          <rect x="1" y="1" width="898" height="358" style="fill:var(--paper-2)"/>
-          <path d="M690 1 C 650 80, 720 150, 670 220 S 700 330, 690 359 L 899 359 L 899 1 Z" fill="url(#hatch)"/>
-          <path d="M690 1 C 650 80, 720 150, 670 220 S 700 330, 690 359" style="stroke:var(--red);fill:none" stroke-width="2.5"/>
-          <text x="716" y="168" class="lg" style="fill:var(--red)" font-size="22" font-weight="600">Crash</text>
-          <text x="716" y="192" style="fill:var(--ink-2)" font-size="15">contact with a</text>
-          <text x="716" y="210" style="fill:var(--ink-2)" font-size="15">building or terrain</text>
-          <path d="M120 120 C 220 30, 470 20, 600 70 C 650 92, 640 150, 615 200 C 600 245, 640 300, 560 320 C 420 350, 200 330, 120 270 C 70 230, 70 160, 120 120 Z" style="fill:var(--blue);stroke:var(--blue)" fill-opacity="0.13" stroke-width="2"/>
-          <text x="300" y="300" style="fill:var(--blue)" font-size="18" font-weight="600"><tspan class="math">Reach F</tspan>: every state the aircraft,</text>
-          <text x="300" y="321" style="fill:var(--blue)" font-size="18" font-weight="600">any pilot and the filter can produce</text>
-          <ellipse cx="185" cy="185" rx="66" ry="36" style="fill:var(--paper);stroke:var(--ink)" stroke-width="2"/>
-          <text x="185" y="181" text-anchor="middle" style="fill:var(--ink)" font-size="16" font-weight="600">Init</text>
-          <text x="185" y="199" text-anchor="middle" style="fill:var(--ink-2)" font-size="13">allowed starts</text>
-          <path d="M248 170 C 330 120, 480 110, 600 135" style="stroke:var(--ink);fill:none" stroke-width="2" marker-end="url(#arr)"/>
-          <path d="M248 196 C 360 220, 520 230, 598 238 C 615 240, 610 260, 585 268" style="stroke:var(--ink);fill:none" stroke-width="2" marker-end="url(#arr)"/>
-          <text x="330" y="105" style="fill:var(--ink)" font-size="15">pilot input chosen afresh every 1/128 s</text>
-          <path d="M600 135 C 640 140, 660 150, 690 160" style="stroke:var(--off);fill:none" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrg)"/>
-          <text x="470" y="180" style="fill:var(--off)" font-size="14">without the filter</text>
-          <text x="640" y="58" text-anchor="end" style="fill:var(--magenta)" font-size="14">no margin in the definition:</text>
-          <text x="640" y="75" text-anchor="end" style="fill:var(--magenta)" font-size="14">the line is contact itself</text>
-          <path d="M630 82 C 650 95, 662 108, 670 122" style="stroke:var(--magenta);fill:none" stroke-width="1.5"/>
-        </svg>
-      </div>
-      <figcaption><b>Reachable states never touch the crash set.</b> Any distance kept between the blue region and the red line is the filter's own design choice, not part of the target.</figcaption>
-    </figure>
-  </div>
-  <div class="col">
-    <ul>
-      <li><strong>The pilot is arbitrary:</strong> any control-surface and throttle input in its physical range, chosen afresh every JSBSim frame (1/128 s). The keyboard pilot, the fly-by-wire loop and the kamikaze autopilot are special cases.</li>
-      <li><strong>A crash is actual contact,</strong> between the airframe and a building or the terrain. There is no clearance margin in the definition.</li>
-      <li><strong>Starts are a small, conservative set,</strong> such as steady level flight well clear of everything. Because the pilot is arbitrary, the close calls below are still reachable from such starts.</li>
-    </ul>
-    <p>Terminal sets, "safe forever" sets and flight-envelope limits are deliberately left out of the statement. A proof may use them; the target does not depend on them.<a class="fn" href="#src-3">3</a></p>
-  </div>
-</section>
-
-<section id="gate">
-  <div class="col">
-    <h2>How the gate decides, every 20 ms</h2>
-    <p>The filter predicts with the aircraft itself. Instead of a simplified model, each check copies the exact <code>JsbExact</code> state and flies the copy forward, one JSBSim frame at a time.<a class="fn" href="#src-1">1</a> One tick of the filter:</p>
-    <ol class="tick">
-      <li><strong>Copy</strong> the aircraft's full state.</li>
-      <li><strong>Fly the pilot's input</strong> on the copy for one 20 ms tick.</li>
-      <li><strong>Then fly an escape</strong> on the copy, frame by frame, for up to 16 s. The escape tried first is the last one that passed; if it fails, the others are tried in turn while the tick's frame budget lasts.</li>
-      <li><strong>Check clearance</strong> every 8 frames (1/16 s, about 3 m at 50 m/s): the airframe, a 4.5 m body sphere plus a 0.8 m capsule along the 11 m wing, must stay more than 4 m from every building box and the terrain.</li>
-      <li><strong>Look for an ending that stays safe,</strong> from 6 s into the escape: a climbing ray that clears everything until it is above the map's highest point or off the map, or a steady climbing helix whose ground ring is clear at the current height.</li>
-      <li><strong>Decide.</strong> If some escape passes, the pilot's input goes to the real aircraft. If none does, the aircraft flies the escape that passed on the previous tick, which was checked from exactly the state the aircraft is now in.</li>
-    </ol>
-    <p>Because the committed escape is replayed on the same plant from the same state, it flies exactly the frames that were checked. Each tick spends at most 2,200 JSBSim frames; measured single-threaded on a loaded machine, a tick took 6.4 ms of CPU time at the median and 19.9 ms at the 99th percentile, against a 20 ms tick.<a class="fn" href="#src-1">1</a></p>
-  </div>
-
-  <div class="wide">
-    <figure class="plate">
-      <div class="plate-head"><span>The six escapes and their two endings, plan view</span><span>schematic, not to scale</span></div>
-      <div class="diagram">
-        <svg viewBox="0 0 900 560" role="img" aria-labelledby="fan-t fan-d" class="svgtext">
-          <title id="fan-t">The escape fan</title>
-          <desc id="fan-d">An aircraft in a street, heading north. After one tick of the pilot's input it can try six escapes: a straight climb ending in a climbing ray with a widening corridor; climbing turns left and right at 30 and 40 degrees of bank ending in climbing helices; and a street escape that follows the street, then rolls into a 40 degree helix once its ring is clear.</desc>
-          <defs>
-            <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--ink-2)"/></marker>
-          </defs>
-          <rect x="0" y="0" width="900" height="560" style="fill:var(--paper-2)"/>
-          <g style="fill:var(--b2)">
-            <rect x="320" y="330" width="105" height="105"/><rect x="475" y="330" width="105" height="105"/>
-            <rect x="320" y="210" width="105" height="85"/><rect x="475" y="210" width="105" height="85"/>
-            <rect x="320" y="90" width="105" height="85"/><rect x="475" y="90" width="105" height="85"/>
-            <rect x="185" y="330" width="100" height="105"/><rect x="615" y="330" width="100" height="105"/>
-            <rect x="185" y="210" width="100" height="85"/><rect x="615" y="210" width="100" height="85"/>
-          </g>
-          <!-- pilot tick -->
-          <line x1="450" y1="520" x2="450" y2="488" style="stroke:var(--blue)" stroke-width="6" stroke-linecap="round"/>
-          <path d="M450 532 l-9 14 h18 z" style="fill:var(--ink)"/>
-          <text x="432" y="532" text-anchor="end" style="fill:var(--blue)" font-size="15" font-weight="600">pilot's next 20 ms</text>
-          <!-- straight: climbing ray with widening corridor -->
-          <path d="M450 488 L 440 20 L 460 20 Z" style="fill:var(--ink-2)" opacity="0.13"/>
-          <line x1="450" y1="488" x2="450" y2="20" style="stroke:var(--ink-2)" stroke-width="2" stroke-dasharray="7 5"/>
-          <text x="462" y="40" style="fill:var(--ink)" font-size="15" font-weight="600">straight climb</text>
-          <text x="462" y="58" style="fill:var(--ink-2)" font-size="13">ends in a climbing ray, corridor</text>
-          <text x="462" y="74" style="fill:var(--ink-2)" font-size="13">widening 2% of distance</text>
-          <!-- 30 degree turns: big helices -->
-          <path d="M450 488 C 450 430, 400 400, 300 400" style="stroke:var(--ink-2);fill:none" stroke-width="2"/>
-          <circle cx="235" cy="330" r="95" style="stroke:var(--ink-2);fill:none" stroke-width="2" stroke-dasharray="3 4"/>
-          <path d="M450 488 C 450 430, 500 400, 600 400" style="stroke:var(--ink-2);fill:none" stroke-width="2"/>
-          <circle cx="665" cy="330" r="95" style="stroke:var(--ink-2);fill:none" stroke-width="2" stroke-dasharray="3 4"/>
-          <text x="30" y="470" style="fill:var(--ink)" font-size="15" font-weight="600">left, 30° bank</text>
-          <text x="760" y="470" style="fill:var(--ink)" font-size="15" font-weight="600">right, 30° bank</text>
-          <!-- 40 degree turns: tighter helices -->
-          <path d="M450 488 C 450 450, 420 430, 380 440" style="stroke:var(--ink-2);fill:none" stroke-width="2"/>
-          <circle cx="345" cy="470" r="48" style="stroke:var(--ink-2);fill:none" stroke-width="2" stroke-dasharray="3 4"/>
-          <path d="M450 488 C 450 450, 480 430, 520 440" style="stroke:var(--ink-2);fill:none" stroke-width="2"/>
-          <circle cx="555" cy="470" r="48" style="stroke:var(--ink-2);fill:none" stroke-width="2" stroke-dasharray="3 4"/>
-          <text x="190" y="552" style="fill:var(--ink)" font-size="15" font-weight="600">left, 40°</text>
-          <text x="630" y="552" style="fill:var(--ink)" font-size="15" font-weight="600">right, 40°</text>
-          <!-- street escape: follows the street, then a 40 degree helix -->
-          <path d="M450 488 L 450 190 C 450 150, 470 130, 500 128" style="stroke:var(--green);fill:none" stroke-width="4"/>
-          <circle cx="560" cy="150" r="62" style="stroke:var(--green);fill:none" stroke-width="3" stroke-dasharray="3 4"/>
-          <circle cx="560" cy="150" r="74" style="stroke:var(--green);fill:none" stroke-width="1" opacity="0.6"/>
-          <circle cx="560" cy="150" r="50" style="stroke:var(--green);fill:none" stroke-width="1" opacity="0.6"/>
-          <text x="650" y="120" style="fill:var(--green)" font-size="15" font-weight="600">street escape</text>
-          <text x="650" y="138" style="fill:var(--ink-2)" font-size="13">climbs wings level</text>
-          <text x="650" y="154" style="fill:var(--ink-2)" font-size="13">along the street, then</text>
-          <text x="650" y="170" style="fill:var(--ink-2)" font-size="13">rolls into a 40° helix</text>
-          <text x="650" y="186" style="fill:var(--ink-2)" font-size="13">once its ring is clear</text>
-          <text x="650" y="202" style="fill:var(--ink-2)" font-size="13">by 10 m</text>
-          <text x="30" y="40" style="fill:var(--ink)" font-size="15" font-weight="600">Dashed circles: climbing helices</text>
-          <text x="30" y="58" style="fill:var(--ink-2)" font-size="13">steady radius and centre</text>
-          <text x="30" y="74" style="fill:var(--ink-2)" font-size="13">over two 2 s windows,</text>
-          <text x="30" y="90" style="fill:var(--ink-2)" font-size="13">climbing at least 1 m/s;</text>
-          <text x="30" y="106" style="fill:var(--ink-2)" font-size="13">ground ring, widened for</text>
-          <text x="30" y="122" style="fill:var(--ink-2)" font-size="13">drift, clear at this height</text>
-        </svg>
-      </div>
-      <figcaption><b>Six escapes, two kinds of ending.</b> Turning escapes start with a pull-up of at least 1.5 s. The street escape applies when the track is within 25° of a street axis.<a class="fn" href="#src-1">1</a> Here the street escape (green) is the one that passes; the others are drawn neutral. Both endings are checked numerically; neither is a proof that the aircraft, flying on, stays on the ray or helix.<a class="fn" href="#src-4">4</a></figcaption>
-    </figure>
-  </div>
-
-  <div class="wide">
-    <div class="pair">
-      <figure class="shot">
-        <img src="media/paths-verified.jpg" width="1280" height="768" loading="lazy" alt="Chase view of the aircraft threading the street between towers, a green ribbon ahead showing a rollout that passed.">
-        <figcaption><b>t = 2.50 s, pilot in control.</b> The pilot has just started the right bank. Green: the latest rollout, "pilot's input, then the street escape", passed. Blue trail: the pilot was flying.</figcaption>
-      </figure>
-      <figure class="shot">
-        <img src="media/paths-committed.jpg" width="1280" height="768" loading="lazy" alt="Chase view a moment later: the aircraft is banked right, and a yellow-orange ribbon ahead shows the escape the filter has committed to.">
-        <figcaption><b>t = 2.82 s, filter flying.</b> The pilot banked toward the 352 m tower; no rollout passed after that input, so the aircraft flies the escape checked on the previous tick (yellow). Red: the latest rollout that failed, the pilot's input followed by an escape.</figcaption>
-      </figure>
-    </div>
-    <p class="note">Reproduce: the frames at t = 2.50 s and 2.82 s of <code>make record OUT=/tmp/paths ARGS="--showcase --record-from 140 --frames 175 --record-scale 2"</code>. The clips below are t = 1.7 to 6.3 s of the Tower gap recordings in the close-call players further down, at real speed.</p>
-  </div>
-</section>
-
-<section id="tower-gap">
-  <div class="col">
-    <h2>One close call, end to end: Tower gap</h2>
-    <p>The scenario starts the aircraft at 45 m/s, 88 m above a 28 m wide street that runs north between a 261 m and a 292 m tower, then between a 235 m and a 352 m tower. The scripted showcase pilot holds the centreline through both gaps, then banks hard right into the 352 m tower and holds the bank for 5 s.<a class="fn" href="#src-1">1</a></p>
-    <p>The same start and the same pilot were replayed twice for this page, once with the filter and once without, on the current code.<a class="fn" href="#src-5">5</a></p>
-  </div>
-  <div class="wide">
-    <figure class="plate" id="plate">
-      <div class="plate-head"><span>Tower gap, showcase pilot</span><span>replayed headless, first 9 s</span></div>
-      <div class="plate-body">
-        <div>
-          <svg id="plan" role="img" aria-labelledby="plan-t" class="svgtext"><title id="plan-t">Plan view of the Tower gap runs</title></svg>
-          <ul class="key">
-            <li><i style="background:var(--blue)"></i>pilot flying</li>
-            <li><i style="background:var(--amber)"></i>filter flying an escape</li>
-            <li><i style="background:var(--off)"></i>filter off</li>
-          </ul>
-        </div>
-        <div>
-          <div class="diagram-inner"><svg id="profile" role="img" aria-labelledby="prof-t" class="svgtext"><title id="prof-t">Clearance over time, filter on and off</title></svg></div>
-        </div>
-      </div>
-      <figcaption><b>Plan view (north up, building footprints shaded by height) and clearance over time.</b> Thin dashed amber: the escape as the filter had checked it when it took over, at 2.72 s (a street climb, then a left helix). It hands back at 6.40 s, once the pilot's input leaves a checked way out again, takes over once more from 6.68 to 7.90 s, and not again in the 60 s run. Tower labels are roof heights. Clearance is the demo's own measure, sampled once per 20 ms tick: the gap between the airframe (4.5 m body sphere plus the wing capsule) and the nearest building or terrain. Below zero is contact.</figcaption>
-    </figure>
-  </div>
-  <div class="wide">
-    <div class="pair">
-      <figure>
-        <p class="clip-label"><span class="dot" style="background:var(--green)"></span>Filter on</p>
-        <video id="v-on" src="media/tower-gap-on.mp4" muted loop playsinline autoplay preload="metadata" poster="media/tower-gap-on.jpg" aria-label="Filter on: the aircraft banks toward the tower, the filter takes over, rolls level and climbs out along the street."></video>
-        <figcaption>t = 1.7 to 6.3 s, real time. Takeover at 2.72 s; minimum clearance <b>5.61 m</b> at 5.92 s; no contact in 60 s.</figcaption>
-      </figure>
-      <figure>
-        <p class="clip-label"><span class="dot" style="background:var(--red)"></span>Filter off</p>
-        <video id="v-off" src="media/tower-gap-off.mp4" muted loop playsinline autoplay preload="metadata" poster="media/tower-gap-off.jpg" aria-label="Filter off: the same pilot banks into the tower and hits it."></video>
-        <figcaption>Same start and pilot, filter off (<code>make fly-off</code>). The hard right bank carries the aircraft past the 352 m tower into the next block: contact with a building there at <b>t = 5.64 s</b>.</figcaption>
-      </figure>
-    </div>
-    <button class="replay" id="replay" type="button">Restart both clips together</button>
-  </div>
-  <div class="col">
-    <p class="aside">The closest approach, 5.61 m, stays above the 4 m every checked rollout must keep at its samples. That 4 m is a design margin, not a bound: the Rust gate checks clearance only every 1/16 s along a rollout, and nothing bounds it in between.</p>
-  </div>
-</section>
-
-<section id="close-calls">
-  <div class="col">
-    <h2>Close calls</h2>
-    <p>Each player below is a recording of the demo, synced to the clearance it measured at every frame: the gap between the airframe envelope (a 4.5 m sphere round the centre of gravity plus a 0.8 m capsule along the wing) and the nearest building or ground. Below zero is contact. Drag along the chart, or drag sideways across the video, to scrub; click the chart to seek. Where a card has more than one run, the tabs switch between them on the same timeline and the chart shows them all.</p>
-    <p>The first four come from the boundary-regime showcase (<code>docs/boundary-regimes/SHOWCASE.md</code>): a pilot lets go of the sticks heading straight for an obstacle, from the closest start where one of the gate's escapes still avoids contact. They run the gate with its margin set to zero and clearance checked at every JSBSim frame (<code>--margin 0 --check-every 1</code>), the variant that matches the safety objective. <strong>That zero-margin gate is not the deployed one</strong>, which keeps 4 m and checks every 8th frame; the first card puts the two side by side. Each also has a twin: a start a hair closer that no escape gets out of, which hits with the filter on.</p>
-    <p>Commands run from the repository root; <code>make fly</code> flies the deployed gate, <code>--safety-filter exact-rollout</code>, unless the flags change it. The clips were recorded frame by frame with <code>make record</code> (added in PR #53; the same flags plus <code>--record-every 2 --record-scale 2 --frames N</code>), stepping 1/60 s of simulated time per frame, so they play in real time and replay identically: <code>make present-media</code> rebuilds every clip and chart on this page from <code>docs/explainer/clips.json</code>.</p>
-  </div>
-  <div class="wide">
-    <div class="ccs">
-    <figure class="cc" id="cc-parkdive" data-clips='[{"id": "parkdive", "label": "Zero-margin gate: saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "parkdive-twin", "label": "Twin: 0.5 m lower, hits", "short": "twin", "color": "var(--red)", "offset": 3}, {"id": "parkdive-deployed", "label": "Deployed gate (4 m margin): 4.3 m higher", "short": "deployed", "color": "var(--blue)", "offset": 0}]' data-ymax="20" data-margin="4">
+<section class="slide" id="s-cc-parkdive" data-nav="A 35° dive into the park" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 5 · zero-margin gate against the deployed gate</p>
+  <h2>A 35° dive into the park</h2>
+  <figure class="cc" id="cc-parkdive" data-clips='[{"id": "parkdive", "label": "Zero-margin gate: saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "parkdive-twin", "label": "Twin: 0.5 m lower, hits", "short": "twin", "color": "var(--red)", "offset": 3}, {"id": "parkdive-deployed", "label": "Deployed gate (4 m margin): 4.3 m higher", "short": "deployed", "color": "var(--blue)", "offset": 0}]' data-ymax="20" data-margin="4">
       <div class="cc-head">
         <h3><span class="kicker">Showcase 5 · zero-margin gate against the deployed gate</span>A 35° dive into the park</h3>
         <div class="mins"><b>0.05 m</b><span>closest, zero-margin gate, at 6.90 s</span></div>
@@ -559,14 +440,20 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <li><i style="background:var(--amber)"></i>filter flying its escape</li>
         <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
       </ul>
-      <p class="cc-text">At 50 m/s in a 35° dive at the park between the towers, the pilot's hands are off and the fly-by-wire holds the dive. The run starts 3 s before the slice's start point (<code>--lead 3</code>). The gate takes over and bottoms out <strong>0.05 m</strong> above the park at 6.90 s. The twin starts at the slice point itself, 0.5 m lower: nothing verifies, and it hits the park 1.27 s later with the filter on. The deployed gate, with its 4 m margin, accepts starts only from 4.3 m higher on this slice; from there it flies the same pull-out and bottoms out at <strong>3.87 m</strong>, a little inside its margin, because the margin is kept only at the points it checks along each rollout.</p>
-      <p class="repro">
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">At 50 m/s in a 35° dive at the park between the towers, the pilot's hands are off and the fly-by-wire holds the dive. The run starts 3 s before the slice's start point (<code>--lead 3</code>). The gate takes over and bottoms out <strong>0.05 m</strong> above the park at 6.90 s. The twin starts at the slice point itself, 0.5 m lower: nothing verifies, and it hits the park 1.27 s later with the filter on. The deployed gate, with its 4 m margin, accepts starts only from 4.3 m higher on this slice; from there it flies the same pull-out and bottoms out at <strong>3.87 m</strong>, a little inside its margin, because the margin is kept only at the points it checks along each rollout.</p><p class="repro">
         <span>Zero-margin, saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,36.14,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
         <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,35.64,50.00,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
         <span>Deployed gate: <code>make fly ARGS="--time-cap 0 --start -360.00,260.00,40.40,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
-      </p>
+      </p></details>
     </figure>
-    <figure class="cc" id="cc-wallbeside" data-clips='[{"id": "wallbeside", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "wallbeside-twin", "label": "Twin: 0.5 m closer, hits", "short": "twin", "color": "var(--red)", "offset": 0}]' data-ymax="15">
+</section>
+
+<section class="slide" id="s-cc-wallbeside" data-nav="Wingtip against the glass" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 2 · zero-margin gate, not the deployed one</p>
+  <h2>Wingtip against the glass</h2>
+  <figure class="cc" id="cc-wallbeside" data-clips='[{"id": "wallbeside", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "wallbeside-twin", "label": "Twin: 0.5 m closer, hits", "short": "twin", "color": "var(--red)", "offset": 0}]' data-ymax="15">
       <div class="cc-head">
         <h3><span class="kicker">Showcase 2 · zero-margin gate, not the deployed one</span>Wingtip against the glass</h3>
         <div class="mins"><b>0.03 m</b><span>closest, at 1.60 s</span></div>
@@ -588,13 +475,19 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <li><i style="background:var(--amber)"></i>filter flying its escape</li>
         <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
       </ul>
-      <p class="cc-text">Drifting 10° into an 87 m tower face from 12 m away at 45 m/s. The filter rolls away into its left 40° escape, and the airframe envelope passes the glass with <strong>0.03 m</strong> to spare at 1.60 s. Half a metre closer, the twin hits the face 1.40 s in with the filter on.</p>
-      <p class="repro">
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">Drifting 10° into an 87 m tower face from 12 m away at 45 m/s. The filter rolls away into its left 40° escape, and the airframe envelope passes the glass with <strong>0.03 m</strong> to spare at 1.60 s. Half a metre closer, the twin hits the face 1.40 s in with the filter on.</p><p class="repro">
         <span>Saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths"</code></span>
         <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
-      </p>
+      </p></details>
     </figure>
-    <figure class="cc" id="cc-fastdive" data-clips='[{"id": "fastdive", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "fastdive-twin", "label": "Twin: 0.5 m/s faster, hits", "short": "twin", "color": "var(--red)", "offset": 3}]' data-ymax="20">
+</section>
+
+<section class="slide" id="s-cc-fastdive" data-nav="A 67 m/s dive at the park" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 3 · zero-margin gate, not the deployed one</p>
+  <h2>A 67 m/s dive at the park</h2>
+  <figure class="cc" id="cc-fastdive" data-clips='[{"id": "fastdive", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "fastdive-twin", "label": "Twin: 0.5 m/s faster, hits", "short": "twin", "color": "var(--red)", "offset": 3}]' data-ymax="20">
       <div class="cc-head">
         <h3><span class="kicker">Showcase 3 · zero-margin gate, not the deployed one</span>A 67 m/s dive at the park</h3>
         <div class="mins"><b>0.01 m</b><span>closest, at 4.83 s</span></div>
@@ -616,13 +509,19 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <li><i style="background:var(--amber)"></i>filter flying its escape</li>
         <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
       </ul>
-      <p class="cc-text">A 35° dive at 66.9 m/s (130 knots) toward the park between the towers, starting 3 s before the slice point. The pull-out bottoms out <strong>0.01 m</strong> above the park at 4.83 s, the tightest save on this page. The twin is 0.5 m/s faster at the slice point: no escape verifies, and it hits the ground 1.73 s after its start with the filter on. Here the limit is the escape law's 3.5 g pull, not physics.</p>
-      <p class="repro">
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">A 35° dive at 66.9 m/s (130 knots) toward the park between the towers, starting 3 s before the slice point. The pull-out bottoms out <strong>0.01 m</strong> above the park at 4.83 s, the tightest save on this page. The twin is 0.5 m/s faster at the slice point: no escape verifies, and it hits the ground 1.73 s after its start with the filter on. Here the limit is the escape law's 3.5 g pull, not physics.</p><p class="repro">
         <span>Saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,66.88,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
         <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,67.38,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
-      </p>
+      </p></details>
     </figure>
-    <figure class="cc" id="cc-wallahead" data-clips='[{"id": "wallahead", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "wallahead-twin", "label": "Twin: 0.5 m closer, hits", "short": "twin", "color": "var(--red)", "offset": 2}]' data-ymax="20">
+</section>
+
+<section class="slide" id="s-cc-wallahead" data-nav="Head-on at the tower" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Showcase 7 · zero-margin gate, not the deployed one</p>
+  <h2>Head-on at the tower</h2>
+  <figure class="cc" id="cc-wallahead" data-clips='[{"id": "wallahead", "label": "Saved", "short": "saved", "color": "var(--green)", "offset": 0}, {"id": "wallahead-twin", "label": "Twin: 0.5 m closer, hits", "short": "twin", "color": "var(--red)", "offset": 2}]' data-ymax="20">
       <div class="cc-head">
         <h3><span class="kicker">Showcase 7 · zero-margin gate, not the deployed one</span>Head-on at the tower</h3>
         <div class="mins"><b>0.86 m</b><span>closest, at 6.67 s</span></div>
@@ -644,13 +543,19 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <li><i style="background:var(--amber)"></i>filter flying its escape</li>
         <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
       </ul>
-      <p class="cc-text">Straight at an 87 m tower face across the park at 45 m/s, starting 2 s before the slice point. The filter takes over and climbs away in a 40° left bank, skimming over the roof with <strong>0.86 m</strong> to spare at 6.67 s. Half a metre further in, nothing verifies and the fallback escape, flown blind, meets the face 5.77 s after the twin's start.</p>
-      <p class="repro">
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">Straight at an 87 m tower face across the park at 45 m/s, starting 2 s before the slice point. The filter takes over and climbs away in a 40° left bank, skimming over the roof with <strong>0.86 m</strong> to spare at 6.67 s. Half a metre further in, nothing verifies and the fallback escape, flown blind, meets the face 5.77 s after the twin's start.</p><p class="repro">
         <span>Saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -399.19,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --lead 2 --cinematic --cam 0 --paths"</code></span>
         <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -398.69,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
-      </p>
+      </p></details>
     </figure>
-    <figure class="cc" id="cc-towergap" data-clips='[{"id": "towergap", "label": "Filter on", "short": "filter on", "color": "var(--green)", "offset": 0}, {"id": "towergap-off", "label": "Filter off, hits", "short": "filter off", "color": "var(--red)", "offset": 0}]' data-ymax="30" data-margin="4">
+</section>
+
+<section class="slide" id="s-cc-towergap" data-nav="Tower gap, banking into a 352 m tower" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Scenario 5 · deployed gate · scripted showcase pilot</p>
+  <h2>Tower gap, banking into a 352 m tower</h2>
+  <figure class="cc" id="cc-towergap" data-clips='[{"id": "towergap", "label": "Filter on", "short": "filter on", "color": "var(--green)", "offset": 0}, {"id": "towergap-off", "label": "Filter off, hits", "short": "filter off", "color": "var(--red)", "offset": 0}]' data-ymax="30" data-margin="4">
       <div class="cc-head">
         <h3><span class="kicker">Scenario 5 · deployed gate · scripted showcase pilot</span>Tower gap, banking into a 352 m tower</h3>
         <div class="mins"><b>5.61 m</b><span>closest, at 5.93 s</span></div>
@@ -673,13 +578,19 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <li><i style="background:var(--off)"></i>filter off</li>
         <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
       </ul>
-      <p class="cc-text">The scenario from the section above, flown with the deployed gate (4 m margin, the default of <code>make fly</code>) and recorded fresh. The scripted pilot holds the street centreline through both gaps, then banks hard right toward the 352 m tower and holds the bank. The filter takes over at 2.73 s, and the closest the airframe comes to anything in these 20 s is <strong>5.61 m</strong> at 5.93 s. With the filter off, the same pilot hits a building at 5.63 s.</p>
-      <p class="repro">
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">The scenario from the section above, flown with the deployed gate (4 m margin, the default of <code>make fly</code>) and recorded fresh. The scripted pilot holds the street centreline through both gaps, then banks hard right toward the 352 m tower and holds the bank. The filter takes over at 2.73 s, and the closest the airframe comes to anything in these 20 s is <strong>5.61 m</strong> at 5.93 s. With the filter off, the same pilot hits a building at 5.63 s.</p><p class="repro">
         <span>Filter on: <code>make fly ARGS="--time-cap 0 --showcase --cinematic --paths"</code> (or <code>make showcase</code>)</span>
         <span>Filter off: <code>make fly ARGS="--time-cap 0 --showcase --cinematic --paths --off"</code></span>
-      </p>
+      </p></details>
     </figure>
-    <figure class="cc" id="cc-kamikaze" data-clips='[{"id": "kamikaze", "label": "Filter on", "short": "filter on", "color": "var(--green)", "offset": 0}]' data-ymax="30" data-margin="4">
+</section>
+
+<section class="slide" id="s-cc-kamikaze" data-nav="A kamikaze autopilot, the first 24 s of its run" data-group="Close calls" hidden>
+  <p class="kicker">Close call · Episode 1004 · deployed gate · kamikaze autopilot</p>
+  <h2>A kamikaze autopilot, the first 24 s of its run</h2>
+  <figure class="cc" id="cc-kamikaze" data-clips='[{"id": "kamikaze", "label": "Filter on", "short": "filter on", "color": "var(--green)", "offset": 0}]' data-ymax="30" data-margin="4">
       <div class="cc-head">
         <h3><span class="kicker">Episode 1004 · deployed gate · kamikaze autopilot</span>A kamikaze autopilot, the first 24 s of its run</h3>
         <div class="mins"><b>4.04 m</b><span>closest in 60 s, at 8.27 s</span></div>
@@ -700,24 +611,19 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <li><i style="background:var(--amber)"></i>filter flying its escape</li>
         <li><i style="background:var(--red)"></i>contact (clearance 0)</li>
       </ul>
-      <p class="cc-text">The kamikaze autopilot picks a building (or now and then a point on the ground), flies straight at it at full throttle, and picks a new target every 12 to 25 s or once it passes. This run starts at the Tower gap scenario's start, with the deployed gate. The clip is the first 24 s of the 60 s run, around its closest moment: <strong>4.04 m</strong> at 8.27 s, just outside the 4 m margin the gate keeps at the points it checks along each rollout. With the filter off, the same autopilot hits a building at 4.82 s.</p>
-      <p class="repro">
+      
+      
+    <details class="more"><summary>About this run</summary><p class="cc-text">The kamikaze autopilot picks a building (or now and then a point on the ground), flies straight at it at full throttle, and picks a new target every 12 to 25 s or once it passes. This run starts at the Tower gap scenario's start, with the deployed gate. The clip is the first 24 s of the 60 s run, around its closest moment: <strong>4.04 m</strong> at 8.27 s, just outside the 4 m margin the gate keeps at the points it checks along each rollout. With the filter off, the same autopilot hits a building at 4.82 s.</p><p class="repro">
         <span>Filter on: <code>make fly ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths"</code>; this clip is <code>--frames 1440</code> of the recording</span>
         <span>Filter off (contact at 4.82 s): <code>make fly ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths --off"</code></span>
-      </p>
+      </p></details>
     </figure>
-    </div>
-  </div>
 </section>
 
-<section id="proof">
-  <div class="col">
-    <h2>How the proof works</h2>
-    <p>The safety argument has three parts. Each one is drawn below on footage the demo recorded frame by frame, from the gate's own numbers at each frame: what it had checked, and what it was flying.<a class="fn" href="#src-6">6</a> Drag the slider under a clip to scrub; the drawing follows. Each part says what is proved, what is only tested, and what is still assumed.</p>
-  </div>
-
-  <div class="wide">
-    <figure class="plate" id="pf-way">
+<section class="slide" id="s-pf-way" data-nav="1. Always a way out" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>1. Always a way out</h2>
+  <figure class="plate pf" id="pf-way">
       <div class="plate-head"><span>1. Always a way out</span><span>Tower gap, showcase pilot, t = 1.0 to 10.0 s</span></div>
       <div class="pf-body">
         <div class="cc-stage pf-stage" data-clip="towergap" data-view="way" data-start="50">
@@ -732,18 +638,21 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <span class="cc-time">t = 1.00 s</span>
         <p class="pf-status" aria-live="polite"></p>
       </div>
-      <p class="badge conditional"><b>Proved, conditionally</b><span>Proved in Lean for the Lean version of this gate, provided the end-of-escape check (2) is sound. It isn't yet always sound: 34 failures found, fixes in progress.</span></p>
-      <figcaption><b>Every frame, the gate keeps a checked way out, and lets the pilot do anything that still leaves one.</b> Green ribbon: the way out checked from this frame, meaning the pilot's next 20 ms followed by an escape, flown on an exact copy of the aircraft. When the pilot's input leaves no way out that passes (red dashes: the input, then an escape, failing the check), the gate flies the ribbon it already had, now amber. It was checked from exactly this state, so the aircraft flies exactly what was checked. Ribbon drawn faint where a building hides it. The strip under the slider is blue while the pilot flies and amber while the gate does.</figcaption>
+      <p class="badge conditional"><b>Conditional</b><span>Lean checks the implication: if every state the end-of-escape check accepts is safe forever, no pilot input can crash the aircraft. That condition does not hold yet; fixes in progress.</span></p>
+      <figcaption><b>Every frame, the gate keeps a checked way out, and lets the pilot do anything that still leaves one.</b></figcaption>
       <details class="precise">
-        <summary>The precise statement</summary>
+        <summary>More</summary>
+        <p>Green ribbon: the way out checked from this frame, meaning the pilot's next 20 ms followed by an escape, flown on an exact copy of the aircraft. When the pilot's input leaves no way out that passes (red dashes: the input, then an escape, failing the check), the gate flies the ribbon it already had, now amber. It was checked from exactly this state, so the aircraft flies exactly what was checked. Ribbon drawn faint where a building hides it. The strip under the slider is blue while the pilot flies and amber while the gate does.</p>
         <p><code>CityGate.city_safe_R</code>: if the end-of-escape test is sound (<code>TermSoundR</code>, part 2), then from an allowed start, whatever the pilot does at every JSBSim frame, no state the gate lets the aircraft reach is a <code>Crash</code>: a 6 m cube around the aircraft touching a building or the terrain. Kernel-checked; the induction behind it (<code>GateSafety</code>) never looks inside the escapes or the end test.</p>
-        <p>The theorem is about the Lean version of the gate (<code>--safety-filter exact-rollout-lean</code>), which checks clearance at every frame in exact arithmetic. The footage shows the Rust gate (<code>exact-rollout</code>, the demo's default), which runs the same rules but is not the proved code. And the condition does not hold yet: part 2 lists the 34 failures of the end-of-escape check found so far.<a class="fn" href="#src-6">6</a></p>
+        <p>The theorem is about the Lean version of the gate (<code>--safety-filter exact-rollout-lean</code>), which checks clearance at every frame in exact arithmetic. The footage shows the Rust gate (<code>exact-rollout</code>, the demo's default), which runs the same rules but is not the code the theorem covers. And the condition does not hold yet: part 2 lists the 34 failures of the end-of-escape check found so far.<a class="fn" href="#src-6">6</a></p>
       </details>
     </figure>
-  </div>
+</section>
 
-  <div class="wide">
-    <figure class="plate" id="pf-end">
+<section class="slide" id="s-pf-end" data-nav="2. Safe forever at the end" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>2. Safe forever at the end</h2>
+  <figure class="plate pf" id="pf-end">
       <div class="plate-head"><span>2. Safe forever at the end</span><span>same run, camera 650 m up and 250 m behind</span></div>
       <div class="pf-body side">
         <div class="cc-stage pf-stage" data-clip="towergap-high" data-view="end" data-start="160">
@@ -763,11 +672,12 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <span class="cc-time">t = 1.00 s</span>
         <p class="pf-status" aria-live="polite"></p>
       </div>
-      <p class="badge assumed"><b>Assumed</b><span>Assumed (the open proof obligation, <code>TermSoundR</code>). Tested: crash hunts found 34 escapes that passed this check and touched something 12–388 s later, all circling endings, from three causes (a slow descent the law settles into, circle radius drifting as speed changes, the street escape rolling into a circle after its straight ending). Fixes are in progress; informal proof in progress.</span></p>
-      <figcaption><b>An escape counts only if it ends in a steady climb whose path is clear of everything below, forever.</b> Purple coil: the climbing circle the escape has settled into when its check passes, with the radius, centre and climb rate the gate's end test measured. Shaded ring: everything under it, buildings and hillside, must be at least 8.5 m (body plus margin) below where the circle starts; as long as the aircraft keeps climbing on that circle, it stays clear for good. A straight escape ends instead in a climbing corridor, clear until it is above the map's highest point, 927 m. In this clip, the circle flown on for two more minutes keeps climbing, at 1.9 m/s at the end.<a class="fn" href="#src-6">6</a></figcaption>
+      <p class="badge assumed"><b>Assumed</b><span>Assumed (the open obligation, <code>TermSoundR</code>). Tested: crash hunts found 34 escapes that passed this check and touched something 12–388 s later, all circling endings, from three causes (a slow descent the law settles into, circle radius drifting as speed changes, the street escape rolling into a circle after its straight ending). Fixes are in progress; an informal argument is in progress.</span></p>
+      <figcaption><b>An escape counts only if it ends in a steady climb whose path is clear of everything below, forever.</b></figcaption>
       <details class="precise">
-        <summary>The precise statement</summary>
-        <p><code>TermSoundR</code>: whenever the end-of-escape test passes on a real rollout of an escape the gate proposes, flying that escape on never crashes. It is a hypothesis of <code>city_safe_R</code>, not yet a theorem. The geometry half is proved in Lean: given bounds on how far the aircraft drifts from the circle or the corridor, nothing under them is ever hit. The dynamics half, that the aircraft stays inside those bounds forever, is not. The crash hunts found 34 escapes that passed the check and later touched something, all with circling endings, from three causes:</p>
+        <summary>More</summary>
+        <p>Purple coil: the climbing circle the escape has settled into when its check passes, with the radius, centre and climb rate the gate's end test measured. Shaded ring: everything under it, buildings and hillside, must be at least 8.5 m (body plus margin) below where the circle starts; as long as the aircraft keeps climbing on that circle, it stays clear for good. A straight escape ends instead in a climbing corridor, clear until it is above the map's highest point, 927 m. In this clip, the circle flown on for two more minutes keeps climbing, at 1.9 m/s at the end.<a class="fn" href="#src-6">6</a></p>
+        <p><code>TermSoundR</code>: whenever the end-of-escape test passes on a real rollout of an escape the gate proposes, flying that escape on never crashes. It is a hypothesis of <code>city_safe_R</code>, not yet a theorem. The geometry half is checked in Lean: given bounds on how far the aircraft drifts from the circle or the corridor, nothing under them is ever hit. The dynamics half, that the aircraft stays inside those bounds forever, is not. The crash hunts found 34 escapes that passed the check and later touched something, all with circling endings, from three causes:</p>
         <ul>
           <li><strong>A slow descent the law settles into.</strong> At about 33 to 37 m/s the 30° and 40° circles settle into a descent of 1.7 to 3.2 m/s; the 2 s windows the check compares caught a brief climb paid for with airspeed.</li>
           <li><strong>The circle's radius drifts as the speed changes.</strong> The speed had not settled, and the radius grows with the square of the speed, so the circle flown is not the one checked (in one case 177 m shrinking to 139 m, into a tower).</li>
@@ -776,10 +686,12 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <p>Fixes to the escape laws and the check are in progress. The Lean gate's straight ending, after an earlier fix, held in all 626 cases.<a class="fn" href="#src-7">7</a></p>
       </details>
     </figure>
-  </div>
+</section>
 
-  <div class="wide">
-    <figure class="plate" id="pf-settle">
+<section class="slide" id="s-pf-settle" data-nav="3. Settling" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>3. Settling</h2>
+  <figure class="plate pf" id="pf-settle">
       <div class="plate-head"><span>3. Settling</span><span>Dive, kamikaze autopilot, t = 52.5 to 60.0 s</span></div>
       <div class="pf-body side">
         <div class="cc-stage pf-stage" data-clip="dive" data-view="settle" data-start="40">
@@ -799,23 +711,60 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         <span class="cc-time">t = 53.00 s</span>
         <p class="pf-status" aria-live="polite"></p>
       </div>
-      <p class="badge informal"><b>In progress</b><span>In progress: the proof is being reworked to show the aircraft can't leave a band that stays above everything, rather than that it settles; numbers measured, not proved.</span></p>
-      <figcaption><b>Once the escape takes over, wobbles die out, and small errors can't build up.</b> The curve is this takeover's escape flown on from the takeover with nobody else at the controls, which is exactly what the aircraft flies for as long as the gate keeps it; here the gate flies it for 5.9 s, then hands back. Distance 1 is the edge of the settled box: speed and climb rate within 0.5 m/s of the steady climb's, bank, heading and turn rate within 0.02 rad (about 1°). This escape, a climbing 40° turn entered at 70 m/s, takes about 37 s to settle, into a circle climbing 2.2 m/s. The ring shows how much nudging a law that shrinks errors to 0.902 of their size each second can absorb.</figcaption>
+      <p class="badge informal"><b>In progress</b><span>In progress: the argument is being reworked to show the aircraft can't leave a band that stays above everything, rather than that it settles; numbers measured, not formally checked.</span></p>
+      <figcaption><b>Once the escape takes over, wobbles die out, and small errors can't build up.</b></figcaption>
       <details class="precise">
-        <summary>The precise statement</summary>
-        <p>The proof needs a set around each steady climb that the escape never leaves, even with small errors each frame: a contraction certificate. The measured numbers so far are for the straight escape, not for circling escapes like the one in this clip. For a proposed final climb phase of the straight escape (specified in <code>docs/escape-law-terminal.md</code>, not yet flying in the demo), the measured worst one-second factor is 0.902 in one norm over 10 to 1,000 m, for the linear part only. That law settles 48 of 48 test starts within 16 s (median 10.0 s); today's law settles 14 of 48 (median 18.8 s). Per 1/128 s frame the slowest error shrinks by only about 0.17%, which is why the certificates step a second at a time. The covering bound on the nonlinear part is not closed yet (the level-trim certificate's first pass gives 9.79 where it needs below 1).<a class="fn" href="#src-7">7</a></p>
+        <summary>More</summary>
+        <p>The curve is this takeover's escape flown on from the takeover with nobody else at the controls, which is exactly what the aircraft flies for as long as the gate keeps it; here the gate flies it for 5.9 s, then hands back. Distance 1 is the edge of the settled box: speed and climb rate within 0.5 m/s of the steady climb's, bank, heading and turn rate within 0.02 rad (about 1°). This escape, a climbing 40° turn entered at 70 m/s, takes about 37 s to settle, into a circle climbing 2.2 m/s. The ring shows how much nudging a law that shrinks errors to 0.902 of their size each second can absorb.</p>
+        <p>The argument needs a set around each steady climb that the escape never leaves, even with small errors each frame: a contraction certificate. The measured numbers so far are for the straight escape, not for circling escapes like the one in this clip. For a proposed final climb phase of the straight escape (specified in <code>docs/escape-law-terminal.md</code>, not yet flying in the demo), the measured worst one-second factor is 0.902 in one norm over 10 to 1,000 m, for the linear part only. That law settles 48 of 48 test starts within 16 s (median 10.0 s); today's law settles 14 of 48 (median 18.8 s). Per 1/128 s frame the slowest error shrinks by only about 0.17%, which is why the certificates step a second at a time. The covering bound on the nonlinear part is not closed yet (the level-trim certificate's first pass gives 9.79 where it needs below 1).<a class="fn" href="#src-7">7</a></p>
       </details>
     </figure>
-  </div>
 </section>
 
-<section id="evidence">
-  <div class="col">
-    <h2>The evidence</h2>
-    <p>The gate is tested, and the tests are adversarial. The main harness flies 200 hostile episodes from random starts (a quarter with the kamikaze autopilot), plus the kamikaze autopilot in each named scenario, all on the JSBSim aircraft. A start counts as verified when the filter accepts the pilot's first tick.<a class="fn" href="#src-1">1</a></p>
+<section class="slide" id="s-dome" data-nav="The circle-safe dome" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>The circle-safe dome</h2>
+  <p class="sub">An escape may end in a climbing circle only above this surface: the lowest height at which a circle around each point clears everything under its ring.</p>
+  <figure class="plate pf" id="pf-dome">
+    <div class="pf-body side">
+      <div class="cc-stage pf-stage" data-clip="towergap-high" data-view="dome" data-start="160">
+        <video src="media/proof-towergap-high.mp4" poster="media/proof-towergap-high.jpg" muted playsinline preload="metadata" aria-label="High view of downtown with the circle-safe dome drawn over it."></video>
+        <svg class="pf-ov" aria-hidden="true"></svg>
+        <span class="pf-tag" hidden></span>
+      </div>
+      <div class="pf-aside"><h4>From above <span class="dome-pick"></span></h4><canvas class="dome-map" width="360" height="360"></canvas><p class="dome-note"></p></div>
+    </div>
+    <div class="cc-bar pf-ctl">
+      <button class="cc-play" type="button">Play</button>
+      <div class="pf-track"><div class="pf-strip" aria-hidden="true"></div><input class="pf-scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub through the high Tower gap clip"></div>
+      <span class="cc-time">t = 1.00 s</span>
+      <p class="pf-status" aria-live="polite"></p>
+    </div>
+    <figcaption><b>An escape may end only above this surface.</b> Computed with the gate's own circle test (<code>make dome</code>); the faint line above is the flat ceiling, 935 m, above which everything is clear.</figcaption>
+  </figure>
+</section>
+
+<section class="slide" id="s-lean" data-nav="In Lean" data-group="Why it can't crash" hidden>
+  <p class="kicker">Why it can't crash, and the one open condition</p>
+  <h2>In Lean: the statement, and its two conditions</h2>
+  <div class="lean">
+    <p class="lean-what">No reachable state is a crash:</p>
+    <pre><code>def Safe (M : CityMap) (F : Filter) : Prop :=
+  ∀ p, Reach F p → ¬ Crash M p.1</code></pre>
+    <p class="lean-what">The open condition: whenever the end-of-escape test passes on the gate's own rollout, flying on never crashes:</p>
+    <pre><code>def TermSoundR : Prop :=
+  ∀ x, Origin G Init x → ∀ n, G.term (G.flyN n x) = true → SafeForever G Crash (G.flyN n x)</code></pre>
+    <p class="lean-what">The headline theorem:</p>
+    <pre><code>theorem cityGate_spec_safe_of_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded) :
+    CitySafety.Safe cityMap specFilter</code></pre>
   </div>
-  <div class="wide">
-    <div class="tablewrap">
+  <p class="badge conditional"><b>Conditional</b><span>Lean-checked, conditional on <code>TermSoundR</code> (not yet true for today's end test) and <code>TbBounded</code>.</span></p>
+</section>
+
+<section class="slide" id="s-evidence" data-nav="The evidence" hidden>
+  <h2>The evidence</h2>
+  <p class="sub">200 hostile episodes from random starts, a quarter of them kamikaze, plus the kamikaze autopilot in each named scenario (from <code>flight/README.md</code>).</p>
+  <div class="tablewrap">
       <table>
         <thead>
           <tr><th>Filter, on the JSBSim aircraft</th><th class="n">Crashes in 200 episodes</th><th class="n">Kamikaze crashes</th><th class="n">Ticks with the filter flying</th></tr>
@@ -828,217 +777,8 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         </tbody>
       </table>
     </div>
-    <p class="note">From the <code>crashes</code> harness table in flight/README.md. Two of the 200 random starts have no verified escape at the first tick, so they do not count as verified starts; neither of them crashed either. Rows before the last check and score crashes on the body sphere only.<a class="fn" href="#src-1">1</a></p>
-  </div>
-  <div class="col">
-    <h3>Other attacks</h3>
-    <ul>
-      <li><strong>Adversary search:</strong> 0 crashes in 2,640 gap-guided flights from 200 verified starts.<a class="fn" href="#src-1">1</a></li>
-      <li><strong>Tower gap:</strong> 0 crashes in 100 runs (50 hostile, 50 kamikaze), all from verified starts. The showcase pilot's 60 s run commits 245 of 3,000 ticks in a replay of the current code (the README's table, from an earlier version, says 208).<a class="fn" href="#src-1">1</a></li>
-      <li><strong>Through the packaged library</strong> (<code>libgate</code>, the form other simulators link): 0 crashes from 45 verified starts with pilots driving raw control surfaces, and 20 with fly-by-wire pilots.<a class="fn" href="#src-4">4</a></li>
-      <li><strong>Not budget starvation:</strong> with an unlimited per-tick budget the filter still flies 29.5% of ticks, so the interventions are what the escapes require.<a class="fn" href="#src-1">1</a></li>
-    </ul>
-    <p>The point-mass row is the comparison to read first. That filter predicts with a simplified model of the aircraft; flown on JSBSim's c172p, it crashed in 27 of 200 episodes. The gate predicts with the plant itself.</p>
-  </div>
 </section>
-
-<section id="status">
-  <div class="col">
-    <h2>What is exact, what is numerical, what is proved</h2>
-    <p>Each part of the gate's argument sits on one rung. Nothing about the gate itself is on the top rung yet.<a class="fn" href="#src-4">4</a></p>
-    <div class="ladder">
-      <div class="rung empty">
-        <h3>Proved<small>kernel-checked Lean theorem</small></h3>
-        <ul>
-          <li>Nothing about the gate.</li>
-          <li>Elsewhere on <code>main</code>: <code>Envelope.never_hit</code>, a no-hit theorem for a different, longitudinal envelope filter over the terrain grid. It does not cover buildings or the 6-DOF aircraft.</li>
-        </ul>
-      </div>
-      <div class="rung">
-        <h3>Exact<small>matches the flown aircraft frame for frame</small></h3>
-        <ul>
-          <li>Rollouts. Each check forks the <code>JsbExact</code> state and steps it frame by frame, so a committed escape flies exactly the frames that were checked.</li>
-          <li><code>JsbExact</code> equals JSBSim 1.3.3's c172p (its macOS arm64 build) bit for bit on every compared step of the validation datasets. That equivalence is measured, not proved.</li>
-        </ul>
-      </div>
-      <div class="rung">
-        <h3>Numerical<small>checked by sampling</small></h3>
-        <ul>
-          <li>Clearance along a rollout: sampled every 8 JSBSim frames, must exceed 4 m there. Nothing bounds it between samples; the margin is sized by testing.</li>
-          <li>"Safe forever" endings: the climbing ray and the steady helix are checked on the settled rollout, not proved to hold as the aircraft flies on.</li>
-          <li>Map checks read a 2.5 m height raster; leaving the 6 km map counts as clear.</li>
-        </ul>
-      </div>
-      <div class="rung">
-        <h3>Argued<small>in code comments</small></h3>
-        <ul>
-          <li>The induction: an escape that passed its check always exists, because the filter only accepts an input after which one passes, and otherwise flies the one it already has.</li>
-          <li>The filter and escapes are Rust, outside Lean; no theorem mentions <code>JsbExact</code> yet.</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="next">
-  <div class="col">
-    <h2>What's next</h2>
-    <p>The proof route laid out in <code>docs/gate-proof-status.md</code>:<a class="fn" href="#src-4">4</a></p>
-    <ol class="tick">
-      <li><strong>Enclose <code>JsbExact</code> over sets of states.</strong> Its data-dependent branches already go through a <code>Scalar</code> class, so an interval instance can be sound, and one escape frame can be enclosed over a box of states.</li>
-      <li><strong>Prove a terminal set invariant</strong> around the climbing ray or the helix, replacing the numerical "safe forever" endings.</li>
-      <li><strong>Make the rollout checks sound:</strong> bound clearance between samples, for example a speed bound times the sample interval inside the margin, and show the raster tests are conservative.</li>
-      <li><strong>Formalise the induction</strong> and the hand-back rule, as <code>Envelope.never_hit</code> does for the envelope filter.</li>
-      <li><strong>Close the code gap:</strong> port the escape law and checks to Lean, or check the Rust against a Lean reference by differential testing.</li>
-    </ol>
-    <p>On the demo side, tighter close calls than the ones above are being searched for and can replace these exhibits. The plate above is generated from a replay (<code>docs/explainer/plate_data.py</code>), so a new exhibit is one replay away.</p>
-  </div>
-</section>
-
 </main>
-
-<footer>
-  <div class="col">
-    <h2 class="small">Sources and reproduction</h2>
-    <ol class="sources">
-      <li id="src-1"><code>flight/README.md</code>, section "Exact-rollout gatekeeper (<code>--safety-filter exact-rollout</code>)": escapes, terminal sets, scheduling, the <code>crashes</code> results table, Tower gap, <code>adversary</code>.</li>
-      <li id="src-2"><code>docs/gate-proof-status.md</code> and the <code>JsbExact</code> section of the root <code>README.md</code>: <code>JsbExact</code>'s bit-exact agreement with JSBSim 1.3.3 on the validation datasets.</li>
-      <li id="src-3"><code>docs/safety-objective.md</code>: the definition of <code>Safe F</code> and what is left out of it.</li>
-      <li id="src-4"><code>docs/gate-proof-status.md</code>: the exact / numerical / proved table, <code>gatecheck</code> through <code>libgate</code>, and the proof route.</li>
-      <li id="src-5">Measured for this page with <code>make proofdump</code>, which replays a demo run headless with the GUI's start, seed, pilot and gate settings, so its ticks are the ones the recordings show, and records clearance, mode and the gate's checked paths at every 20 ms tick: <code>make proofdump OUT=/tmp/d RUN=showcase</code> (add <code>ARGS=--off</code> for the filter off). <code>docs/explainer/plate_data.py</code> draws the Tower gap plate from it; <code>make present</code> rebuilds all of the page's data.</li>
-      <li id="src-6">"How the proof works": footage from <code>make record</code> (frames, and per frame the camera, aircraft and gate mode in <code>trace.jsonl</code>), drawn with numbers from <code>make proofdump</code>, which replays the same run headless and logs, per 20 ms tick, the path the gate holds as verified, the rollout that failed, and the end set exactly as the gate's end test computed it. <code>docs/explainer/proof_data.py</code> stops unless the two agree on the gate's mode and escape at every frame. Tower gap: <code>make record OUT=/tmp/rec/tg ARGS="--showcase --cinematic --cam 0 --no-paths --frames 600 --record-from 60 --record-every 2 --record-scale 2"</code> and <code>make proofdump OUT=/tmp/pd/tg RUN=showcase ARGS="--secs 12 --settle-secs 120"</code>. Dive: <code>--episode 1001 --cinematic --cam 0 --frames 3510 --record-from 3180</code> (same recording flags) and <code>RUN=ep1001 ARGS="--settle-secs 90 --detail-from 52"</code>, with <code>proof_data.py dive ... --settle 55.1</code>. The proved theorem and what it covers: <code>notes/lean-city-gate.md</code>, <code>CityGate/SafetyR.lean</code>.</li>
-      <li id="src-7">The end-of-escape obligation and its status: GitHub issues #30 (formal) and #36 (informal proof), the falsifier's root causes on #30, and <code>docs/termsound-proof.tex</code>. The proposed final climb phase and its measured numbers: <code>docs/escape-law-terminal.md</code> (PR #46, <code>make certify</code>).</li>
-    </ol>
-    <p class="note">To fly the Tower gap yourself: <code>make showcase</code> (the gate is <code>make fly</code>'s default filter, <code>--safety-filter exact-rollout</code>). Space toggles the filter, B draws the escape rollouts, C changes camera. To rebuild this page's data and open it: <code>make present</code>.</p>
-    <p class="note">Type: Triskweline Pixel (Henning Koch) if it is installed on the reading machine, used through a local font reference only; otherwise Barlow and Source Serif 4 from Google Fonts. Code and notation stay monospace.</p>
-  </div>
-</footer>
-
-<script>
-/*PLATE*/const PLATE = {"on":[[0.1,-120.0,-55.1,96.7,11.38,0],[0.2,-120.0,-50.5,96.7,11.38,0],[0.3,-120.0,-45.9,96.8,11.38,0],[0.4,-120.0,-41.3,96.8,11.38,0],[0.5,-120.0,-37.0,96.9,11.38,0],[0.6,-120.0,-32.4,97.0,11.73,0],[0.7,-120.0,-27.8,97.0,13.55,0],[0.8,-120.0,-23.1,97.1,13.7,0],[0.9,-120.0,-18.5,97.2,14.86,0],[1.0,-120.0,-14.2,97.2,16.97,0],[1.1,-120.0,-9.5,97.3,20.04,0],[1.2,-120.0,-4.8,97.3,23.63,0],[1.3,-120.0,-0.1,97.4,25.37,0],[1.4,-120.0,4.6,97.4,21.37,0],[1.5,-120.0,8.9,97.5,17.92,0],[1.6,-120.0,13.6,97.5,14.57,0],[1.7,-120.1,18.3,97.5,11.16,0],[1.8,-120.1,23.0,97.6,8.74,0],[1.9,-120.1,27.7,97.6,8.2,0],[2.0,-120.1,32.1,97.6,8.21,0],[2.1,-120.1,36.8,97.6,8.22,0],[2.2,-120.1,41.5,97.7,8.23,0],[2.3,-120.1,46.3,97.7,8.24,0],[2.4,-120.1,51.0,97.7,8.22,0],[2.5,-120.1,55.4,97.7,8.19,0],[2.6,-120.1,60.1,97.7,8.17,0],[2.7,-120.1,64.9,97.7,8.17,0],[2.8,-120.1,69.6,97.7,8.17,2],[2.9,-120.0,74.4,97.7,8.1,2],[3.0,-119.9,78.7,97.9,7.98,2],[3.1,-119.8,83.4,98.2,7.81,2],[3.2,-119.5,88.0,98.7,7.59,2],[3.3,-119.3,92.6,99.5,8.12,2],[3.4,-119.0,97.0,100.4,10.42,2],[3.5,-118.7,101.1,101.4,13.38,2],[3.6,-118.3,105.3,102.6,16.89,2],[3.7,-118.0,109.6,104.0,20.22,2],[3.8,-117.6,113.7,105.4,23.74,2],[3.9,-117.3,117.8,106.9,27.38,2],[4.0,-117.0,121.6,108.2,29.27,2],[4.1,-116.6,125.7,109.6,27.41,2],[4.2,-116.3,129.8,111.0,25.87,2],[4.3,-115.9,133.8,112.3,24.86,2],[4.4,-115.6,137.9,113.6,24.53,2],[4.5,-115.2,141.6,114.7,24.83,2],[4.6,-114.9,145.7,115.9,25.05,2],[4.7,-114.6,149.7,117.1,24.58,2],[4.8,-114.2,153.8,118.3,24.73,2],[4.9,-113.9,157.8,119.4,25.05,2],[5.0,-113.6,161.5,120.5,25.33,2],[5.1,-113.3,165.5,121.6,25.63,2],[5.2,-113.0,169.5,122.7,22.73,2],[5.3,-112.8,173.5,123.8,19.16,2],[5.4,-112.5,177.5,124.9,15.76,2],[5.5,-112.3,181.2,125.9,12.87,2],[5.6,-112.1,185.2,126.9,10.15,2],[5.7,-111.9,189.2,128.0,7.72,2],[5.8,-111.7,193.1,129.0,5.84,2],[5.9,-111.6,197.1,130.1,5.61,2],[6.0,-111.4,200.7,131.0,5.66,2],[6.1,-111.3,204.6,132.0,5.87,2],[6.2,-111.2,208.6,133.0,6.22,2],[6.3,-111.1,212.5,134.0,6.68,2],[6.4,-111.0,216.4,135.0,7.21,0],[6.5,-110.9,220.0,135.9,7.5,0],[6.6,-110.9,223.9,136.8,7.86,0],[6.7,-110.8,227.8,137.7,8.79,2],[6.8,-110.8,231.8,138.5,10.71,2],[6.9,-110.7,235.7,139.2,13.32,2],[7.0,-110.7,239.3,139.8,16.12,2],[7.1,-110.6,243.3,140.6,19.24,2],[7.2,-110.6,247.2,141.3,15.8,2],[7.3,-110.7,251.1,142.1,12.6,2],[7.4,-110.7,255.0,142.9,9.8,2],[7.5,-110.8,258.6,143.6,7.79,2],[7.6,-111.0,262.4,144.4,6.51,2],[7.7,-111.2,266.3,145.2,6.26,2],[7.8,-111.4,270.1,146.1,6.66,2],[7.9,-111.8,273.9,146.9,7.09,0],[8.0,-112.1,277.4,147.6,7.43,0],[8.1,-112.5,281.2,148.4,7.7,0],[8.2,-113.0,285.0,149.2,7.95,0],[8.3,-113.5,288.8,149.9,8.21,0],[8.4,-114.0,292.6,150.5,8.49,0],[8.5,-114.5,296.1,151.1,8.78,0],[8.6,-115.1,299.9,151.6,9.3,0],[8.7,-115.7,303.7,152.1,11.03,0],[8.8,-116.2,307.5,152.6,13.67,0],[8.9,-116.8,311.3,153.0,16.66,0],[9.0,-117.4,314.8,153.3,19.38,0]],"off":[[0.1,-120.0,-55.1,96.7,11.38,3],[0.2,-120.0,-50.5,96.7,11.38,3],[0.3,-120.0,-45.9,96.8,11.38,3],[0.4,-120.0,-41.3,96.8,11.38,3],[0.5,-120.0,-37.0,96.9,11.38,3],[0.6,-120.0,-32.4,97.0,11.73,3],[0.7,-120.0,-27.8,97.0,13.55,3],[0.8,-120.0,-23.1,97.1,13.7,3],[0.9,-120.0,-18.5,97.2,14.86,3],[1.0,-120.0,-14.2,97.2,16.97,3],[1.1,-120.0,-9.5,97.3,20.04,3],[1.2,-120.0,-4.8,97.3,23.63,3],[1.3,-120.0,-0.1,97.4,25.37,3],[1.4,-120.0,4.6,97.4,21.37,3],[1.5,-120.0,8.9,97.5,17.92,3],[1.6,-120.0,13.6,97.5,14.57,3],[1.7,-120.1,18.3,97.5,11.16,3],[1.8,-120.1,23.0,97.6,8.74,3],[1.9,-120.1,27.7,97.6,8.2,3],[2.0,-120.1,32.1,97.6,8.21,3],[2.1,-120.1,36.8,97.6,8.22,3],[2.2,-120.1,41.5,97.7,8.23,3],[2.3,-120.1,46.3,97.7,8.24,3],[2.4,-120.1,51.0,97.7,8.22,3],[2.5,-120.1,55.4,97.7,8.19,3],[2.6,-120.1,60.1,97.7,8.17,3],[2.7,-120.1,64.9,97.7,8.17,3],[2.8,-120.1,69.6,97.7,8.21,3],[2.9,-120.0,74.4,97.7,8.26,3],[3.0,-120.0,78.8,97.7,8.31,3],[3.1,-119.8,83.5,97.6,8.37,3],[3.2,-119.7,88.3,97.6,8.41,3],[3.3,-119.4,93.1,97.5,9.42,3],[3.4,-119.1,97.8,97.5,12.09,3],[3.5,-118.8,102.2,97.4,14.76,3],[3.6,-118.3,106.9,97.3,18.16,3],[3.7,-117.8,111.6,97.3,21.92,3],[3.8,-117.0,116.3,97.2,25.87,3],[3.9,-116.2,120.9,97.2,28.87,3],[4.0,-115.3,125.2,97.2,26.77,3],[4.1,-114.2,129.8,97.1,25.2,3],[4.2,-113.0,134.3,97.2,24.47,3],[4.3,-111.6,138.7,97.2,23.11,3],[4.4,-110.1,143.1,97.2,21.57,3],[4.5,-108.5,147.1,97.2,20.01,3],[4.6,-106.7,151.3,97.3,18.18,3],[4.7,-104.7,155.4,97.3,16.21,3],[4.8,-102.6,159.5,97.4,14.1,3],[4.9,-100.3,163.5,97.4,11.84,3],[5.0,-98.1,167.1,97.5,9.63,3],[5.1,-95.6,170.8,97.5,7.11,3],[5.2,-93.0,174.5,97.6,4.6,3],[5.3,-90.2,178.1,97.6,3.56,3],[5.4,-87.2,181.5,97.7,4.72,3],[5.5,-84.5,184.6,97.7,4.34,3],[5.6,-81.3,187.8,97.8,1.13,3],[5.64,-80.1,189.0,97.8,-0.07,3]],"plans":[{"t":2.72,"path":[[-120,65,98],[-120,74,98],[-120,82,98],[-119,91,99],[-119,99,101],[-118,107,103],[-118,115,106],[-117,122,108],[-116,130,111],[-116,137,113],[-115,145,116],[-114,152,118],[-114,160,120],[-113,167,122],[-113,174,124],[-112,182,126],[-112,189,128],[-112,196,130],[-111,204,132],[-111,211,134],[-111,218,135],[-111,225,137],[-111,233,139],[-111,240,141],[-111,247,142],[-111,254,144],[-111,261,146],[-111,268,147],[-111,275,149],[-111,282,150],[-111,289,152],[-111,296,154],[-111,303,155],[-111,310,157],[-111,317,158],[-111,324,160],[-111,331,161],[-110,338,162],[-110,345,164],[-110,352,165],[-110,359,167],[-110,366,168],[-110,373,169],[-111,379,171],[-111,386,172],[-111,393,173],[-112,400,175],[-113,406,176],[-114,413,177],[-115,420,178],[-117,426,180],[-119,432,181],[-121,439,182],[-124,445,183],[-126,451,184],[-130,457,185],[-133,462,187],[-136,468,188],[-140,473,189],[-144,478,190],[-149,483,191],[-153,487,192],[-158,492,193],[-163,496,194],[-168,500,195],[-173,504,196],[-178,507,197],[-184,510,198],[-189,513,199],[-195,516,199],[-111,398,202],[-119,435,207],[-137,468,213],[-162,495,219],[-193,515,224],[-229,527,230],[-267,528,236],[-303,520,241],[-336,503,247],[-364,478,253],[-384,446,258],[-395,410,264],[-397,373,270],[-389,336,275],[-371,303,281],[-346,276,287],[-315,256,292],[-279,244,298],[-242,243,304],[-205,251,310],[-172,268,315],[-144,293,321],[-124,325,327],[-113,361,332]]}],"boxes":[[-533,-499,503,531,18,23.9],[-570,-538,495,531,19,24.9],[24,102,24,102,20,26.7],[-576,-549,546,575,20,26.7],[-535,-499,377,413,28,34.0],[-465,-425,544,574,28,33.8],[-534,-498,300,340,31,37.5],[-418,-383,544,575,31,36.1],[-576,-540,380,415,35,41.4],[-416,-380,498,533,35,40.3],[-576,-545,427,461,36,42.6],[-524,-494,425,459,40,46.5],[-572,-538,-103,-73,42,47.1],[-535,-500,23,58,42,47.5],[-571,-539,146,180,43,48.8],[-532,-500,64,98,44,49.0],[-579,-543,189,224,47,52.4],[-294,-256,542,578,48,52.1],[-533,-506,142,177,50,55.0],[-343,-305,501,537,52,57.3],[-567,-540,76,104,53,58.0],[-535,-504,256,297,53,58.6],[-342,-310,541,572,54,59.0],[-175,-140,543,580,54,57.2],[-292,-256,499,534,56,60.8],[-533,-501,-50,-22,59,64.4],[-574,-540,24,52,60,65.0],[-574,-547,-55,-20,63,68.4],[-343,-284,181,222,64,70.0],[27,96,543,571,65,67.4],[-224,-143,379,409,67,70.8],[-172,-140,499,535,67,70.2],[34,90,494,522,72,75.0],[-464,-382,-61,-28,73,78.5],[-420,-380,160,219,75,80.3],[-175,-136,276,334,77,81.9],[-341,-305,32,89,81,86.8],[-466,-384,-97,-64,82,87.5],[-455,-378,25,59,83,88.3],[-224,-191,48,103,83,89.5],[-218,-186,256,334,88,93.1],[-97,-21,544,572,89,91.9],[-299,-266,22,98,91,97.2],[-340,-258,142,179,93,98.6],[-177,-140,144,207,93,98.6],[-334,-292,187,216,95,100.6],[-226,-188,552,580,95,98.5],[-206,-140,-62,-25,96,103.1],[-455,-378,72,100,96,101.5],[-84,-26,137,173,99,105.3],[-213,-154,384,405,99,102.8],[-342,-282,-104,-72,103,108.9],[-91,-30,379,414,105,107.9],[-200,-135,422,462,107,110.4],[24,62,382,464,107,110.0],[42,82,498,518,107,109.8],[-464,-427,136,195,110,116.0],[-86,-25,432,463,111,113.9],[-169,-141,284,326,114,118.9],[-327,-300,192,211,115,121.1],[66,96,-106,-48,118,124.7],[-336,-310,40,81,120,125.6],[-202,-165,387,401,120,124.2],[-220,-195,56,96,123,129.4],[-100,-26,193,224,125,131.0],[-175,-136,25,82,126,133.3],[-225,-192,146,209,127,132.7],[49,75,502,514,130,133.1],[-214,-191,267,323,131,135.6],[-294,-271,32,87,135,141.1],[-328,-269,147,174,137,143.2],[-172,-145,153,198,137,143.2],[-164,-146,291,318,139,143.6],[-213,-151,-95,-67,140,147.1],[-197,-149,-57,-30,143,149.6],[-331,-315,47,74,145,151.5],[63,98,262,340,146,149.8],[-76,-34,142,168,147,153.0],[-215,-200,63,88,149,156.0],[-333,-290,-99,-76,153,158.7],[-100,-27,264,298,155,160.1],[-82,-39,384,409,155,158.4],[-102,-67,-90,-36,157,164.3],[-210,-195,277,313,159,163.9],[30,56,393,452,159,161.7],[-290,-275,42,77,164,170.3],[-78,-34,436,459,165,167.7],[-317,-280,152,169,167,173.0],[-167,-150,161,190,167,173.0],[22,59,-84,-22,171,178.2],[-188,-158,-52,-35,174,180.6],[70,92,-98,-56,175,181.8],[21,79,180,217,175,180.9],[-68,-42,147,163,178,184.8],[-325,-298,-95,-80,186,191.9],[-90,-36,198,220,186,191.6],[-169,-142,33,74,188,194.5],[-220,-196,155,200,188,194.0],[-75,-47,389,404,189,192.1],[-106,-69,26,88,191,197.6],[34,52,404,442,193,196.1],[-61,-28,34,97,197,204.3],[-70,-42,440,455,200,203.5],[-204,-160,-91,-71,208,215.2],[74,88,-90,-64,213,219.8],[68,93,273,329,216,220.3],[-80,-46,202,216,226,232.0],[-164,-147,40,66,228,235.3],[-216,-201,163,192,229,235.0],[-90,-37,269,294,230,235.4],[-97,-72,-83,-43,233,240.6],[37,89,37,89,249,256.2],[-196,-168,-88,-75,254,260.5],[27,54,-75,-31,254,261.4],[29,71,186,212,260,265.9],[73,88,283,319,263,267.3],[-80,-47,274,289,281,285.6],[-100,-74,35,80,283,290.4],[-93,-76,-76,-50,284,291.5],[-56,-33,43,88,293,300.3],[32,49,-67,-39,310,316.8],[37,63,190,207,316,322.6],[-96,-79,43,71,345,352.3],[-52,-37,51,80,357,364.4],[44,82,44,82,371,377.7],[51,75,51,75,452,458.7]],"win":[-560.0,80.0,-120.0,560.0],"min_on":[5.61,5.92],"crash_off":5.64};/*END*/
-(() => {
-  const NS = "http://www.w3.org/2000/svg";
-  const css = (v) => `var(--${v})`;
-  const el = (tag, attrs, parent) => {
-    const e = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      if (k === "text") e.textContent = v; else e.setAttribute(k, v);
-    }
-    if (parent) parent.appendChild(e);
-    return e;
-  };
-  const modeColor = (m) => (m === 2 ? css("amber") : m === 3 ? css("off") : css("blue"));
-  // Draw a track as runs of constant mode so colour changes stay crisp.
-  const runs = (rows, xy, g, width, dash) => {
-    let i = 0;
-    while (i < rows.length - 1) {
-      let j = i;
-      while (j < rows.length - 1 && rows[j + 1][5] === rows[i][5]) j++;
-      const pts = rows.slice(i, Math.min(j + 2, rows.length)).map((r) => xy(r).join(",")).join(" ");
-      const a = { points: pts, fill: "none", "stroke-width": width, "stroke-linejoin": "round", "stroke-linecap": "round", style: `stroke:${modeColor(rows[i][5])}` };
-      if (dash) a["stroke-dasharray"] = dash;
-      el("polyline", a, g);
-      i = j + 1;
-    }
-  };
-
-  function plan() {
-    const svg = document.getElementById("plan");
-    const [x0, x1, y0, y1] = PLATE.win;
-    const W = 480, H = Math.round((W * (y1 - y0)) / (x1 - x0));
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    const s = W / (x1 - x0);
-    const P = (x, y) => [((x - x0) * s).toFixed(1), ((y1 - y) * s).toFixed(1)];
-    el("rect", { x: 0, y: 0, width: W, height: H, style: `fill:${css("paper-2")}` }, svg);
-    const shade = (h) => (h > 300 ? "b4" : h > 200 ? "b3" : h > 90 ? "b2" : "b1");
-    for (const b of PLATE.boxes) {
-      const [ax, ay] = P(b[0], b[3]);
-      el("rect", { x: ax, y: ay, width: ((b[1] - b[0]) * s).toFixed(1), height: ((b[3] - b[2]) * s).toFixed(1), style: `fill:${css(shade(b[4]))}` }, svg);
-    }
-    const labelled = [];
-    const tall = PLATE.boxes.filter((b) => b[5] > 220 && Math.abs((b[0] + b[1]) / 2 + 120) < 70 && b[2] < 120 && b[3] > -100).sort((a, b) => b[5] - a[5]);
-    for (const b of tall) {
-      const c = [(b[0] + b[1]) / 2, (b[2] + b[3]) / 2];
-      if (labelled.some((d) => Math.hypot(d[0] - c[0], d[1] - c[1]) < 30)) continue;
-      labelled.push(c);
-      const [cx, cy] = P(c[0], c[1]);
-      el("text", { x: cx, y: +cy + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 600, style: "fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.45);stroke-width:2.5px", text: `${Math.round(b[5])} m` }, svg);
-    }
-    const g = el("g", {}, svg);
-    for (const p of PLATE.plans) {
-      el("polyline", { points: p.path.map((q) => P(q[0], q[1]).join(",")).join(" "), fill: "none", "stroke-width": 1.2, opacity: 0.75, style: `stroke:${css("amber")}`, "stroke-dasharray": "4 3" }, g);
-    }
-    const xy = (r) => P(r[1], r[2]);
-    runs(PLATE.off, xy, g, 2.5, "5 4");
-    runs(PLATE.on, xy, g, 3.2);
-    const last = PLATE.off[PLATE.off.length - 1];
-    const [cx, cy] = xy(last);
-    el("path", { d: `M${cx - 7} ${cy - 7} L${+cx + 7} ${+cy + 7} M${cx - 7} ${+cy + 7} L${+cx + 7} ${cy - 7}`, "stroke-width": 3, style: `stroke:${css("red")}` }, svg);
-    el("text", { x: +cx + 12, y: +cy - 12, "text-anchor": "end", "font-size": 12, "font-weight": 600, style: `fill:${css("red")}`, text: `contact, ${PLATE.crash_off.toFixed(2)} s` }, svg);
-    const st = PLATE.on[0];
-    const [sx, sy] = xy(st);
-    el("circle", { cx: sx, cy: sy, r: 4, style: `fill:${css("ink")}` }, svg);
-    el("text", { x: +sx - 8, y: +sy + 4, "text-anchor": "end", "font-size": 12, style: `fill:${css("ink")}`, text: "start" }, svg);
-    // Scale bar and north arrow.
-    const [bx, by] = [14, H - 16];
-    el("line", { x1: bx, y1: by, x2: bx + 100 * s, y2: by, "stroke-width": 2, style: `stroke:${css("ink")}` }, svg);
-    el("text", { x: bx, y: by - 6, "font-size": 11, style: `fill:${css("ink")}`, text: "100 m" }, svg);
-    el("path", { d: `M${W - 22} 14 l7 18 l-7 -5 l-7 5 z`, style: `fill:${css("ink")}` }, svg);
-    el("text", { x: W - 22, y: 46, "text-anchor": "middle", "font-size": 11, "font-weight": 600, style: `fill:${css("ink")}`, text: "N" }, svg);
-  }
-
-  function profile() {
-    const svg = document.getElementById("profile");
-    const W = 540, H = 420, L = 44, R = 14, T = 20, B = 40;
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    const tMax = 9, cMin = -2, cMax = 30;
-    const X = (t) => L + ((W - L - R) * t) / tMax;
-    const Y = (c) => T + ((H - T - B) * (cMax - Math.max(cMin, Math.min(cMax, c)))) / (cMax - cMin);
-    for (let c = 0; c <= 30; c += 5) {
-      el("line", { x1: L, x2: W - R, y1: Y(c), y2: Y(c), "stroke-width": 1, style: `stroke:${css("rule")}` }, svg);
-      el("text", { x: L - 6, y: Y(c) + 4, "text-anchor": "end", "font-size": 12, style: `fill:${css("ink-2")}`, text: c }, svg);
-    }
-    for (let t = 0; t <= tMax; t++) {
-      el("text", { x: X(t), y: H - B + 18, "text-anchor": "middle", "font-size": 12, style: `fill:${css("ink-2")}`, text: t }, svg);
-    }
-    el("text", { x: (L + W - R) / 2, y: H - 6, "text-anchor": "middle", "font-size": 12, style: `fill:${css("ink-2")}`, text: "time since start (s)" }, svg);
-    el("text", { x: 12, y: T + 4, "font-size": 12, style: `fill:${css("ink-2")}`, text: "m" }, svg);
-    el("line", { x1: L, x2: W - R, y1: Y(0), y2: Y(0), "stroke-width": 2, style: `stroke:${css("red")}` }, svg);
-    el("text", { x: W - R, y: Y(0) + 15, "text-anchor": "end", "font-size": 12, "font-weight": 600, style: `fill:${css("red")}`, text: "contact" }, svg);
-    el("line", { x1: L, x2: W - R, y1: Y(4), y2: Y(4), "stroke-width": 1.5, "stroke-dasharray": "6 4", style: `stroke:${css("magenta")}` }, svg);
-    el("text", { x: L + 6, y: Y(4) - 6, "font-size": 12, style: `fill:${css("magenta")}`, text: "4 m, kept at every rollout sample" }, svg);
-    const g = el("g", {}, svg);
-    const xy = (r) => [X(r[0]).toFixed(1), Y(r[4]).toFixed(1)];
-    runs(PLATE.off, xy, g, 2, "5 4");
-    runs(PLATE.on, xy, g, 2.6);
-    const [tm, cm] = [PLATE.min_on[1], PLATE.min_on[0]];
-    el("circle", { cx: X(tm), cy: Y(cm), r: 4.5, fill: "none", "stroke-width": 2, style: `stroke:${css("ink")}` }, svg);
-    // Above the point when it is clear of the 4 m line, below it otherwise.
-    el("text", { x: X(tm), y: cm > 4.8 ? Y(cm) - 12 : Y(cm) + 26, "text-anchor": "middle", "font-size": 12, "font-weight": 600, style: `fill:${css("ink")}`, text: `minimum ${cm.toFixed(2)} m at ${tm.toFixed(2)} s` }, svg);
-    const tc = PLATE.on.find((r) => r[5] === 2)[0];
-    el("line", { x1: X(tc), x2: X(tc), y1: T, y2: H - B, "stroke-width": 1, "stroke-dasharray": "2 3", style: `stroke:${css("amber")}` }, svg);
-    el("text", { x: X(tc) + 5, y: T + 10, "font-size": 12, style: `fill:${css("ink")}`, text: "filter takes over" }, svg);
-    const lo = PLATE.off[PLATE.off.length - 1];
-    el("text", { x: X(lo[0]) - 8, y: Y(0) + 16, "text-anchor": "end", "font-size": 12, style: `fill:${css("off")}`, text: "filter off" }, svg);
-  }
-
-  if (typeof PLATE !== "undefined") { plan(); profile(); }
-  // With the pixel font, draw diagrams at one user unit per CSS px so 13 px labels stay on the pixel grid.
-  window.pixelSvgs = () => {
-    if (!document.documentElement.classList.contains("trisk")) return;
-    for (const svg of document.querySelectorAll("svg.svgtext")) svg.style.width = svg.viewBox.baseVal.width + "px";
-  };
-  window.pixelSvgs();
-
-  const on = document.getElementById("v-on"), off = document.getElementById("v-off");
-  document.getElementById("replay").addEventListener("click", () => {
-    for (const v of [on, off]) { v.currentTime = 0; v.play(); }
-  });
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    for (const v of [on, off]) { v.removeAttribute("autoplay"); v.pause(); v.controls = true; }
-  }
-})();
-</script>
 <script>
   // The pixel font has a 13-unit em: it renders crisply only when each font pixel covers a whole number of device
   // pixels, so sizes are multiples of 13 device px, chosen per devicePixelRatio (re-run on zoom or a move to
@@ -1309,8 +1049,9 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
 <script src="media/proof-towergap.js"></script>
 <script src="media/proof-towergap-high.js"></script>
 <script src="media/proof-dive.js"></script>
+<script src="media/slides-data.js"></script>
 <script>
-// "How the proof works": recorded clips with the gate's verified path, failed rollout and end set drawn per frame.
+// Recorded clips with the gate's verified path, failed rollout and end set drawn per frame.
 (() => {
   const CLIPS = window.PROOF_CLIPS || {};
   const UNDER = 8.5; // R_BODY + MARGIN: how far below the climb the end tests need everything to be (m)
@@ -1473,10 +1214,67 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
     }
     return null;
   };
+  const DOME_R = { r: "143" };
+  const domeColor = (h, top) => {
+    const u = Math.max(0, Math.min(1, h / top));
+    const stops = [[46, 133, 80], [217, 132, 0], [158, 26, 108]];
+    const k = u < 0.5 ? 0 : 1, w = u < 0.5 ? u * 2 : (u - 0.5) * 2;
+    const c = stops[k].map((v, n) => Math.round(v + (stops[k + 1][n] - v) * w));
+    return `rgb(${c.join(",")})`;
+  };
   const path = (d, style) => (d ? `<path d="${d}" style="${style}"/>` : "");
 
   // Each view returns the overlay markup, a tag (screen anchor and text) and the status line for frame i.
+  const FANCOL = { Ok: "var(--green)", Hit: "var(--red)" };
+  const fanAt = (t) => {
+    const F = (window.SLIDES || {}).fan || [];
+    let best = null;
+    for (const f of F) if (f.t <= t + 1e-6 && t - f.t < 0.1 && (!best || f.t > best.t)) best = f;
+    return best;
+  };
   const VIEWS = {
+    fan(c, i, sc) {
+      const f = c.frames[i], F = fanAt(f[0]);
+      if (!F) return { svg: "", status: "Between the ticks shown: pick a step.", aside: "" };
+      const all = F.cands.flatMap((k) => k.path);
+      const boxes = sc.boxesFor(all.slice(0, 400));
+      let svg = "";
+      const tags = [];
+      F.cands.forEach((k, j) => {
+        const col = FANCOL[k.outcome] || "var(--off)";
+        const [v, h] = sc.line(k.path, boxes);
+        const won = F.found === j;
+        svg += path(h, `fill:none;stroke:${col};stroke-width:${won ? 4 : 3};opacity:.35;stroke-dasharray:6 6`) + path(v, `fill:none;stroke:${col};stroke-width:${won ? 6 : 3.5}`);
+        const e = sc.P(k.path[k.path.length - 1]);
+        if (e && k.outcome === "Hit") svg += `<path d="M${e[0] - 9} ${e[1] - 9}l18 18m0 -18l-18 18" style="stroke:var(--red);stroke-width:5"/>`;
+        if (e) tags.push({ at: e, text: `${j + 1}. ${k.label}${k.resumed ? " (continued)" : ""}`, color: col });
+      });
+      const verdict = F.holding ? "Holding the escape it took over with (no check for 0.3 s)."
+        : F.accepted ? `Kept: ${F.found + 1}. ${F.cands[F.found].label}. The pilot's input goes through.`
+        : F.found != null ? `${F.found + 1}. ${F.cands[F.found].label} passes, but without 3 m to spare, so the gate keeps flying its escape.`
+        : "None passed: the gate flies the last escape that passed, checked on the previous tick.";
+      const word = { Ok: "gets away clean", Hit: "would hit something", Horizon: "no steady climb within 16 s", Budget: "cut short (a continued escape is checked for 8.6 s)" };
+      const aside = F.cands.map((k, j) => `<li class="${k.outcome === "Ok" ? "pass" : k.outcome === "Hit" ? "hit" : "none"}"><b>${k.label}${k.resumed ? " (continued)" : ""}</b>: ${word[k.outcome] || k.outcome}${F.found === j ? (F.accepted ? ", kept" : "") : ""}</li>`).join("");
+      return { svg, tags, aside, verdict, status: `t = ${fmt(F.t, 2)} s, ${F.mode === "escape" ? "the gate flying its escape" : "the pilot flying"}.` };
+    },
+    dome(c, i, sc) {
+      const D = ((window.SLIDES || {}).dome || {})[DOME_R.r];
+      if (!D) return { svg: "", status: "" };
+      const quads = [];
+      const z = (a, b) => D.z[b][a];
+      for (let b = 0; b + 1 < D.n; b++) for (let a = 0; a + 1 < D.n; a++) {
+        const P = [[a, b], [a + 1, b], [a + 1, b + 1], [a, b + 1]].map(([u, w]) => sc.P([D.x0 + u * D.dx, D.x0 + w * D.dx, z(u, w)]));
+        if (P.some((p) => !p)) continue;
+        const h = (z(a, b) + z(a + 1, b) + z(a + 1, b + 1) + z(a, b + 1)) / 4;
+        quads.push([P.reduce((s, p) => s + p[2], 0) / 4, P, h]);
+      }
+      quads.sort((p, q) => q[0] - p[0]);
+      let svg = "";
+      for (const [, P, h] of quads) svg += `<path d="M${P.map((p) => p[0].toFixed(1) + " " + p[1].toFixed(1)).join("L")}Z" style="fill:${domeColor(h, D.z_top)};fill-opacity:.38;stroke:none"/>`;
+      const e = D.x0 + (D.n - 1) * D.dx, ring = [[D.x0, D.x0], [e, D.x0], [e, e], [D.x0, e], [D.x0, D.x0]].map(([x, y]) => sc.P([x, y, D.z_top]));
+      if (ring.every((p) => p)) svg += `<path d="M${ring.map((p) => p[0].toFixed(1) + " " + p[1].toFixed(1)).join("L")}" style="fill:none;stroke:var(--ink);stroke-width:1.5;stroke-dasharray:8 6;opacity:.45"/>`;
+      return { svg, status: `Circles of radius ${DOME_R.r} m, drift margin ${D.m.toFixed(1)} m: colour is the dome's height, ${Math.round(D.z_top)} m (the flat ceiling, dashed) at the most.` };
+    },
     way(c, i, sc) {
       const f = c.frames[i];
       const held = c.pts[f[5]];
@@ -1660,7 +1458,7 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
     el.innerHTML = html;
   }
 
-  for (const fig of document.querySelectorAll("#proof figure.plate")) {
+  for (const fig of document.querySelectorAll("figure.pf")) {
     const stage = fig.querySelector(".pf-stage");
     const clip = CLIPS[stage.dataset.clip];
     if (!clip) continue;
@@ -1692,6 +1490,23 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
         tag.style.left = `${ox + Math.max(half, Math.min(pw - half, r.tag.at[0] * k))}px`;
         tag.style.top = `${oy + Math.max(tag.offsetHeight + 16, Math.min(ph - 4, r.tag.at[1] * k))}px`;
       } else tag.hidden = true;
+      for (const t of stage.querySelectorAll(".pf-tag.multi")) t.remove();
+      if (r.tags) {
+        const k = Math.min(stage.clientWidth / c.size[0], stage.clientHeight / c.size[1]);
+        const ox = (stage.clientWidth - c.size[0] * k) / 2, oy = (stage.clientHeight - c.size[1] * k) / 2;
+        for (const t of r.tags) {
+          if (t.at[0] < 0 || t.at[0] > c.size[0] || t.at[1] < 0 || t.at[1] > c.size[1]) continue;
+          const s = document.createElement("span");
+          s.className = "pf-tag multi";
+          s.textContent = t.text;
+          s.style.setProperty("--tag", t.color);
+          stage.appendChild(s);
+          const half = s.offsetWidth / 2 + 4;
+          s.style.left = `${ox + Math.max(half, Math.min(c.size[0] * k - half, t.at[0] * k))}px`;
+          s.style.top = `${oy + Math.max(s.offsetHeight + 8, t.at[1] * k)}px`;
+        }
+      }
+      if (r.aside !== undefined) { fig.querySelector(".fan-list").innerHTML = r.aside; fig.querySelector(".fan-verdict").textContent = r.verdict || ""; }
       status.innerHTML = r.status;
       time.textContent = `t = ${fmt(f[0], 2)} s`;
       scrub.value = String(i);
@@ -1761,6 +1576,32 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
       else if (e.key === " ") { e.preventDefault(); play.click(); }
     });
     stage.insertAdjacentHTML("beforeend", '<span class="cc-hint">drag sideways to scrub · click to play</span>');
+    const steps = fig.querySelector(".fan-steps");
+    if (steps && window.SLIDES) {
+      for (const F of window.SLIDES.fan) {
+        const j = c.frames.reduce((b, f, k) => (Math.abs(f[0] - F.t) < Math.abs(c.frames[b][0] - F.t) ? k : b), 0);
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = `${fmt(F.t, 2)} s`;
+        b.addEventListener("click", () => { for (const x of steps.children) x.setAttribute("aria-pressed", String(x === b)); scrubTo(j); });
+        steps.appendChild(b);
+      }
+      steps.firstChild?.click();
+    }
+    const pick = fig.querySelector(".dome-pick");
+    if (pick && window.SLIDES) {
+      const draw = () => {
+        const D = window.SLIDES.dome[DOME_R.r], cv = fig.querySelector(".dome-map"), g = cv.getContext("2d");
+        cv.width = D.n; cv.height = D.n;
+        for (let b = 0; b < D.n; b++) for (let a = 0; a < D.n; a++) { g.fillStyle = domeColor(D.z[b][a], D.z_top); g.fillRect(a, D.n - 1 - b, 1, 1); }
+        const zs = D.z.flat();
+        fig.querySelector(".dome-note").textContent = `The city square, 2.6 km across, north up: the dome's height for a circle of radius ${DOME_R.r} m around each point, green (low) to magenta (${Math.round(D.z_top)} m, the ceiling). Lowest ${Math.min(...zs)} m.`;
+        const keep = cur; cur = -1; show(keep);
+      };
+      pick.innerHTML = ["143", "250"].map((r) => `<button type="button" data-r="${r}" aria-pressed="${r === DOME_R.r}">r = ${r} m</button>`).join(" ");
+      pick.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; DOME_R.r = b.dataset.r; for (const x of pick.children) x.setAttribute("aria-pressed", String(x === b)); draw(); });
+      draw();
+    }
     // Open on the poster's frame, so the drawing matches the picture before the video loads.
     want = +(stage.dataset.start || 0);
     show(want);
@@ -1768,6 +1609,87 @@ html.trisk .svgtext tspan.math { font-family: ui-monospace, "SF Mono", Menlo, mo
   }
 })();
 </script>
+<script>
+// The slide deck: a vertical tab index, keyboard navigation, and the slides drawn from window.SLIDES.
+(() => {
+  const slides = [...document.querySelectorAll(".deck-main > .slide")];
+  const tabs = document.querySelector(".deck-tabs");
+  let group = null;
+  const buttons = slides.map((s, i) => {
+    if (s.dataset.group && s.dataset.group !== group) tabs.insertAdjacentHTML("beforeend", `<div class="grp" aria-hidden="true">${s.dataset.group}</div>`);
+    group = s.dataset.group || null;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-controls", s.id);
+    b.textContent = s.dataset.nav;
+    s.setAttribute("role", "tabpanel");
+    b.addEventListener("click", () => go(i));
+    b.addEventListener("focus", () => go(i));
+    tabs.appendChild(b);
+    return b;
+  });
+  let cur = -1;
+  function go(i) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    if (i === cur) return;
+    if (cur >= 0) for (const v of slides[cur].querySelectorAll("video")) v.pause();
+    cur = i;
+    slides.forEach((s, k) => (s.hidden = k !== i));
+    buttons.forEach((b, k) => b.setAttribute("aria-selected", String(k === i)));
+    history.replaceState(null, "", "#" + slides[i].id);
+    window.dispatchEvent(new Event("resize"));
+  }
+  addEventListener("keydown", (e) => {
+    if (e.target.closest("input, textarea, select") && !["PageDown", "PageUp"].includes(e.key)) return;
+    const k = e.key;
+    if (k === "PageDown" || k === "ArrowDown" || (k === "ArrowRight" && !e.target.closest("figure"))) { e.preventDefault(); go(cur + 1); buttons[cur].focus({ preventScroll: true }); }
+    else if (k === "PageUp" || k === "ArrowUp" || (k === "ArrowLeft" && !e.target.closest("figure"))) { e.preventDefault(); go(cur - 1); buttons[cur].focus({ preventScroll: true }); }
+    else if (k === "Home" && e.target.closest(".deck-nav")) { e.preventDefault(); go(0); buttons[cur].focus(); }
+    else if (k === "End" && e.target.closest(".deck-nav")) { e.preventDefault(); go(slides.length - 1); buttons[cur].focus(); }
+  });
+  const start = slides.findIndex((s) => "#" + s.id === location.hash);
+  go(start >= 0 ? start : 0);
+
+  // Pixel font: diagrams in side panels at one user unit per CSS px.
+  window.pixelSvgs = () => {
+    if (!document.documentElement.classList.contains("trisk")) return;
+    for (const svg of document.querySelectorAll(".pf-aside svg.svgtext")) svg.style.width = svg.viewBox.baseVal.width + "px";
+  };
+  window.pixelSvgs();
+
+  const S = window.SLIDES;
+  if (!S) return;
+  // What the filter must guarantee: the same pilots from one start, filter on and off, over the city.
+  const T = S.traj, [x0, x1, y0, y1] = T.win;
+  const side = Math.max(x1 - x0, y1 - y0), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const W = 560, k = W / side;
+  const X = (x) => ((x - cx + side / 2) * k).toFixed(1), Y = (y) => ((cy + side / 2 - y) * k).toFixed(1);
+  const shade = (h) => (h > 300 ? "b4" : h > 200 ? "b3" : h > 90 ? "b2" : "b1");
+  const crashes = T.runs.off.filter((r) => r.crash).length, n = T.runs.on.length;
+  for (const svg of document.querySelectorAll(".traj-plan")) {
+    const on = svg.dataset.side === "on";
+    let o = `<rect width="${W}" height="${W}" style="fill:var(--paper-2)"/>`;
+    for (const b of T.boxes) o += `<rect x="${X(b[0])}" y="${Y(b[3])}" width="${((b[1] - b[0]) * k).toFixed(1)}" height="${((b[3] - b[2]) * k).toFixed(1)}" style="fill:var(--${shade(b[4])})"/>`;
+    for (const r of T.runs[svg.dataset.side]) {
+      const col = on ? (r.pilot.startsWith("kamikaze") ? "var(--magenta)" : "var(--blue)") : "var(--off)";
+      o += `<polyline points="${r.pts.map((p) => X(p[0]) + "," + Y(p[1])).join(" ")}" style="fill:none;stroke:${col};stroke-width:2;stroke-opacity:.8;stroke-linejoin:round"/>`;
+      if (r.crash) { const [a, c] = [+X(r.crash[0]), +Y(r.crash[1])]; o += `<path d="M${a - 7} ${c - 7}l14 14m0 -14l-14 14" style="stroke:var(--red);stroke-width:3.5"/>`; }
+    }
+    o += `<circle cx="${X(T.start[0])}" cy="${Y(T.start[1])}" r="6" style="fill:var(--ink);stroke:#fff;stroke-width:2"/>`;
+    o += `<line x1="14" y1="${W - 16}" x2="${(14 + 500 * k).toFixed(1)}" y2="${W - 16}" style="stroke:var(--ink);stroke-width:2"/><text x="14" y="${W - 22}" style="fill:var(--ink)">500 m</text>`;
+    svg.innerHTML = o;
+  }
+  const kinds = (side) => { const h = T.runs[side].filter((r) => r.pilot.startsWith("hostile")).length; return `${h} hostile and ${T.runs[side].length - h} kamikaze pilots`; };
+  for (const c of document.querySelectorAll(".traj-cap")) {
+    c.innerHTML = c.dataset.side === "on"
+      ? `<b>Filter on:</b> ${kinds("on")} for 30 s each from the same start (black dot); none touches anything (closest ${Math.min(...T.runs.on.map((r) => r.min)).toFixed(1)} m). Blue: hostile; magenta: kamikaze.`
+      : `<b>Filter off:</b> the same pilots; ${crashes} of ${n} hit something (red ×).`;
+  }
+  document.getElementById("traj-sub").textContent = `From one allowed start, ${n} hostile and kamikaze pilots: with the filter none touches anything; without it ${crashes} of ${n} crash.`;
+})();
+</script>
+
 <script>
 // Media is built locally by `make present-media`; where a file is missing, say so instead of showing a broken player.
 (() => {
