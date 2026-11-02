@@ -114,9 +114,9 @@ pub fn bake(w: &World) -> (Vec<u8>, Vec<u8>) {
             sc.spawn(move || {
                 for (ri, (ra, rm)) in ca.chunks_mut(TEX * 4).zip(cm.chunks_mut(TEX * 4)).enumerate() {
                     let py = ci * rows_per + ri;
-                    let y = -MAP_HALF + (py as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
+                    let y = -GRID_HALF + (py as f64 + 0.5) * 2.0 * GRID_HALF / TEX as f64;
                     for i in 0..TEX {
-                        let x = -MAP_HALF + (i as f64 + 0.5) * 2.0 * MAP_HALF / TEX as f64;
+                        let x = -GRID_HALF + (i as f64 + 0.5) * 2.0 * GRID_HALF / TEX as f64;
                         let t = ground(w, x, y);
                         let h = w.terrain(x, y);
                         ra[i * 4] = to8(t.col[0]);

@@ -173,7 +173,7 @@ TsMap.hold = _hold
 
 
 GATE = dict(hLevel=float("nan"), kHold=0.005, vRefE=float("nan"), kv=0.02, kg=2.5, kpsi=1.0, kphi=2.5, kp=0.8,
-            kiPhi=1.0, kiA=2.0, gcLo=0.05, gcHi=0.35, terminalOnly=True)
+            kiPhi=1.0, kiA=2.0, gcLo=0.05, gcHi=0.35, terminalOnly=True, kpsiV=float("nan"))
 
 
 def _cand(self, **kw):
@@ -181,7 +181,7 @@ def _cand(self, **kw):
     p = dict(GATE); p.update(kw)
     self._send(" ".join(["P"] + [b(p[k]) for k in ("hLevel", "kHold", "vRefE", "kv", "kg", "kpsi", "kphi", "kp",
                                                      "kiPhi", "kiA", "gcLo", "gcHi")]
-                            + ["1" if p["terminalOnly"] else "0"]))
+                            + ["1" if p["terminalOnly"] else "0", b(p["kpsiV"])]))
 
 
 def _gate(self):

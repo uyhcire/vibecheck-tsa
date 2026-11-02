@@ -13,7 +13,7 @@
 use crate::envfilter::*;
 use crate::jsb::*;
 use crate::model::*;
-use crate::world::{Rng, World, CELL, MAP_HALF, NC, TN, TSP};
+use crate::world::{Rng, World, TSP};
 use std::f64::consts::PI;
 
 pub const G0: f64 = 9.80665;
@@ -117,9 +117,8 @@ pub fn classify(world: &World, r: &Roll) -> Cause {
                 None | Some(TermFail::NotTurning) => Cause::TermNotTurning,
                 Some(TermFail::Unsettled) | Some(TermFail::Wobble) | Some(TermFail::Shallow) | Some(TermFail::RayLong) => Cause::TermUnsettled,
                 Some(TermFail::RayBlocked { x, y, h }) => {
-                    let i = (((x + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
-                    let j = (((y + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
-                    if h > world.raw_terr[j * NC + i] as f64 + 0.5 {
+                    let (i, j) = world.raw_terr.cell(x, y);
+                    if h > world.raw_terr.get(i as i64, j as i64) + 0.5 {
                         Cause::TermRayBuilding
                     } else {
                         Cause::TermRayTerrain
@@ -377,16 +376,18 @@ pub struct Bound {
 /// `[x0,x1]×[y0,y1]`: every point below it is inside the solid. Terrain is piecewise linear on its 20 m grid,
 /// so its minimum over the square is at least the lowest grid vertex of every triangle touching it.
 fn solid_floor(world: &World, x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
-    let gi = |v: f64| ((v + MAP_HALF) / TSP).floor().clamp(0.0, (TN - 2) as f64) as usize;
+    let gx = |v: f64| ((v - world.x0) / TSP).floor().clamp(0.0, (world.tnx - 2) as f64) as usize;
+    let gy = |v: f64| ((v - world.y0) / TSP).floor().clamp(0.0, (world.tny - 2) as f64) as usize;
     let mut tmin = f64::INFINITY;
-    for j in gi(y0)..=gi(y1) + 1 {
-        for i in gi(x0)..=gi(x1) + 1 {
-            tmin = tmin.min(world.terr[j.min(TN - 1) * TN + i.min(TN - 1)] as f64);
+    for j in gy(y0)..=gy(y1) + 1 {
+        for i in gx(x0)..=gx(x1) + 1 {
+            tmin = tmin.min(world.terr[j.min(world.tny - 1) * world.tnx + i.min(world.tnx - 1)] as f64);
         }
     }
     let mut h = tmin;
+    // Only axis-aligned boxes (`pn == 0`): a convex prism's bounding box covering the square says nothing.
     for b in &world.boxes {
-        if b.x0 <= x0 && b.x1 >= x1 && b.y0 <= y0 && b.y1 >= y1 && b.z0 <= tmin {
+        if b.pn == 0 && b.x0 <= x0 && b.x1 >= x1 && b.y0 <= y0 && b.y1 >= y1 && b.z0 <= tmin {
             h = h.max(b.z1);
         }
     }
@@ -398,7 +399,7 @@ fn solid_floor(world: &World, x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
 /// footprint (`inside` is tested at the cube centre with the cube's half-diagonal as slack).
 const CUBE: f64 = 1.5;
 fn region_solid(world: &World, lo: [f64; 3], hi: [f64; 3], inside: &dyn Fn([f64; 3], f64) -> bool) -> bool {
-    if lo[0] < -MAP_HALF || lo[1] < -MAP_HALF || hi[0] > MAP_HALF || hi[1] > MAP_HALF {
+    if lo[0] < world.x0 || lo[1] < world.y0 || hi[0] > world.x1 || hi[1] > world.y1 {
         return false;
     }
     let slack = CUBE * 3f64.sqrt() / 2.0;

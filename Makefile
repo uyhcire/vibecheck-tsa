@@ -83,6 +83,8 @@ gate-check: gate
 # The city flight demo (flight/, cityflight). FILTER picks the safety filter (exact-rollout, exact-rollout-lean,
 # exact, fitted, fitted25); ARGS adds flags, e.g. `make fly ARGS="--episode 59 --paths"`.
 FILTER ?= exact-rollout
+# `make fly*` flies the Lean gate unless FILTER is given on the command line (headless tests keep FILTER's default).
+FLY_FILTER ?= $(if $(filter command line,$(origin FILTER)),$(FILTER),exact-rollout-lean)
 ARGS ?=
 N ?= 20
 OUT ?= /tmp/$@
@@ -91,10 +93,18 @@ CARGO_HEADLESS = cargo run --release --no-default-features --features jsb --bin
 
 .PHONY: fly
 fly:
-	$(CITY) cargo run --release --features jsb -- --safety-filter $(FILTER) $(ARGS)
+	$(CITY) cargo run --release --features jsb -- --safety-filter $(FLY_FILTER) $(ARGS)
 .PHONY: fly-lean
 fly-lean:
-	$(MAKE) fly FILTER=exact-rollout-lean
+	$(MAKE) fly FLY_FILTER=exact-rollout-lean
+# The Rust implementation of the same gate.
+.PHONY: fly-rust
+fly-rust:
+	$(MAKE) fly FLY_FILTER=exact-rollout
+# San Francisco (Luis Pabon's map) with the Rust exact-rollout gate: the Lean gate covers only the default city.
+.PHONY: fly-san-francisco
+fly-san-francisco:
+	$(MAKE) fly FLY_FILTER=exact-rollout ARGS="--map sf $(ARGS)"
 .PHONY: fly-off
 fly-off:
 	$(MAKE) fly ARGS="--off $(ARGS)"
@@ -107,7 +117,7 @@ showcase:
 # `make record OUT=/tmp/dive ARGS="--showcase --cinematic --frames 1800 --record-every 2 --record-scale 2"`.
 .PHONY: record
 record:
-	$(MAKE) fly ARGS="--record $(OUT) $(ARGS)"
+	$(MAKE) fly FLY_FILTER=$(FILTER) ARGS="--record $(OUT) $(ARGS)"
 
 # Replay a run headless and log, per tick, the gate's verified path, failed rollout and end set, to draw over
 # `make record` footage of the same run: RUN=showcase or ep<N> (as --episode N), results in OUT.
@@ -210,7 +220,7 @@ experiments:
 
 .PHONY: help
 help:
-	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
+	@echo "Fly:      make fly | fly-lean | fly-rust | fly-san-francisco | fly-off | showcase | profile | profile-lean   (Lean gate by default; FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
@@ -233,7 +243,7 @@ TSVENV ?= .lake/tsvenv
 certify:
 	lake build tsmap
 	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
-	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
+	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify lateral membership_lat lateral_climb reftraj_lat; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
 
 # Sampling test of the interval tool `tsmap B` (Tools/termsound/README.md): boxes around the level trim from 1e-9 of
 # the scales to metre scale and across table breakpoints; every sampled point's exact frame must lie in its box's

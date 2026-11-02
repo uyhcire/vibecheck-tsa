@@ -657,6 +657,76 @@ $k$ & $w_h$ & search & (a) residual & (b) box exit & (c) sink & status\\
 \end{itemize}
 
 
+\section{Lateral motion in the $k$-step family (issue \#58)}\label{sec:lateral}
+
+Both families of \#58 were limited by lateral motion. The $k$-step set of Section~\ref{sec:member} survived only with roll, heading and cross-track-speed boxes of a few thousandths of a radian (and of 0.17\,m/s). The energy barrier's lateral boxes kept growing (\texttt{docs/termsound/barrier.md}). This section brings lateral motion into the abstraction (\texttt{lateral.py}, \texttt{membership\_lat.py}, \texttt{lateral\_climb.py}).
+
+\paragraph{Why the lateral loop is slow.} The straight escape holds its track with $\phi_T = \mathrm{clamp}(K_\psi\,\mathrm{wrap}(\psi_r - \text{track}), \pm0.15)$, $K_\psi = 1$. A bank $\phi$ turns at $g\tan\phi/V$, so the heading mode's rate is about $g K_\psi / V$:
+\begin{itemize}
+\item 0.28\,s$^{-1}$ at the climb speed of 35\,m/s;
+\item 0.14\,s$^{-1}$ at the level-off speed of 70.8\,m/s.
+\end{itemize}
+At the level trim the slowest lateral mode of the frame map's Jacobian is $0.134$\,s$^{-1}$, as predicted. A $3^\circ$ bank, $3^\circ$ heading and 1\,m/s sideslip upset takes 15.6\,s to settle within $0.2^\circ$ and 0.1\,m/s. Stiffer roll gains do not help much: the bottleneck is the heading gain at high speed.
+
+\paragraph{Proposed law change (harness only).} Scale the heading gain with speed, $K_\psi \max(1, V/35.2)$. This restores the climb-speed heading dynamics at any speed and changes nothing at or below 35.2\,m/s.
+\begin{itemize}
+\item \textbf{Level-off:} the slowest lateral mode becomes $0.235$\,s$^{-1}$, and the same upset settles in 5.3\,s, with 3.9\,m of cross-track displacement instead of 7.7\,m.
+\item \textbf{Climb:} settling from the 48 starts is unchanged.
+\item \textbf{Spec:} \texttt{docs/escape-law-terminal.md}, ``Proposed'', with reference hashes. It is not implemented in either gate.
+\end{itemize}
+
+\paragraph{Route: lateral states in the slow model (route (a)).}
+\begin{itemize}
+\item \textbf{Slow coordinates.} The slow model grows to eight coordinates: $e = (h - h^\star,\ s,\ V - V^\star,\ \phi,\ \psi - \psi_r,\ v_{\mathrm{rt}},\ i_\phi,\ i_\beta)$, the last five relative to the trim.
+\item \textbf{The rest} are fast coordinates with boxes around affine quasi-steady values, as in Section~\ref{sec:member}: pitch, the body rates, the Adams--Bashforth memories, rpm, manifold pressure and the $\alpha$ integrator.
+\item \textbf{Why route (a).} A quadratic set follows the coupled roll--heading--sideslip motion, which axis-aligned boxes cannot. Route (b), a separate lateral certificate with coupling as a disturbance, would need the same lateral ellipsoid plus a coupling bound, so (a) is the simpler of the two.
+\item \textbf{Cross-track position} is not in the model. A track hold leaves it neutral, and it does not affect altitude, which is all terminal safety needs here. The model bounds the cross-track \emph{speed}.
+\end{itemize}
+
+\paragraph{Fit and search.}
+\begin{itemize}
+\item $A_k$ ($8 \times 8$) and $\bar f$ are fitted to 40 rollouts started with longitudinal and lateral offsets: up to $\pm4^\circ$ roll and heading and $\pm1.5$\,m/s sideslip.
+\item The ellipsoid comes from the Lyapunov equation of $A_k$ in coordinates scaled by $(20\,\mathrm{m}, 2\,\mathrm{m/s}, 8\,\mathrm{m/s}, L^\circ, L^\circ, L/2\,\mathrm{m/s}, 0.02, 0.02)$, with a lateral scale $L$. $r$ is set by the altitude half-width $w_h$.
+\item The search is the one of Section~\ref{sec:member}: corners, faces, multi-start Nelder--Mead, fixed-point widening of the fast boxes, then an independent re-search (new seed, 300 screening starts, 4 Nelder--Mead starts of 600 evaluations per objective).
+\end{itemize}
+
+\begin{cert}[lateral $k$-step membership, \texttt{membership\_lat.py}]\label{cert:lateral}
+Worst violation ratios after the re-search ($\le 1$ required); 18{,}820 rollouts per row:
+
+\begin{center}
+\small
+\begin{tabular}{llrrrrrrrrl}
+\toprule
+law & $k$ & $w_h$ & roll & heading & $v_{\mathrm{rt}}$ & airspeed & (a) & (b) & (c) & status\\
+\midrule
+gate & 512 & 20\,m & $2.1^\circ$ & $2.2^\circ$ & 0.82 & 6.0 & 1.19 & 0.51 & 0.76 & falsified\\
+proposed & 512 & 20\,m & $2.2^\circ$ & $2.2^\circ$ & 0.98 & 5.9 & 1.08 & 0.51 & 0.76 & falsified\\
+proposed & 512 & 15\,m & $1.6^\circ$ & $1.7^\circ$ & 0.74 & 4.5 & 1.09 & 0.40 & 0.51 & falsified\\
+proposed & 640 & 15\,m & $1.6^\circ$ & $1.6^\circ$ & 0.76 & 4.7 & 0.83 & 0.22 & 0.63 & survives\\
+proposed & 768 & 15\,m & $1.6^\circ$ & $1.6^\circ$ & 0.77 & 4.9 & 0.65 & 0.15 & 0.75 & survives\\
+gate & 768 & 15\,m & $2.4^\circ$ & $2.4^\circ$ & 1.00 & 4.9 & 0.87 & 0.16 & 0.76 & survives\\
+gate & 768 & 15\,m & $3.1^\circ$ & $3.1^\circ$ & 1.33 & 4.9 & 1.01 & 0.16 & 0.76 & falsified\\
+proposed & 768 & 15\,m & $2.4^\circ$ & $2.4^\circ$ & 1.13 & 4.9 & 0.70 & 0.15 & 0.76 & survives\\
+proposed & 768 & 15\,m & $3.2^\circ$ & $3.2^\circ$ & 1.47 & 4.9 & 0.76 & 0.15 & 0.76 & survives\\
+\textbf{proposed} & \textbf{768} & \textbf{15\,m} & $\mathbf{4.8^\circ}$ & $\mathbf{4.8^\circ}$ & \textbf{2.05} & \textbf{4.9} & \textbf{0.90} & \textbf{0.15} & \textbf{0.76} & \textbf{survives}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The roll, heading, $v_{\mathrm{rt}}$ (m/s) and airspeed (m/s) columns are the ellipsoid's half-widths. Every row also has climb-rate error $\pm1.6$\,m/s (except $w_h = 20$\,m: $\pm2.2$) and integrators $\pm0.016$. $k = 768$ is 6\,s, with $\bar v = 7.4$\,m/s.
+
+\textbf{Fast boxes of the best $\theta$:} pitch $\pm0.0019$\,rad, roll rate $\pm0.0021$\,rad/s, pitch rate $\pm0.0012$\,rad/s, yaw rate $\pm0.011$\,rad/s, rpm $\pm4.5$, $\alpha$ integrator $\pm0.009$.
+\end{cert}
+
+\paragraph{What this shows.}
+\begin{itemize}
+\item \textbf{With lateral motion in the slow model, physically meaningful lateral sets survive the search.} Under the gate's own law: $\pm2.4^\circ$ roll and heading, $\pm1$\,m/s cross-track speed, at $k = 768$. Under the proposed schedule: $\pm4.8^\circ$ and $\pm2$\,m/s. This answers \#58's target ($\ge \pm2^\circ$ roll and heading) for both laws.
+\item \textbf{The binding constraint is now (a), the slow residual,} together with (c), the sink allowance between 6\,s steps. Shorter steps fail (a), and a larger altitude range fails (c).
+\item \textbf{The fast boxes remain thin:} pitch within $0.1^\circ$ of its quasi-steady value, the body rates within about $0.001$--$0.01$\,rad/s. The start set therefore covers states with the inner loops settled, with slow and lateral errors of metres, m/s and degrees.
+\end{itemize}
+
+\textbf{Status:} \emph{survives search}, with no validated bound. \texttt{TsInterval} enclosures on boxes wider than about $10^{-6}$ in pitch are not trusted until the piston-table index fix lands. Rounding is not folded in. The law is the harness law, to be re-checked against the gate's implementation (\texttt{eric/helix-round}).
+
 \section{Certificates and reproduction}\label{sec:certs}
 
 \begin{center}
@@ -675,6 +745,7 @@ Certificate & Code & Margin or status\\
 \ref{cert:level} level-off & \texttt{leveloff.py} & $0.932$ per second (linear)\\
 \ref{cert:newlaw} new law & \texttt{terminal.py}, \texttt{reftraj.py} & one norm, $0.902$ per second (linear)\\
 \ref{cert:abstract}, \ref{cert:abstract1s} level abstraction & \texttt{abstract.py}, \texttt{abstract1s.py} & one second: measured residual within budget, headroom 4.5\\
+\ref{cert:lateral} lateral $k$-step & \texttt{membership\_lat.py}, \texttt{lateral.py} & $k = 768$: $\pm4.8^\circ$ (proposed), $\pm2.4^\circ$ (gate) survive search\\
 \ref{cert:member} $k$-step membership & \texttt{membership.py}, \texttt{membership\_verify.py} & $k = 512$, $w_h = 20$\,m: survives search (0.40 / 0.94 / 0.76)\\
 \ref{cert:levelcert2} level trim & \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{TsInterval.lean} & factor $0.991$ at $r = 10^{-7}$ (microscopic $D$)\\
 \bottomrule

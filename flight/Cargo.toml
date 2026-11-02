@@ -11,6 +11,7 @@ jsb = []
 
 [dependencies]
 macroquad = { version = "0.4", optional = true, default-features = false }
+# Same image crate macroquad uses, plus JPEG for the San Francisco aerial photo.
 image = { version = "0.24", optional = true, default-features = false, features = ["jpeg"] }
 # PNG output of the `dome` heat-maps.
 png = "0.17"
@@ -57,6 +58,11 @@ required-features = ["jsb"]
 [[bin]]
 name = "drawstep"
 path = "src/bin/drawstep.rs"
+required-features = ["jsb"]
+
+[[bin]]
+name = "fuelcheck"
+path = "src/bin/fuelcheck.rs"
 required-features = ["jsb"]
 
 [[bin]]

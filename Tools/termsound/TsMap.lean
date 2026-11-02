@@ -159,6 +159,8 @@ structure Cand where
   kp : Float := KP
   kiPhi : Float := KI_PHI
   kiA : Float := KI_A
+  /-- Proposed (`docs/escape-law-terminal.md`, lateral): heading gain scaled by `max 1 (v / kpsiV)`; NaN: off. -/
+  kpsiV : Float := NAN
   gcLo : Float := GC_LO
   gcHi : Float := GC_HI
   /-- Apply the climb parameters (`vRefE`, `kv`, `kg`, `kiA`, `gcLo`, `gcHi`) only once the law is turning (past
@@ -206,7 +208,9 @@ def controlsHold (c : Cand) (l : Law) (o : FloatArray) : Surf × Law :=
       else clamp (K_STREET * wrap (l.axis - track)) (-BANK_STREET) BANK_STREET
     else if !l.turning then
       if KEEP_BANK && dir * phi > 0.0 then dir * fmin phi.abs bank else 0.0
-    else if dir == 0.0 then clamp (c.kpsi * wrap (l.psiRef - track)) (-0.15) 0.15
+    else if dir == 0.0 then
+      let ks := if c.kpsiV.isNaN then 1.0 else fmax 1.0 (v / c.kpsiV)
+      clamp (c.kpsi * ks * wrap (l.psiRef - track)) (-0.15) 0.15
     else dir * bank
   let ephi := phiT - phi
   let (kphi, kp) := if l.esc == STREET then (ROLL_STREET_PHI, ROLL_STREET_P) else (c.kphi, c.kp)
@@ -341,7 +345,7 @@ def main : IO Unit := do
       let a := (w.extract 1 13).map ofBits
       cand := some { hLevel := a[0]!, kHold := a[1]!, vRefE := a[2]!, kv := a[3]!, kg := a[4]!, kpsi := a[5]!,
                      kphi := a[6]!, kp := a[7]!, kiPhi := a[8]!, kiA := a[9]!, gcLo := a[10]!, gcHi := a[11]!,
-                     terminalOnly := w[13]! == "1" }
+                     terminalOnly := w[13]! == "1", kpsiV := if w.size > 14 then ofBits w[14]! else NAN }
     else if cmd == "G" then
       cand := none
     else if cmd == "V" then

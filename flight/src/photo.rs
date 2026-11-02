@@ -34,6 +34,9 @@ pub const K_ROOF: f32 = 2.0;
 pub const K_CLUTTER: f32 = 3.0;
 pub const K_AIRCRAFT: f32 = 4.0;
 pub const K_OVERLAY: f32 = 5.0;
+/// `mat[1]` of a `K_OVERLAY` vertex: a soft see-through sprite (dust, smoke) that must not write depth, or
+/// the fog and clouds would stop at its transparent edges.
+pub const OVERLAY_SOFT: f32 = 1.0;
 
 /// Must match `FrameU` in the MSL prelude.
 #[repr(C)]
@@ -83,6 +86,7 @@ pub struct Lens {
     pub frame_dt: f32,
 }
 
+#[derive(Clone, Copy)]
 pub struct Settings {
     /// Multiplier on the automatic exposure.
     pub exposure: f32,
@@ -184,6 +188,8 @@ pub struct Photo {
     bld_pipe: mq::Pipeline,
     terr: mq::Bindings,
     terr_n: i32,
+    /// San Francisco's Bay Area backdrop (terrain pipeline).
+    back: Option<(mq::Bindings, i32)>,
     bld: mq::Bindings,
     bld_n: i32,
     sky_pipe: mq::Pipeline,
@@ -204,6 +210,9 @@ pub struct Photo {
     rt_reset: bool,
     dyn_pipe: mq::Pipeline,
     overlay_pipe: mq::Pipeline,
+    /// The overlay pipeline, writing depth: for the ribbons (trail, escape paths), so the fog and clouds
+    /// composited later stop at them instead of running on to whatever is behind (often sky and clouds).
+    ribbon_pipe: mq::Pipeline,
     fs_vb: mq::BufferId,
     fs_ib: mq::BufferId,
     dyn_lit: DynBuf,
@@ -293,40 +302,48 @@ fn mk_dyn(ctx: &mut dyn mq::RenderingBackend, cap_v: usize, cap_i: usize) -> Dyn
 
 impl Photo {
     pub fn new(w: &World) -> Photo {
-        let (galb_px, gmask_px) = crate::ground::bake(w);
+        let sf = w.map == MapId::SanFrancisco;
+        let ((galb_px, gaw, gah), (gmask_px, gmw, gmh)) = if sf {
+            crate::sfscene::ground(w)
+        } else {
+            let (a, m) = crate::ground::bake(w);
+            let n = crate::ground::TEX;
+            ((a, n, n), (m, n, n))
+        };
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
 
         // Terrain: same vertices and triangle split as the collision truth.
-        let mut tv = Vec::with_capacity(TN * TN);
-        for j in 0..TN {
-            for i in 0..TN {
-                let x = -MAP_HALF + i as f64 * TSP;
-                let y = -MAP_HALF + j as f64 * TSP;
-                let hh = |a: usize, b: usize| w.terr[b.min(TN - 1) * TN + a.min(TN - 1)];
+        let (tnx, tny) = (w.tnx, w.tny);
+        let mut tv = Vec::with_capacity(tnx * tny);
+        for j in 0..tny {
+            for i in 0..tnx {
+                let x = w.x0 + i as f64 * TSP;
+                let y = w.y0 + j as f64 * TSP;
+                let hh = |a: usize, b: usize| w.terr[b.min(tny - 1) * tnx + a.min(tnx - 1)];
                 let dx = hh(i + 1, j) - hh(i.saturating_sub(1), j);
                 let dy = hh(i, j + 1) - hh(i, j.saturating_sub(1));
                 let n = vec3(-dx, -dy, 2.0 * TSP as f32).normalize();
                 tv.push(PV {
-                    pos: [x as f32, y as f32, w.terr[j * TN + i]],
+                    pos: [x as f32, y as f32, w.terr[j * tnx + i]],
                     nrm: [n.x, n.y, n.z],
                     col: [1.0, 1.0, 1.0],
-                    uv: [((x + MAP_HALF) / (2.0 * MAP_HALF)) as f32, ((y + MAP_HALF) / (2.0 * MAP_HALF)) as f32],
+                    uv: [((x - w.x0) / (w.x1 - w.x0)) as f32, ((y - w.y0) / (w.y1 - w.y0)) as f32],
                     mat: [K_TERRAIN, 0.0, 0.0, 0.0],
                     fac: [0.0; 4],
                 });
             }
         }
-        let mut ti: Vec<u32> = Vec::with_capacity((TN - 1) * (TN - 1) * 6);
-        for j in 0..TN - 1 {
-            for i in 0..TN - 1 {
-                let a = (j * TN + i) as u32;
+        let mut ti: Vec<u32> = Vec::with_capacity((tnx - 1) * (tny - 1) * 6);
+        for j in 0..tny - 1 {
+            for i in 0..tnx - 1 {
+                let a = (j * tnx + i) as u32;
                 let b = a + 1;
-                let c = a + TN as u32 + 1;
-                let d = a + TN as u32;
+                let c = a + tnx as u32 + 1;
+                let d = a + tnx as u32;
                 ti.extend_from_slice(&[a, b, c, a, c, d]);
             }
         }
-        let gtex = |ctx: &mut dyn mq::RenderingBackend, px: &[u8]| {
+        let gtex = |ctx: &mut dyn mq::RenderingBackend, px: &[u8], tw: usize, th: usize| {
             let t = ctx.new_texture(
                 mq::TextureAccess::Static,
                 mq::TextureSource::Bytes(px),
@@ -336,8 +353,8 @@ impl Photo {
                     min_filter: mq::FilterMode::Linear,
                     mag_filter: mq::FilterMode::Linear,
                     mipmap_filter: mq::MipmapFilterMode::Linear,
-                    width: crate::ground::TEX as u32,
-                    height: crate::ground::TEX as u32,
+                    width: tw as u32,
+                    height: th as u32,
                     allocate_mipmaps: true,
                     ..Default::default()
                 },
@@ -345,8 +362,8 @@ impl Photo {
             ctx.texture_generate_mipmaps(t);
             t
         };
-        let galb = gtex(ctx, &galb_px);
-        let gmask = gtex(ctx, &gmask_px);
+        let galb = gtex(ctx, &galb_px, gaw, gah);
+        let gmask = gtex(ctx, &gmask_px, gmw, gmh);
         drop((galb_px, gmask_px));
         let sets = |ctx: &mut dyn mq::RenderingBackend, names: &[&str]| -> Vec<mq::TextureId> {
             names
@@ -377,7 +394,7 @@ impl Photo {
         });
         let lut_pass = ctx.new_render_pass(sky_lut, None);
 
-        let (bv, bi) = building_mesh(w);
+        let (bv, bi) = if sf { crate::sfscene::building_mesh(w) } else { building_mesh(w) };
         let mk = |ctx: &mut dyn mq::RenderingBackend, v: &[PV], i: &[u32], images: Vec<mq::TextureId>| mq::Bindings {
             vertex_buffers: vec![ctx.new_buffer(mq::BufferType::VertexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(v))],
             index_buffer: ctx.new_buffer(mq::BufferType::IndexBuffer, mq::BufferUsage::Immutable, mq::BufferSource::slice(i)),
@@ -398,6 +415,13 @@ impl Photo {
         timg.extend(&ground_sets);
         timg.extend(&shadow_tex);
         let terr = mk(ctx, &tv, &ti, timg);
+        // San Francisco: the Bay Area beyond the square, drawn with the terrain shader and its own imagery.
+        let back = if sf { crate::sfscene::backdrop(w) } else { None }.map(|b| {
+            let mut img = vec![sky_lut, gtex(ctx, &b.alb, b.n, b.n), gtex(ctx, &b.mask, b.mask_n, b.mask_n)];
+            img.extend(&ground_sets);
+            img.extend(&shadow_tex);
+            (mk(ctx, &b.v, &b.i, img), b.i.len() as i32)
+        });
         let mut bimg = vec![sky_lut];
         bimg.extend(&fac_sets);
         bimg.extend(&roof_sets);
@@ -439,21 +463,18 @@ impl Photo {
         let sdv = shader(ctx, &sdv_src, &[]);
         let dyn_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, dsh, rev_z);
         let shadow_dv_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, sdv, shadow_params);
-        let overlay_pipe = ctx.new_pipeline(
-            &[mq::BufferLayout::default()],
-            &dyn_attrs,
-            dsh,
-            mq::PipelineParams {
-                depth_test: mq::Comparison::GreaterOrEqual,
-                depth_write: false,
-                color_blend: Some(mq::BlendState::new(
-                    mq::Equation::Add,
-                    mq::BlendFactor::Value(mq::BlendValue::SourceAlpha),
-                    mq::BlendFactor::OneMinusValue(mq::BlendValue::SourceAlpha),
-                )),
-                ..Default::default()
-            },
-        );
+        let overlay_params = mq::PipelineParams {
+            depth_test: mq::Comparison::GreaterOrEqual,
+            depth_write: false,
+            color_blend: Some(mq::BlendState::new(
+                mq::Equation::Add,
+                mq::BlendFactor::Value(mq::BlendValue::SourceAlpha),
+                mq::BlendFactor::OneMinusValue(mq::BlendValue::SourceAlpha),
+            )),
+            ..Default::default()
+        };
+        let overlay_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, dsh, overlay_params);
+        let ribbon_pipe = ctx.new_pipeline(&[mq::BufferLayout::default()], &dyn_attrs, dsh, mq::PipelineParams { depth_write: true, ..overlay_params });
         let fs_attr = [mq::VertexAttribute::new("in_pos", mq::VertexFormat::Float2)];
         let sky_src = shaders::sky();
         let ssh = shader(ctx, &sky_src, &["sky_lut"]);
@@ -506,6 +527,7 @@ impl Photo {
             bld_pipe,
             terr,
             terr_n: ti.len() as i32,
+            back,
             bld,
             bld_n: bi.len() as i32,
             sky_pipe,
@@ -516,7 +538,7 @@ impl Photo {
             final_pipe,
             ssao_pipe,
             vol_pipe,
-            lamps: street_lamps(w),
+            lamps: if sf { Vec::new() } else { street_lamps(w) },
             exposure_auto: 6.0,
             rt: None,
             rt_failed: false,
@@ -526,6 +548,7 @@ impl Photo {
             rt_reset: true,
             dyn_pipe,
             overlay_pipe,
+            ribbon_pipe,
             fs_vb,
             fs_ib,
             dyn_lit,
@@ -675,7 +698,7 @@ impl Photo {
             splits: SPLITS,
             shadow_texel: cascades.map(|c| c.1),
             prop: f.prop,
-            flags: [if f.cockpit { 1.0 } else { 0.0 }, 0.0, night, 0.0],
+            flags: [if f.cockpit { 1.0 } else { 0.0 }, 0.0, night, if self.lamps.is_empty() { 1.0 } else { 0.0 }],
             fog: [fg.density, fg.falloff, fg.anisotropy, fg.valley_top],
             fog2: [fg.valley_density, fg.cloud_cover, fg.cloud_base, fg.cloud_top],
             land_pos: f.land_pos,
@@ -714,7 +737,13 @@ impl Photo {
             ni as i32
         };
         let n_lit = upload(ctx, &self.dyn_lit, f.dyn_lit.0, f.dyn_lit.1);
-        let n_ov = upload(ctx, &self.dyn_ov, f.dyn_overlay.0, f.dyn_overlay.1);
+        // Ribbons first (they write depth), then the glow sprites, soft sprites and prop disc, which are mostly
+        // see-through and don't.
+        let (ov, oi) = f.dyn_overlay;
+        let (rib, rest): (Vec<&[u32]>, Vec<&[u32]>) =
+            oi.chunks(3).partition(|t| ov[t[0] as usize].mat[0] == K_OVERLAY && ov[t[0] as usize].mat[1] != OVERLAY_SOFT);
+        let n_ov = upload(ctx, &self.dyn_ov, ov, &[rib.concat(), rest.concat()].concat());
+        let n_rib = (rib.len() as i32 * 3).min(n_ov);
 
         if use_rt {
             let (v, i) = f.dyn_lit;
@@ -763,6 +792,12 @@ impl Photo {
             ctx.apply_uniforms(mq::UniformsSource::table(&u));
             ctx.draw(0, n, 1);
         }
+        if let Some((b, n)) = &self.back {
+            ctx.apply_pipeline(&self.terr_pipe);
+            ctx.apply_bindings(b);
+            ctx.apply_uniforms(mq::UniformsSource::table(&u));
+            ctx.draw(0, *n, 1);
+        }
         if n_lit > 0 {
             ctx.apply_pipeline(&self.dyn_pipe);
             let mut im = vec![self.sky_lut];
@@ -776,11 +811,13 @@ impl Photo {
         ctx.apply_bindings(&fs_bind(vec![self.sky_lut]));
         ctx.apply_uniforms(mq::UniformsSource::table(&u));
         ctx.draw(0, 3, 1);
-        if n_ov > 0 {
-            ctx.apply_pipeline(&self.overlay_pipe);
-            ctx.apply_bindings(&mq::Bindings { vertex_buffers: vec![self.dyn_ov.vb], index_buffer: self.dyn_ov.ib, images: vec![self.sky_lut] });
-            ctx.apply_uniforms(mq::UniformsSource::table(&u));
-            ctx.draw(0, n_ov, 1);
+        for (p, a, b) in [(&self.ribbon_pipe, 0, n_rib), (&self.overlay_pipe, n_rib, n_ov)] {
+            if b > a {
+                ctx.apply_pipeline(p);
+                ctx.apply_bindings(&mq::Bindings { vertex_buffers: vec![self.dyn_ov.vb], index_buffer: self.dyn_ov.ib, images: vec![self.sky_lut] });
+                ctx.apply_uniforms(mq::UniformsSource::table(&u));
+                ctx.draw(a, b - a, 1);
+            }
         }
         ctx.end_render_pass();
 
