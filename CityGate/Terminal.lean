@@ -127,6 +127,9 @@ def R_SETTLED : Float := 0.03
 def C_SETTLED : Float := 0.05
 def E_AIR : Float := 7.0
 def G0T : Float := 9.80665
+/-- Level-off ending: the whole window at least `Z_LEVEL` (m) high at a mean airspeed of at least `V_LEVEL` (m/s). -/
+def Z_LEVEL : Float := 980.0
+def V_LEVEL : Float := 30.0
 
 /-- `rho_of`: the law's density model. -/
 def rhoT (h : Float) : Float := 1.225 * (fmax (1.0 - 2.2558e-5 * h) 0.5).pow 4.256
@@ -148,6 +151,7 @@ structure Seg where
   vzMin : Float
   vzMean : Float
   vMean : Float
+  zMin : Float
   de : Float
   e : Hist
 
@@ -163,6 +167,7 @@ def seg (h : Array Hist) : Seg :=
     vzMin := h.foldl (fun m x => fmin m x.vz) (1.0 / 0.0)
     vzMean := (h.foldl (fun s x => s + x.vz) (-0.0)) / n
     vMean := (h.foldl (fun s x => s + x.v) (-0.0)) / n
+    zMin := h.foldl (fun m x => fmin m x.z) (1.0 / 0.0)
     de := energy b - energy a
     e := b }
 
@@ -218,6 +223,8 @@ def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run d
   let n := hist.size
   let a := seg (hist.extract (n - 2 * HALF - 1) (n - HALF))
   let b := seg (hist.extract (n - HALF - 1) n)
+  -- level-off: above `Z_LEVEL` the terminal law holds or descends to `H_LEVEL`, never below the map's top
+  if fmin a.zMin b.zMin ≥ Z_LEVEL && b.vMean ≥ V_LEVEL then return true
   if fmin a.vzMin b.vzMin < VZ_MIN then return false
   let e := b.e
   if dir == 0.0 then

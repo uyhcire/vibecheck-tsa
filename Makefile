@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase profile profile-lean crashes crashes-lean adversary harness regimes plantcheck gatefaith termhunt termhunt-lean export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -115,6 +115,30 @@ plantcheck:
 	.lake/build/bin/citygatespot
 	.lake/build/bin/specbridgeinit
 
+# Rust/Lean faithfulness of the escape law and end test: per-frame hashes and end-test verdicts from N starts must be
+# identical, and the terminal law must reproduce docs/escape-law-terminal.md's reference hashes.
+GF = /tmp/gatefaith
+gatefaith:
+	lake build $(LAKE_OPTS) libcityjsb gatefaith
+	cd flight && cargo build --release --no-default-features --features jsb --bin gatefaith
+	mkdir -p $(GF)
+	flight/target/release/gatefaith starts $(GF)/starts.txt $(N)
+	flight/target/release/gatefaith laws $(GF)/starts.txt $(GF)/rust.txt --threads 3
+	.lake/build/bin/gatefaith laws $(GF)/starts.txt $(GF)/lean.txt
+	cmp $(GF)/rust.txt $(GF)/lean.txt && echo "laws and end-test verdicts: identical"
+	flight/target/release/gatefaith reftraj > $(GF)/ref-rust.txt
+	.lake/build/bin/gatefaith reftraj > $(GF)/ref-lean.txt
+	cmp $(GF)/ref-rust.txt $(GF)/ref-lean.txt && grep -q 2947c707944678e9 $(GF)/ref-lean.txt && grep -q dd0d6deef038f51a $(GF)/ref-lean.txt \
+	  && echo "reference trajectories: both match the spec"
+
+# End-test falsifiers: verified escapes flown on past their verdict (Rust: `termhunt N`, `trace I SEED ESC`, `trim`,
+# `high`; Lean: `hunt SEED N`, `trace SEED I`, `witnesses FILE`, `pass SEED N`, `starts`).
+termhunt:
+	$(CITY) $(CARGO_HEADLESS) termhunt -- $(ARGS)
+termhunt-lean:
+	lake build $(LAKE_OPTS) termhunt
+	.lake/build/bin/termhunt $(ARGS)
+
 # The city as plain files for other simulators (docs/xplane-integration.md), checked bit for bit.
 export:
 	cargo run --release --manifest-path Tools/city-export/Cargo.toml -- map city-map
@@ -127,6 +151,7 @@ pdf:
 help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | test   (N=..., OUT=...)"
+	@echo "Gate:     make gatefaith | termhunt | termhunt-lean   (N=..., ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"

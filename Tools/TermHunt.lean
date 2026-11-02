@@ -256,11 +256,30 @@ def passCount (seed n : Nat) : IO Unit := do
     if (rollout (Ctl.fresh c.uc CHECK_EVERY (Law.new c.esc) 0.0 HORIZON_FRAMES, c.plane)).isSome then pass := pass + 1
   IO.println s!"seed {seed}: {pass} of {n} rollouts pass the end test"
 
+/-- Each escape's rollout from the spec's 4 starts (`InitChecked` needs one to pass from each). -/
+def specStarts : IO Unit := do
+  for c in CitySafety.startConds do
+    let p := SpecBridge.firstPlane c.state
+    IO.println s!"start {fmtP p.pos} v {p.ob[6]!}"
+    for e in List.range N_ESC do
+      let mut x := (Ctl.fresh ⟨0, 0, 0, 0⟩ 0 (Law.new e) 0.0 HORIZON_FRAMES, p)
+      let mut out := "horizon"
+      for k in [0:cityGate.horizon + 1] do
+        if !cityGate.clear x then
+          out := s!"clearance fails at frame {k}, {fmtP x.2.pos}"
+          break
+        if cityGate.term x then
+          out := s!"end test passes at frame {k}"
+          break
+        x := cityGate.fly x
+      IO.println s!"  escape {e}: {out}; at the end v {x.2.ob[6]!}, law t {x.1.law.t}"
+
 def main (args : List String) : IO Unit := do
   match args with
   | ["witnesses", path] => witnesses path (128 * 400)
   | ["witnesses", path, secs] => witnesses path (128 * secs.toNat!)
   | ["pass", seed, n] => passCount seed.toNat! n.toNat!
+  | ["starts"] => specStarts
   | ["hunt", seed, n] => hunt seed.toNat! n.toNat! (128 * 400)
   | ["hunt", seed, n, secs] => hunt seed.toNat! n.toNat! (128 * secs.toNat!)
   | ["hunt", seed, n, secs, esc, kind] =>
@@ -269,4 +288,4 @@ def main (args : List String) : IO Unit := do
     let c := caseAt seed.toNat! i.toNat!
     IO.println c.show
     traceCase c ((args[3]? >>= String.toNat?).getD 200)
-  | _ => IO.println "usage: termhunt hunt SEED N [SECS] | trace SEED I [SECS] | witnesses FILE [SECS] | pass SEED N"
+  | _ => IO.println "usage: termhunt hunt SEED N [SECS] | trace SEED I [SECS] | witnesses FILE [SECS] | pass SEED N | starts"

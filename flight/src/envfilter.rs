@@ -486,6 +486,9 @@ pub const V_SETTLED: f64 = 1.0;
 pub const R_SETTLED: f64 = 0.03;
 pub const C_SETTLED: f64 = 0.05;
 pub const E_AIR: f64 = 7.0;
+/// Level-off ending: the whole window at least `Z_LEVEL` (m) high at a mean airspeed of at least `V_LEVEL` (m/s).
+pub const Z_LEVEL: f64 = 980.0;
+pub const V_LEVEL: f64 = 30.0;
 /// Settling window for terminal tests (samples): two halves of 2 s each.
 const HALF: usize = 32;
 
@@ -781,6 +784,7 @@ struct Seg {
     vz_min: f64,
     vz_mean: f64,
     v_mean: f64,
+    z_min: f64,
     /// Change of specific energy `z + v²/2g` from the first sample to the last (m).
     de: f64,
     end: Hist,
@@ -799,6 +803,7 @@ fn seg(h: &[Hist]) -> Seg {
         vz_min: h.iter().map(|x| x.vz).fold(f64::INFINITY, f64::min),
         vz_mean: h.iter().map(|x| x.vz).sum::<f64>() / n,
         v_mean: h.iter().map(|x| x.v).sum::<f64>() / n,
+        z_min: h.iter().map(|x| x.z).fold(f64::INFINITY, f64::min),
         de: energy(&b) - energy(&a),
         end: b,
     }
@@ -813,6 +818,10 @@ fn terminal(world: &World, dir: f64, kind: usize, hist: &[Hist], margin: f64) ->
     let n = hist.len();
     let a = seg(&hist[n - 2 * HALF - 1..n - HALF]);
     let b = seg(&hist[n - HALF - 1..]);
+    // Level-off: above `Z_LEVEL` the terminal law holds or descends to `h_level`, never below the map's top.
+    if a.z_min.min(b.z_min) >= Z_LEVEL && b.v_mean >= V_LEVEL {
+        return Ok(vec![[b.end.x, b.end.y, b.end.z]]);
+    }
     if a.vz_min.min(b.vz_min) < VZ_MIN {
         return Err(TermFail::Unsettled);
     }

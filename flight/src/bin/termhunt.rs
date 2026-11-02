@@ -38,7 +38,7 @@ struct After {
     side: (f64, f64),
 }
 
-fn continue_escape(world: &World, p: &JsbPlant, esc: usize, t_ok: f64, secs: f64, every: Option<usize>) -> After {
+fn continue_escape(world: &World, p: &JsbPlant, esc: usize, t_ok: f64, secs: f64, every: Option<usize>, stop_above: bool) -> After {
     let mut q = p.fork();
     let mut law = Law::new(esc);
     let mut a = After { min: f64::INFINITY, t_min: 0.0, end: "timeout", side: (0.0, 0.0) };
@@ -57,7 +57,7 @@ fn continue_escape(world: &World, p: &JsbPlant, esc: usize, t_ok: f64, secs: f64
                 world.airframe_clearance(&s, 200.0)
             );
         }
-        if s[Z] - R_BODY - 8.0 > world.raw_top {
+        if stop_above && s[Z] - R_BODY - 8.0 > world.raw_top {
             a.end = "above-top";
             break;
         }
@@ -175,6 +175,29 @@ fn trim_cmd(args: &[String]) {
     }
 }
 
+/// Level-off ending: random starts above `Z_LEVEL`, every verified escape flown on; the lowest point after the verdict.
+fn high(world: &World, n: u64, secs: f64, threads: usize) {
+    let res = par_map(
+        (0..n).collect(),
+        threads,
+        |&i| {
+            let mut r = Rng::new(i ^ 0x41617);
+            let s0: State = [r.range(-2500.0, 2500.0), r.range(-2500.0, 2500.0), r.range(960.0, 2500.0), r.range(25.0, 90.0), r.range(-0.6, 0.5), r.range(-3.1, 3.1), r.range(-1.3, 1.3), 0.0, 1.0, r.range(0.0, 1.0)];
+            let p = JsbPlant::new(&s0);
+            (0..ESCAPES.len())
+                .filter_map(|esc| {
+                    let ro = rollout(world, &p, esc, usize::MAX);
+                    ro.ok().then(|| (i, esc, ro.t, continue_escape(world, &p, esc, ro.t, secs, None, false)))
+                })
+                .collect::<Vec<_>>()
+        },
+        |_, _| {},
+    );
+    let all: Vec<_> = res.into_iter().flatten().collect();
+    let worst = all.iter().min_by(|a, b| a.3.min.total_cmp(&b.3.min));
+    println!("{} verified escapes from {n} starts above 960 m; lowest clearance after a verdict: {:?}", all.len(), worst.map(|w| (w.0, ESCAPES[w.1].name, w.2, w.3.min, w.3.t_min)));
+}
+
 fn arg<T: std::str::FromStr>(args: &[String], name: &str) -> Option<T> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)?.parse().ok())
 }
@@ -183,6 +206,9 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let secs: f64 = arg(&args, "--secs").unwrap_or(200.0);
     let world = World::new(1337);
+    if args.first().map(|s| s.as_str()) == Some("high") {
+        return high(&world, arg(&args, "--n").unwrap_or(200), secs, arg(&args, "--threads").unwrap_or(3));
+    }
     if args.first().map(|s| s.as_str()) == Some("trim") {
         return trim_cmd(&args);
     }
@@ -191,7 +217,7 @@ fn main() {
         let p = perturbed(&world, i, seed);
         let r = rollout(&world, &p, esc, usize::MAX);
         println!("random {i} seed {seed} {}: {:?} at t {:.2} s ({:?}), min clearance {:.2} m", ESCAPES[esc].name, r.outcome, r.t, r.why, r.min_clear);
-        let a = continue_escape(&world, &p, esc, if r.ok() { r.t } else { 0.0 }, secs, Some(128));
+        let a = continue_escape(&world, &p, esc, if r.ok() { r.t } else { 0.0 }, secs, Some(128), true);
         println!("after the verdict: min {:.2} m at t {:.1} s, end {}", a.min, a.t_min, a.end);
         return;
     }
@@ -206,7 +232,7 @@ fn main() {
             (0..ESCAPES.len())
                 .filter_map(|esc| {
                     let r = rollout(&world, &p, esc, usize::MAX);
-                    r.ok().then(|| (i, esc, r.t, continue_escape(&world, &p, esc, r.t, secs, None)))
+                    r.ok().then(|| (i, esc, r.t, continue_escape(&world, &p, esc, r.t, secs, None, true)))
                 })
                 .collect::<Vec<_>>()
         },
@@ -229,6 +255,9 @@ fn main() {
     worst.sort_by(|a, b| a.3.min.total_cmp(&b.3.min));
     for (i, esc, t, a) in worst.iter().take(8) {
         println!("  random {i} seed {seed} {:8} verdict {:5.1} s: min after {:7.2} m at {:6.1} s, end {}", ESCAPES[*esc].name, t, a.min, a.t_min, a.end);
+    }
+    for (i, esc, t, a) in all.iter().filter(|a| a.3.end == "timeout").take(8) {
+        println!("  still below the top: random {i} seed {seed} {:8} verdict {:5.1} s, min after {:7.2} m", ESCAPES[*esc].name, t, a.min);
     }
     let bad = per.iter().map(|p| p[1]).sum::<usize>();
     println!("contacts after a verified end: {bad}");
