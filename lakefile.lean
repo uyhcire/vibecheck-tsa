@@ -161,6 +161,11 @@ target libcityjsb pkg : FilePath := do
       proc {cmd := "cc", args}
     return lib
 
+/-- Non-emptiness check of the `TermSoundR` skeleton's certified sets on real rollouts. -/
+lean_exe termskelcheck where
+  root := `Tools.TermSkeletonCheck
+  moreLinkObjs := #[jxmath.o]
+
 /-- Numeric check of the spec bridge's start assumption (`InitChecked cityGate GInit`) and sweep margins. -/
 lean_exe specbridgeinit where
   root := `Tools.SpecBridgeInit

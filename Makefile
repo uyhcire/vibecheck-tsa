@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record proofdump profile profile-lean crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record proofdump profile profile-lean crashes crashes-lean adversary harness regimes plantcheck termcheck export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -122,6 +122,11 @@ regimes:
 	$(CITY) $(CARGO_HEADLESS) regimes -- run $(ARGS) && $(CARGO_HEADLESS) regimes -- index
 
 # Plant and Lean-gate spot checks: the JsbExact plant, state import, the Lean gate's street escape, the 4 spec starts.
+# Run, not proof: the TermSoundR skeleton's Geo and Conf halves hold at the 4 spec starts' settled states.
+termcheck:
+	lake build $(LAKE_OPTS) termskelcheck
+	.lake/build/bin/termskelcheck
+
 plantcheck:
 	lake build $(LAKE_OPTS) cityplanttest cityimporttest citygatespot specbridgeinit
 	.lake/build/bin/cityplanttest
@@ -142,7 +147,7 @@ help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
-	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | test   (N=..., OUT=...)"
+	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"
