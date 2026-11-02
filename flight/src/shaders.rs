@@ -586,6 +586,14 @@ fragment MOut fragmentShader(VOut i [[stage_in]], constant FrameU& U [[buffer(0)
                                texture2d<float> sky_lut [[texture(0)]],
                                array<depth2d<float>, 4> sm [[texture(1)]]) {
     MOut o;
+    if (i.mat.x > 8.5) {
+        float g = saturate(1.0 - dot(i.loc.xy, i.loc.xy));
+        o = flat_out(float4(i.col.rgb / 0.3, 0.3 * g * g * i.col.a), 0.0); o.e = 0.0; return o;
+    }
+    if (i.mat.x > 7.5) {
+        float g = saturate(1.0 - dot(i.loc.xy, i.loc.xy));
+        o = flat_out(float4(i.col.rgb / U.sun.w, i.col.a * g * g), 0.0); o.e = 0.0; return o;
+    }
     if (i.mat.x > 6.5) {
         float g = exp(-dot(i.loc.xy, i.loc.xy) * 4.0);
         float al = 0.3 * g * i.col.a;
@@ -595,7 +603,8 @@ fragment MOut fragmentShader(VOut i [[stage_in]], constant FrameU& U [[buffer(0)
     float part = i.loc.w;
     float3 lp = i.loc.xyz;
     float3 v = normalize(U.cam.xyz - i.pos);
-    bool cockpit = U.flags.x > 0.5;
+    // The cockpit view's cutaways apply to the flown aircraft only, not the fly (livery `mat.y` = 1).
+    bool cockpit = U.flags.x > 0.5 && i.mat.y < 0.5;
     Surf s;
     s.n = normalize(i.nrm); s.ao = 1.0; s.metal = 0.0; s.rough = 0.3;
     float3 white = float3(0.78, 0.78, 0.76);
@@ -664,6 +673,36 @@ fragment MOut fragmentShader(VOut i [[stage_in]], constant FrameU& U [[buffer(0)
     } else {
         s.alb = float3(0.05); s.rough = 0.8;
     }
+    if (i.mat.y > 0.5 && part < 7.5 || i.mat.y > 0.5 && part > 9.5) {
+        // Fly livery: tan thorax, banded abdomen, red faceted compound eyes over the cabin, smoky veined wings
+        // with a thin-film sheen, dark legs (struts).
+        float3 tan = float3(0.50, 0.32, 0.12);
+        float3 dark = float3(0.06, 0.04, 0.025);
+        glass = 0.0; s.metal = 0.0;
+        bool wing = (part > 0.5 && part < 1.5) || (part > 2.5 && part < 3.5 && abs(lp.y) > 2.2);
+        if (wing) {
+            float vein = step(fract(abs(lp.y) * 0.8), 0.03) + step(fract(lp.x * 1.6 + abs(lp.y) * 0.25), 0.04);
+            float nv = saturate(dot(s.n, v));
+            float3 film = 0.5 + 0.5 * cos(6.2831 * (nv * 1.4 + float3(0.0, 0.33, 0.67)));
+            s.alb = mix(float3(0.40, 0.42, 0.45) + 0.2 * film, dark, saturate(vein));
+            s.rough = 0.12;
+        } else if ((part > 3.5 && part < 4.5) || (part > 5.5 && part < 6.5)) {
+            s.alb = dark; s.rough = 0.6;
+        } else {
+            s.alb = tan; s.rough = 0.45;
+            if (lp.x < -0.9 && fract(lp.x * 1.25) < 0.4) s.alb = dark;
+            if (lp.z > 0.95 && part < 0.5) s.alb = tan * 0.6;
+            float3 eL = (lp - float3(0.95, 0.42, 0.5)) / float3(0.8, 0.3, 0.42);
+            float3 eR = (lp - float3(0.95, -0.42, 0.5)) / float3(0.8, 0.3, 0.42);
+            if (dot(eL, eL) < 1.0 || dot(eR, eR) < 1.0) {
+                float row = floor(lp.z * 11.0);
+                float2 f = fract(float2(lp.x * 11.0 + 0.5 * row, lp.z * 11.0)) - 0.5;
+                s.alb = float3(0.55, 0.03, 0.02) * (0.55 + 0.45 * smoothstep(0.5, 0.25, max(abs(f.x), abs(f.y))));
+                s.rough = 0.12;
+            }
+        }
+    }
+    s.alb *= i.col.rgb;
     float shf = surf_shadow(U, sm, i.pos, s.n);
     Terms tm = terms0();
     float3 lit = shade(U, sky_lut, s, i.pos, v, shf, tm);

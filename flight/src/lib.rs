@@ -1,6 +1,8 @@
 //! Backup-CBF city flight: simulation, safety filter and harness (no GUI).
+pub mod combat;
 pub mod escape;
 pub mod filter;
+pub mod flybrain;
 pub mod harness;
 pub mod runway;
 #[cfg(feature = "jsb")]

@@ -23,7 +23,7 @@ Harness flags: `[episodes] [--threads N] [--quick] [--extended] [--coverage]`. `
 shortens the kamikaze endurance runs from 300 s to 60 s. The harness exits
 non-zero if any acceptance check fails.
 
-Demo flags (handy for screenshots): `--scenario 1..5`, `--off`, `--kamikaze`, `--showcase`,
+Demo flags (handy for screenshots): `--scenario 1..5`, `--off`, `--kamikaze`, `--dogfight`, `--showcase`,
 `--paths`, `--cam 0..4`, `--shot out.png --frames N`.
 
 ## Photoreal renderer (Metal)
@@ -203,6 +203,7 @@ require, not budget starvation.
 | 1–5 | scenarios: tower run, dive, ridge, slow and low, tower gap |
 | Y | tower gap with the scripted showcase pilot |
 | K | kamikaze autopilot |
+| Tab / `--dogfight` | dogfight: a fly hunts you with guns; Shift fires (`src/combat.rs`). Its pilot is a fly brain (`src/flybrain.rs`): FlyGM on the FlyWire v783 pursuit pathway (816 LC10 → 1,500 central → 256 descending neurons) that sees through the LC10s' receptive fields, fine-tuned to imitate `combat::pursuit_law`. The fly panel shows its view, the saliency of each receptive field and its neurons firing; `C` → fly cam chases it. Rebuild with `flybrain/build_graph.py`, `retina.py`, `layout.py`, the `flybrain_data` bin and `flybrain/train.py` |
 | T | run the 200-episode harness in the background |
 | R / H | reset / help |
 

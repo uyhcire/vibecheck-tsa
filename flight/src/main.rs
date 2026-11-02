@@ -13,6 +13,7 @@ mod photo;
 mod rt;
 mod shaders;
 
+use cityflight::combat::{self, Dogfight, FxKind, HITS_TO_KILL};
 use cityflight::escape::*;
 use cityflight::filter::*;
 use cityflight::harness::*;
@@ -411,6 +412,11 @@ impl StaticScene {
     }
 
     fn draw(&self, cam: &Camera3D) {
+        self.draw_into(cam, None);
+    }
+
+    /// Draw into `pass` (the window if `None`), over what is there.
+    fn draw_into(&self, cam: &Camera3D, pass: Option<mq::RenderPass>) {
         let mut gl = unsafe { get_internal_gl() };
         gl.flush();
         let ctx = gl.quad_context;
@@ -421,7 +427,10 @@ impl StaticScene {
             fog: FOG,
             dens: 1.0 / 3600.0,
         };
-        ctx.begin_default_pass(mq::PassAction::Nothing);
+        match pass {
+            Some(p) => ctx.begin_pass(Some(p), mq::PassAction::Nothing),
+            None => ctx.begin_default_pass(mq::PassAction::Nothing),
+        }
         ctx.apply_pipeline(&self.pipe);
         ctx.apply_bindings(&self.terr);
         ctx.apply_uniforms(mq::UniformsSource::table(&u));
@@ -488,7 +497,7 @@ fn body_axes(s: &State) -> (Vec3, Vec3, Vec3) {
     (f, l0 * cb - u0 * sb, u0 * cb + l0 * sb)
 }
 
-fn draw_aircraft(p: Vec3, (f, l, u): (Vec3, Vec3, Vec3), ctl: &c172::Controls) {
+fn draw_aircraft(p: Vec3, (f, l, u): (Vec3, Vec3, Vec3), ctl: &c172::Controls, tint: [f32; 3], fly: bool) {
     let m = c172::build(ctl, false);
     let sun = sun_n();
     let verts: Vec<Vertex> = m
@@ -497,13 +506,18 @@ fn draw_aircraft(p: Vec3, (f, l, u): (Vec3, Vec3, Vec3), ctl: &c172::Controls) {
         .map(|a| {
             let wp = p + f * a.pos.x + l * a.pos.y + u * a.pos.z;
             let nw = f * a.nrm.x + l * a.nrm.y + u * a.nrm.z;
-            let base = match a.part as i32 {
-                6 => [0.08, 0.08, 0.08],
-                4 => [0.6, 0.6, 0.62],
-                _ => [0.93, 0.93, 0.92],
+            let base = if fly {
+                fly_paint(a.part, a.pos)
+            } else {
+                match a.part as i32 {
+                    6 => [0.08, 0.08, 0.08],
+                    4 => [0.6, 0.6, 0.62],
+                    _ => [0.93, 0.93, 0.92],
+                }
             };
             let k = 0.5 + 0.55 * nw.dot(sun).max(0.0);
-            Vertex::new(wp.x, wp.y, wp.z, 0.0, 0.0, Color::new((base[0] * k).min(1.0), (base[1] * k).min(1.0), (base[2] * k).min(1.0), 1.0))
+            let c = |i: usize| (base[i] * tint[i] * k).min(1.0);
+            Vertex::new(wp.x, wp.y, wp.z, 0.0, 0.0, Color::new(c(0), c(1), c(2), 1.0))
         })
         .collect();
     for chunk in m.i.chunks(60_000 / 3 * 3) {
@@ -529,6 +543,118 @@ fn draw_disc(c: Vec3, r: f32, color: Color) {
         }
     }
     draw_mesh(&Mesh { vertices: verts, indices: idx, texture: None });
+}
+
+fn dv3(p: [f64; 3]) -> Vec3 {
+    vec3(p[0] as f32, p[1] as f32, p[2] as f32)
+}
+
+/// Screen position of a world point, or `None` behind the camera.
+fn project(cam: &Camera3D, p: Vec3) -> Option<Vec2> {
+    let c = cam.matrix() * p.extend(1.0);
+    (c.w > 0.1).then(|| vec2((c.x / c.w + 1.0) * 0.5 * screen_width(), (1.0 - c.y / c.w) * 0.5 * screen_height()))
+}
+
+/// Camera-facing quad for the photoreal overlay pass: kind 8 is a soft disc in display colour, kind 9 an HDR glow
+/// that falls to zero at the quad's edge.
+fn sprite(ov: &mut Vec<photo::DV>, oi: &mut Vec<u32>, c: Vec3, r: f32, col: [f32; 4], kind: f32, right: Vec3, up: Vec3) {
+    let base = ov.len() as u32;
+    for (sx, sy) in [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+        let p = c + (right * sx + up * sy) * r;
+        ov.push(photo::DV { pos: p.to_array(), nrm: [0.0; 3], col, mat: [kind, 0.0, 0.0, 0.0], loc: [sx, sy, 0.0, 0.0] });
+    }
+    oi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+/// A tracer: a kind-9 glow stretched from `a` to `b`, facing the camera.
+fn streak(ov: &mut Vec<photo::DV>, oi: &mut Vec<u32>, a: Vec3, b: Vec3, width: f32, col: [f32; 4], cam: Vec3) {
+    let side = (b - a).cross(cam - (a + b) * 0.5).normalize_or_zero() * (width * 0.5);
+    let base = ov.len() as u32;
+    for (p, l) in [(a - side, [-1.0, -1.0]), (b - side, [1.0, -1.0]), (b + side, [1.0, 1.0]), (a + side, [-1.0, 1.0])] {
+        ov.push(photo::DV { pos: p.to_array(), nrm: [0.0; 3], col, mat: [9.0, 0.0, 0.0, 0.0], loc: [l[0], l[1], 0.0, 0.0] });
+    }
+    oi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+/// The gun cross with an aura: a soft radial glow, a halo ring and glowing arms; hot (orange, pulsing) when the
+/// lead pipper sits on it.
+fn glow_cross(q: Vec2, hot: bool, t: f32) {
+    let (col, k) = if hot { (Color::new(1.0, 0.45, 0.15, 1.0), 1.0 + 0.2 * (t * 14.0).sin()) } else { (Color::new(1.0, 0.85, 0.3, 1.0), 1.0) };
+    let boost = if hot { 1.8 } else { 1.0 };
+    for i in 0..16 {
+        let f = i as f32 / 16.0;
+        draw_circle(q.x, q.y, (72.0 - 60.0 * f) * k, Color { a: (0.018 + 0.05 * f * f) * boost, ..col });
+    }
+    let r = 21.0 * k;
+    for (w, a) in [(14.0, 0.07), (8.0, 0.14), (4.0, 0.3)] {
+        draw_circle_lines(q.x, q.y, r, w, Color { a: a * boost, ..col });
+    }
+    draw_circle_lines(q.x, q.y, r, 1.5, Color { a: 0.95, ..col });
+    for (w, a) in [(12.0, 0.10), (7.0, 0.2), (4.0, 0.35), (2.0, 1.0)] {
+        let c = Color { a: a * if w > 2.0 { boost } else { 1.0 }, ..col };
+        for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+            draw_line(q.x + dx * 5.0, q.y + dy * 5.0, q.x + dx * 15.0 * k, q.y + dy * 15.0 * k, w, c);
+        }
+    }
+    draw_circle(q.x, q.y, 6.0, Color { a: 0.2 * boost, ..col });
+    draw_circle(q.x, q.y, 3.5, Color { a: 0.4 * boost, ..col });
+    draw_circle(q.x, q.y, 1.6, col);
+}
+
+/// The fly's paint for the classic renderer (the photoreal one paints it in its shader, `mat.y` = 1): a tan
+/// thorax, a banded abdomen, red compound eyes over the cabin, smoky wings and dark legs (struts).
+fn fly_paint(part: f32, q: Vec3) -> [f32; 3] {
+    let (tan, dark) = ([0.62, 0.42, 0.18], [0.1, 0.07, 0.05]);
+    let wing = [0.55, 0.58, 0.64];
+    let eye = |c: Vec3| ((q - c) / vec3(0.8, 0.3, 0.42)).length_squared() < 1.0;
+    match part as i32 {
+        1 => wing,
+        3 if q.y.abs() > 2.2 => wing,
+        4 | 6 => dark,
+        _ if eye(vec3(0.95, 0.42, 0.5)) || eye(vec3(0.95, -0.42, 0.5)) => [0.7, 0.05, 0.03],
+        _ if q.x < -0.9 && (q.x * 1.25).rem_euclid(1.0) < 0.4 => dark,
+        _ => tan,
+    }
+}
+
+/// The fly brain for the dogfight, with saliency on (it costs a backward pass on 3 ticks in 10).
+fn gui_brain() -> Option<cityflight::flybrain::Brain> {
+    let mut b = cityflight::flybrain::Brain::load_default()?;
+    b.saliency_on = true;
+    Some(b)
+}
+
+/// Size of the fly panel, which is also the fly's view (logical px).
+const FLY_VIEW: (f32, f32) = (470.0, 470.0);
+
+/// A sky sphere around `c` for offscreen views (the window's sky is a screen-space gradient): fog colour at and
+/// below the horizon, the zenith colour above.
+fn sky_dome(c: Vec3) {
+    let (rings, segs, r) = (10usize, 24usize, 9000.0f32);
+    let fog = Color::new(FOG[0], FOG[1], FOG[2], 1.0);
+    let mut verts = Vec::new();
+    let mut idx: Vec<u16> = Vec::new();
+    for i in 0..=rings {
+        let el = -0.5 * std::f32::consts::PI + std::f32::consts::PI * i as f32 / rings as f32;
+        let t = (el / 1.0).clamp(0.0, 1.0).powf(0.7);
+        let col = Color::new(fog.r + (SKY_TOP.r - fog.r) * t, fog.g + (SKY_TOP.g - fog.g) * t, fog.b + (SKY_TOP.b - fog.b) * t, 1.0);
+        for j in 0..=segs {
+            let az = std::f32::consts::TAU * j as f32 / segs as f32;
+            let p = c + vec3(el.cos() * az.cos(), el.cos() * az.sin(), el.sin()) * r;
+            verts.push(Vertex::new(p.x, p.y, p.z, 0.0, 0.0, col));
+            if i > 0 && j > 0 {
+                let (a, b) = (((i - 1) * (segs + 1) + j - 1) as u16, (i * (segs + 1) + j - 1) as u16);
+                idx.extend_from_slice(&[a, b, b + 1, a, b + 1, a + 1]);
+            }
+        }
+    }
+    draw_mesh(&Mesh { vertices: verts, indices: idx, texture: None });
+}
+
+/// Both aircraft darken with hits.
+fn damage_tint(base: [f32; 3], hits: u32) -> [f32; 3] {
+    let k = 1.0 - 0.55 * (hits as f32 / HITS_TO_KILL as f32).min(1.0);
+    base.map(|c| c * k)
 }
 
 // ------------------------------------------------------------------ text
@@ -626,6 +752,9 @@ struct App {
     fstop: f32,
     /// Caption pill for demos (`--label`).
     label: Option<String>,
+    /// Dogfight mode (Tab): a fly hunting the player; Shift fires.
+    dogfight: Option<Dogfight>,
+    trigger: bool,
 }
 
 /// (name, focal length mm, f-stop, hexagonal aperture, cat's-eye strength, tilt-shift).
@@ -638,7 +767,7 @@ const LENSES: [(&str, f32, f32, bool, f32, bool); 5] = [
 ];
 const LENS_CINEMATIC: usize = 4;
 
-const CAM_NAMES: [&str; 5] = ["chase", "cockpit", "orbit", "overhead", "fly-by"];
+const CAM_NAMES: [&str; 6] = ["chase", "cockpit", "orbit", "overhead", "fly-by", "fly cam"];
 const RENDERER_NAMES: [&str; 3] = ["classic", "photoreal", "ray traced"];
 
 /// Clickable filter toggle, just under the instrument panel.
@@ -669,6 +798,9 @@ impl App {
         self.stick = (0.0, 0.0);
         if self.kamikaze.is_some() {
             self.kamikaze = Some(Kamikaze::new(self.seed));
+        }
+        if self.dogfight.is_some() {
+            self.dogfight = Some(Dogfight::new(self.seed, gui_brain()));
         }
         let (f, _, _) = body_axes(&s0);
         self.cam_pos = sv3(&s0) - f * 30.0 + vec3(0.0, 0.0, 8.0);
@@ -771,6 +903,10 @@ impl App {
         if is_key_pressed(KeyCode::T) {
             self.toggle_harness();
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.dogfight = if self.dogfight.is_some() { None } else { Some(Dogfight::new(self.seed, gui_brain())) };
+        }
+        self.trigger = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
         if is_key_down(KeyCode::Comma) {
             self.sun_el = (self.sun_el - 12.0 * dt as f32).max(-4.0);
         }
@@ -850,6 +986,9 @@ impl App {
 
     /// Nav, strobe and landing lights: glow sprites, plus the landing spot and nav point lights for the shaders.
     fn aircraft_lights(&self, ov: &mut Vec<photo::DV>, oi: &mut Vec<u32>, cam: Vec3, right: Vec3, up: Vec3) -> ([f32; 4], [f32; 4], [[f32; 4]; 3]) {
+        if self.player_dead() {
+            return ([0.0; 4], [0.0, 0.0, -1.0, 1.0], [[0.0; 4]; 3]);
+        }
         let p = sv3(&self.drawn_state());
         let (f, l, u) = self.aircraft_axes();
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
@@ -874,6 +1013,201 @@ impl App {
             photo::glow(ov, oi, lp, 0.4 + (lp - cam).length() * 0.002, [30.0, 28.0, 25.0, 1.0], right, up);
         }
         (lp.extend(1500.0).to_array(), ld.extend(13f32.to_radians().cos()).to_array(), nav)
+    }
+
+    fn player_dead(&self) -> bool {
+        self.dogfight.as_ref().is_some_and(|d| d.player_dead)
+    }
+
+    fn player_tint(&self) -> [f32; 3] {
+        damage_tint([1.0; 3], self.dogfight.as_ref().map_or(0, |d| d.player_hits))
+    }
+
+    /// The bandit as drawn this frame (between its last two ticks), its body axes and its paint.
+    fn bandit_drawn(&self) -> Option<(Vec3, (Vec3, Vec3, Vec3), [f32; 3])> {
+        let b = self.dogfight.as_ref()?.bandit.as_ref()?;
+        let t = (self.acc / DT_F).clamp(0.0, 1.0);
+        let s: State = std::array::from_fn(|i| b.prev[i] + (b.s[i] - b.prev[i]) * t);
+        let a = airframe_axes(&s, drawn_alpha(&combat::bandit_params(), &s));
+        let v = |x: [f64; 3]| vec3(x[0] as f32, x[1] as f32, x[2] as f32);
+        Some((sv3(&s), (v(a[0]), v(a[1]), v(a[2])), damage_tint([1.0; 3], b.hits)))
+    }
+
+    /// Render the fly's view (from its eye, banking with it) into `rt` with the classic renderer: sky, city, the
+    /// player's aircraft, tracers and smoke. `None` when there is no fly brain or no fly in the air.
+    fn render_fly_view(&self, scene: &StaticScene, rt: &RenderTarget) -> Option<Camera3D> {
+        self.dogfight.as_ref()?.brain.as_ref()?;
+        let (bp, (bf, _, bu), _) = self.bandit_drawn()?;
+        let eye = bp + bf * 1.5 + bu * 1.2;
+        let cam = Camera3D {
+            position: eye,
+            target: eye + bf * 100.0,
+            up: bu,
+            fovy: 1.1,
+            aspect: Some(FLY_VIEW.0 / FLY_VIEW.1),
+            z_near: 0.5,
+            z_far: 16000.0,
+            render_target: Some(rt.clone()),
+            ..Default::default()
+        };
+        let pass = rt.render_pass.raw_miniquad_id();
+        {
+            // Not `clear_background`, which would drop the frame's pending draws.
+            let mut gl = unsafe { get_internal_gl() };
+            gl.flush();
+            gl.quad_context.begin_pass(Some(pass), mq::PassAction::clear_color(FOG[0], FOG[1], FOG[2], 1.0));
+            gl.quad_context.end_render_pass();
+        }
+        set_camera(&cam);
+        sky_dome(eye);
+        scene.draw_into(&cam, Some(pass));
+        if !self.player_dead() {
+            draw_aircraft(sv3(&self.drawn_state()), self.aircraft_axes(), &self.surfaces().0, self.player_tint(), false);
+        }
+        self.draw_combat_classic(&cam);
+        set_default_camera();
+        Some(cam)
+    }
+
+    /// The fly panel, one square: the fly's view (from its eye) behind everything; on it, saliency (how strongly
+    /// each LC10's input moves the brain's bank, climb and fire, at that LC10's receptive field); over that, every
+    /// neuron at its place in the brain lit by its firing, the strongest wiring, the fly's gun reticle and a
+    /// bracket on the player; along the bottom, what the descending neurons decode to.
+    fn draw_fly_panel(&self, ui: &Ui, br: &cityflight::flybrain::Brain, view: Option<(&RenderTarget, &Camera3D)>) {
+        let (w, h) = (screen_width(), screen_height());
+        let (pw, ph) = FLY_VIEW;
+        let (x0, y0) = (w - pw - 14.0, h - 30.0 - ph - 12.0);
+        let inside = |q: &Vec2| q.x > x0 && q.x < x0 + pw && q.y > y0 && q.y < y0 + ph;
+        let dimw = Color::new(1.0, 1.0, 1.0, 0.65);
+        let red = Color::new(1.0, 0.3, 0.22, 1.0);
+        let fly = self.dogfight.as_ref().and_then(|d| d.bandit.as_ref());
+        match view {
+            Some((rt, _)) => {
+                draw_texture_ex(&rt.texture, x0, y0, WHITE, DrawTextureParams { dest_size: Some(vec2(pw, ph)), ..Default::default() });
+                draw_rectangle(x0, y0, pw, ph, Color::new(0.0, 0.0, 0.0, 0.32));
+            }
+            None => draw_rectangle(x0, y0, pw, ph, Color::new(0.02, 0.03, 0.05, 0.85)),
+        }
+        draw_rectangle_lines(x0, y0, pw, ph, 1.0, Color::new(1.0, 1.0, 1.0, 0.25));
+        // Saliency at each LC10's receptive field, where that direction falls in the fly's view.
+        if let (Some((_, fcam)), Some(b)) = (view, fly) {
+            let [f, l, u] = airframe_axes(&b.s, 0.0).map(dv3);
+            let eye = fcam.position;
+            let focal = 0.5 * ph / (0.5 * fcam.fovy).tan();
+            let to_px = |p: Vec3| {
+                let c = fcam.matrix() * p.extend(1.0);
+                (c.w > 0.1).then(|| vec2(x0 + (c.x / c.w + 1.0) * 0.5 * pw, y0 + (1.0 - c.y / c.w) * 0.5 * ph))
+            };
+            for (a, c) in br.rf_c.iter().enumerate() {
+                let Some(q) = to_px(eye + (f * c[0] + l * c[1] + u * c[2]) * 1000.0).filter(|q| inside(q)) else { continue };
+                let sal = br.saliency[a].clamp(0.0, 1.0);
+                let r = (br.rf_s2[a].sqrt() * focal).clamp(3.0, 60.0);
+                draw_circle(q.x, q.y, 1.2, Color::new(1.0, 1.0, 1.0, 0.18));
+                if sal > 0.06 {
+                    // Heat ramp: purple (low) through orange to yellow-white (high).
+                    let col = if sal < 0.5 {
+                        Color::new(0.55 + 0.9 * sal, 0.1 + 0.5 * sal, 0.6 - 0.9 * sal, 1.0)
+                    } else {
+                        Color::new(1.0, 0.35 + 1.1 * (sal - 0.5), 0.15 + 1.4 * (sal - 0.5), 1.0)
+                    };
+                    for (k, rr) in [(0.05, 1.6), (0.09, 1.0), (0.16, 0.55)] {
+                        draw_circle(q.x, q.y, r * rr, Color { a: k * (0.4 + sal), ..col });
+                    }
+                }
+            }
+            // The fly's guns point along its flight path; the player, bracketed.
+            if let Some(q) = to_px(eye + f * 300.0).filter(inside) {
+                draw_circle_lines(q.x, q.y, 9.0, 1.5, red);
+                for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                    draw_line(q.x + dx * 12.0, q.y + dy * 12.0, q.x + dx * 18.0, q.y + dy * 18.0, 1.5, red);
+                }
+            }
+            if !self.player_dead() {
+                let pp = sv3(&self.sim.s);
+                if let Some(q) = to_px(pp).filter(inside) {
+                    let cyan = Color::new(0.3, 0.85, 1.0, 1.0);
+                    for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+                        let c = vec2(q.x + sx * 8.0, q.y + sy * 8.0);
+                        draw_line(c.x, c.y, c.x - sx * 4.0, c.y, 1.5, cyan);
+                        draw_line(c.x, c.y, c.x, c.y - sy * 4.0, 1.5, cyan);
+                    }
+                    ui.text(&format!("you {:.0} m", (pp - dv3(combat::pos(&b.s))).length()), q.x + 12.0, q.y + 4.0, 11.0, cyan, true);
+                }
+            }
+        }
+        // The brain: neurons at their FlyWire positions, lit by firing, and the strongest wiring.
+        if let Some(lay) = &br.layout {
+            let (bx, by, bw, bh) = (x0 + 14.0, y0 + 40.0, pw - 28.0, ph - 130.0);
+            let (sx, sy) = (lay.hi[0] - lay.lo[0], lay.hi[1] - lay.lo[1]);
+            let k = (bw / sx).min(bh / sy);
+            let (ox, oy) = (bx + 0.5 * (bw - sx * k), by + 0.5 * (bh - sy * k));
+            let at = |v: usize| vec2(ox + (lay.pos[v][0] - lay.lo[0]) * k, oy + (lay.pos[v][1] - lay.lo[1]) * k);
+            let (na, ne) = (br.n_aff, br.n_eff);
+            let class = |v: usize| if v < na { 0 } else if v >= br.n - ne { 2 } else { 1 };
+            let cols = [Color::new(0.3, 0.85, 1.0, 1.0), Color::new(1.0, 0.72, 0.25, 1.0), Color::new(1.0, 0.35, 0.8, 1.0)];
+            let mean = br.activity.iter().sum::<f32>() / br.n as f32;
+            let scale = (3.0 * mean).max(0.02);
+            let lit = |v: usize| (br.activity[v] / scale).clamp(0.0, 1.0);
+            for &(s, d, wt) in &lay.edges {
+                let b = lit(s as usize);
+                let c = if wt < 0.0 { Color::new(0.45, 0.55, 1.0, 1.0) } else { cols[class(s as usize)] };
+                let (p, q) = (at(s as usize), at(d as usize));
+                draw_line(p.x, p.y, q.x, q.y, 1.0, Color { a: 0.03 + 0.35 * b * b, ..c });
+            }
+            for v in 0..br.n {
+                let (p, c, b) = (at(v), cols[class(v)], lit(v));
+                if b > 0.2 {
+                    draw_circle(p.x, p.y, 2.0 + 5.0 * b, Color { a: 0.18 * b, ..c });
+                }
+                let core = Color::new(c.r + (1.0 - c.r) * b * 0.7, c.g + (1.0 - c.g) * b * 0.7, c.b + (1.0 - c.b) * b * 0.7, 0.25 + 0.75 * b);
+                let r = 0.9 + 0.8 * b;
+                draw_rectangle(p.x - r, p.y - r, 2.0 * r, 2.0 * r, core);
+            }
+        }
+        // Title and legend over a dark band; the motor readout along the bottom.
+        draw_rectangle(x0, y0, pw, 30.0, Color::new(0.02, 0.03, 0.05, 0.7));
+        ui.text("FLY", x0 + 10.0, y0 + 20.0, 15.0, WHITE, false);
+        let sub = format!("view · saliency · FlyGM on FlyWire v783, {} neurons", br.n);
+        ui.text(&sub, x0 + 44.0, y0 + 19.0, 12.0, dimw, false);
+        if br.last[3] > 0.5 && fly.is_some() {
+            ui.text("FIRE", x0 + pw - ui.width("FIRE", 15.0, false) - 10.0, y0 + 20.0, 15.0, Color::new(1.0, 0.35, 0.2, 1.0), false);
+        }
+        if fly.is_none() {
+            let t = "fly inbound…";
+            ui.text(t, x0 + (pw - ui.width(t, 13.0, false)) * 0.5, y0 + 56.0, 13.0, dimw, false);
+        }
+        let band = y0 + ph - 84.0;
+        draw_rectangle(x0, band, pw, 84.0, Color::new(0.02, 0.03, 0.05, 0.72));
+        let mut lx = x0 + 10.0;
+        let cols = [Color::new(0.3, 0.85, 1.0, 1.0), Color::new(1.0, 0.72, 0.25, 1.0), Color::new(1.0, 0.35, 0.8, 1.0), Color::new(1.0, 0.6, 0.2, 1.0)];
+        let (na, ne) = (br.n_aff, br.n_eff);
+        for (i, label) in [format!("LC10 eyes ({na})"), format!("central ({})", br.n - na - ne), format!("descending ({ne})"), "saliency".to_string()].iter().enumerate() {
+            draw_circle(lx + 4.0, band + 16.0, 4.0, cols[i]);
+            ui.text(label, lx + 12.0, band + 20.0, 11.0, dimw, false);
+            lx += ui.width(label, 11.0, false) + 24.0;
+        }
+        let [bank, climb, thr, _] = br.last;
+        let my = band + 34.0;
+        let gauge = |x: f32, label: &str, val: f32, signed: bool, text: String| {
+            ui.text(label, x, my + 10.0, 11.0, dimw, false);
+            let gw = 96.0;
+            draw_rectangle(x, my + 16.0, gw, 7.0, Color::new(1.0, 1.0, 1.0, 0.12));
+            let c = Color::new(1.0, 0.35, 0.8, 1.0);
+            if signed {
+                let m = x + gw * 0.5;
+                let e = m + val.clamp(-1.0, 1.0) * gw * 0.5;
+                draw_rectangle(m.min(e), my + 16.0, (e - m).abs(), 7.0, c);
+            } else {
+                draw_rectangle(x, my + 16.0, gw * val.clamp(0.0, 1.0), 7.0, c);
+            }
+            ui.text(&text, x + gw + 6.0, my + 24.0, 11.0, WHITE, true);
+        };
+        let deg = |r: f64| r.to_degrees() as f32;
+        let lr = if bank > 0.0 { "L" } else { "R" };
+        gauge(x0 + 10.0, "BANK", -deg(bank) / 70.0, true, format!("{:.0}° {lr}", deg(bank).abs()));
+        gauge(x0 + 160.0, "CLIMB", deg(climb) / 35.0, true, format!("{:+.0}°", deg(climb)));
+        let thr = thr.clamp(0.0, 1.0);
+        gauge(x0 + 310.0, "THROTTLE", thr as f32, false, format!("{:.0}%", thr * 100.0));
     }
 
     fn sun_dir(&self) -> Vec3 {
@@ -917,6 +1251,9 @@ impl App {
     }
 
     fn step(&mut self, dt: f64) {
+        if let Some(d) = &mut self.dogfight {
+            d.fx_step(self.world, dt);
+        }
         if self.sim.crashed || self.sim.landed {
             return;
         }
@@ -937,7 +1274,17 @@ impl App {
                 self.fbw.sticks(self.stick.0, self.stick.1, DT_F);
             }
             let u = self.fbw.cmd(&self.sim.prm_ctrl, &self.sim.s);
+            let prev = self.sim.s;
             self.sim.tick(u);
+            if let Some(d) = &mut self.dogfight {
+                d.tick(self.world, &prev, &self.sim.s, self.trigger);
+                if self.sim.crashed {
+                    d.kill_player(&self.sim.s);
+                }
+                if d.player_dead {
+                    self.sim.crashed = true;
+                }
+            }
             self.push_drawn();
             self.fbw.resync(&self.sim.s, self.sim.fs.lam, DT_F);
             self.trail_t += DT_F;
@@ -1042,6 +1389,14 @@ impl App {
                 (p + vec3(self.orbit.cos() * 70.0, self.orbit.sin() * 70.0, 22.0), p, Vec3::Z)
             }
             3 => (p + vec3(0.0, 0.0, 650.0) - fh * 250.0, p + fh * 60.0, Vec3::Z),
+            // Chase the dogfight's fly (the player's chase view when there is none).
+            5 => match self.bandit_drawn() {
+                Some((bp, (bf, _, _), _)) => {
+                    let bh = vec3(bf.x, bf.y, 0.0).normalize_or_zero();
+                    (bp - bf * 20.0 - bh * 5.0 + vec3(0.0, 0.0, 6.0), bp + bf * 20.0, Vec3::Z)
+                }
+                None => (p - f * 24.0 - fh * 6.0 + vec3(0.0, 0.0, 7.0), p + f * 25.0, Vec3::Z),
+            },
             4 => {
                 // Fly-by: a fixed spot ahead, a little to the side and below, re-placed once passed.
                 let passed = self.flyby.map_or(true, |c| (p - c).dot(fh) > 70.0 || (p - c).length() > 450.0);
@@ -1128,7 +1483,9 @@ impl App {
         // Ground shadow under the aircraft.
         let gz = self.world.surface(s[X], s[Y]) as f32 + 0.4;
         let alt = (p.z - gz).max(0.0);
-        draw_disc(vec3(p.x, p.y, gz), 6.0 + alt * 0.02, Color::new(0.0, 0.0, 0.0, (0.45 - alt * 0.0015).max(0.08)));
+        if !self.player_dead() {
+            draw_disc(vec3(p.x, p.y, gz), 6.0 + alt * 0.02, Color::new(0.0, 0.0, 0.0, (0.45 - alt * 0.0015).max(0.08)));
+        }
         // Trail.
         let pts: Vec<Vec3> = self.trail.iter().map(|t| t.0).chain(std::iter::once(p)).collect();
         let cols: Vec<Color> = self.trail.iter().map(|t| t.1).collect();
@@ -1149,8 +1506,56 @@ impl App {
             draw_sphere(t, 6.0 + 4.0 * pulse, None, Color::new(1.0, 0.1, 0.1, 0.6));
             draw_line_3d(t, t + vec3(0.0, 0.0, 120.0), Color::new(1.0, 0.2, 0.2, 0.8));
         }
-        if self.cam_mode != 1 {
-            draw_aircraft(p, self.aircraft_axes(), &self.surfaces().0);
+        if self.cam_mode != 1 && !self.player_dead() {
+            draw_aircraft(p, self.aircraft_axes(), &self.surfaces().0, self.player_tint(), false);
+        }
+        if let Some((bp, axes, tint)) = self.bandit_drawn() {
+            draw_aircraft(bp, axes, &c172::Controls::default(), tint, true);
+        }
+        self.draw_combat_classic(cam);
+    }
+
+    /// Tracers and smoke, fire, flashes and debris for the classic renderer.
+    fn draw_combat_classic(&self, cam: &Camera3D) {
+        let Some(d) = &self.dogfight else { return };
+        for b in d.bullets.iter().filter(|b| b.tracer) {
+            let p = dv3(b.p);
+            let w = 0.35 + (p - cam.position).length() * 0.002;
+            ribbon(&[p - dv3(b.v) * 0.03, p], &[Color::new(1.0, 0.8, 0.35, 0.95)], w, cam.position);
+        }
+        let fwd = (cam.target - cam.position).normalize_or_zero();
+        let right = fwd.cross(cam.up).normalize_or_zero();
+        let up = right.cross(fwd);
+        let mut fx: Vec<_> = d.fx.iter().map(|f| ((dv3(f.p) - cam.position).length_squared(), f)).collect();
+        fx.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let (mut verts, mut idx): (Vec<Vertex>, Vec<u16>) = (Vec::new(), Vec::new());
+        for (_, f) in fx {
+            let a = f.strength() as f32;
+            let col = match f.kind {
+                FxKind::Smoke => {
+                    let g = 0.62 - 0.5 * f.shade as f32;
+                    Color::new(g, g, g * 1.02, a)
+                }
+                FxKind::Dust => Color::new(0.55, 0.5, 0.42, a),
+                FxKind::Fire => Color::new(1.0, 0.5 + 0.35 * a, 0.12, a),
+                FxKind::Flash | FxKind::Spark => Color::new(1.0, 0.92, 0.6, a),
+                FxKind::Debris => Color::new(0.08, 0.08, 0.08, 1.0),
+            };
+            let rim = if f.kind == FxKind::Debris { col } else { Color { a: 0.0, ..col } };
+            if verts.len() + 11 > 60000 {
+                draw_mesh(&Mesh { vertices: std::mem::take(&mut verts), indices: std::mem::take(&mut idx), texture: None });
+            }
+            let (c, r, base) = (dv3(f.p), f.radius() as f32, verts.len() as u16);
+            verts.push(Vertex::new(c.x, c.y, c.z, 0.0, 0.0, col));
+            for k in 0..10u16 {
+                let t = k as f32 / 10.0 * std::f32::consts::TAU;
+                let q = c + (right * t.cos() + up * t.sin()) * r;
+                verts.push(Vertex::new(q.x, q.y, q.z, 0.0, 0.0, rim));
+                idx.extend_from_slice(&[base, base + 1 + k, base + 1 + (k + 1) % 10]);
+            }
+        }
+        if !idx.is_empty() {
+            draw_mesh(&Mesh { vertices: verts, indices: idx, texture: None });
         }
     }
 
@@ -1162,14 +1567,25 @@ impl App {
         let (mut lv, mut li) = (Vec::new(), Vec::new());
         let (f, l, u) = self.aircraft_axes();
         let cockpit = self.cam_mode == 1;
-        let m = c172::build(&self.surfaces().0, cockpit);
+        let dead = self.player_dead();
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
-        for a in &m.v {
-            let wp = to_w(a.pos);
-            let nw = f * a.nrm.x + l * a.nrm.y + u * a.nrm.z;
-            lv.push(DV { pos: wp.to_array(), nrm: nw.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, 0.0, 0.0, 0.0], loc: [a.pos.x, a.pos.y, a.pos.z, a.part] });
+        let mut push_mesh = |m: &c172::Mesh, to_w: &dyn Fn(Vec3) -> Vec3, (f, l, u): (Vec3, Vec3, Vec3), tint: [f32; 3], livery: f32| {
+            let base = lv.len() as u32;
+            for a in &m.v {
+                let nw = f * a.nrm.x + l * a.nrm.y + u * a.nrm.z;
+                let col = [tint[0], tint[1], tint[2], 1.0];
+                lv.push(DV { pos: to_w(a.pos).to_array(), nrm: nw.to_array(), col, mat: [photo::K_AIRCRAFT, livery, 0.0, 0.0], loc: [a.pos.x, a.pos.y, a.pos.z, a.part] });
+            }
+            li.extend(m.i.iter().map(|i| i + base));
+        };
+        if !dead {
+            push_mesh(&c172::build(&self.surfaces().0, cockpit), &to_w, (f, l, u), self.player_tint(), 0.0);
         }
-        li.extend_from_slice(&m.i);
+        let bandit = self.bandit_drawn();
+        if let Some((bp, (bf, bl, bu), tint)) = bandit {
+            let bw = |q: Vec3| bp + bf * q.x + bl * q.y + bu * q.z;
+            push_mesh(&c172::build(&c172::Controls::default(), false), &bw, (bf, bl, bu), tint, 1.0);
+        }
         let (mut ov, mut oi) = (Vec::new(), Vec::new());
         let to_scene = |c: Color| -> [f32; 4] {
             [photo::display_to_scene(c.r, exposure), photo::display_to_scene(c.g, exposure), photo::display_to_scene(c.b, exposure), c.a]
@@ -1223,12 +1639,48 @@ impl App {
             }
             ribbon_dv(&[t, t + vec3(0.0, 0.0, 120.0)], &[Color::new(1.0, 0.2, 0.2, 0.8)], 0.6);
         }
-        let base = ov.len() as u32;
-        for q in c172::prop_disc() {
-            ov.push(DV { pos: to_w(q).to_array(), nrm: f.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, 0.0, 0.0, 0.0], loc: [q.x, q.y, q.z, c172::P_PROP] });
+        let mut discs: Vec<(Box<dyn Fn(Vec3) -> Vec3>, Vec3, f32)> = Vec::new();
+        if !dead {
+            discs.push((Box::new(to_w), f, 0.0));
         }
-        oi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        if let Some((bp, (bf, bl, bu), _)) = bandit {
+            discs.push((Box::new(move |q: Vec3| bp + bf * q.x + bl * q.y + bu * q.z), bf, 1.0));
+        }
+        for (to_w, f, livery) in discs {
+            let base = ov.len() as u32;
+            for q in c172::prop_disc() {
+                ov.push(DV { pos: to_w(q).to_array(), nrm: f.to_array(), col: [1.0; 4], mat: [photo::K_AIRCRAFT, livery, 0.0, 0.0], loc: [q.x, q.y, q.z, c172::P_PROP] });
+            }
+            oi.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
         (lv, li, ov, oi)
+    }
+
+    /// Tracers (glows), fire and flashes (HDR glows), smoke, dust and debris (soft discs) for the photoreal overlay.
+    fn photo_combat(&self, ov: &mut Vec<photo::DV>, oi: &mut Vec<u32>, cam: Vec3, right: Vec3, up: Vec3) {
+        let Some(d) = &self.dogfight else { return };
+        for b in d.bullets.iter().filter(|b| b.tracer) {
+            let p = dv3(b.p);
+            let w = 0.5 + (p - cam).length() * 0.003;
+            streak(ov, oi, p - dv3(b.v) * 0.03, p, w, [3.0, 1.4, 0.4, 1.0], cam);
+        }
+        let mut fx: Vec<_> = d.fx.iter().map(|f| ((dv3(f.p) - cam).length_squared(), f)).collect();
+        fx.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let disp = |c: f32| photo::display_to_scene(c, 1.0);
+        for (_, f) in fx {
+            let (c, r, a) = (dv3(f.p), f.radius() as f32, f.strength() as f32);
+            match f.kind {
+                FxKind::Smoke => {
+                    let g = disp(0.6 - 0.5 * f.shade as f32);
+                    sprite(ov, oi, c, r, [g, g, g * 1.02, a], 8.0, right, up);
+                }
+                FxKind::Dust => sprite(ov, oi, c, r, [disp(0.55), disp(0.5), disp(0.42), a], 8.0, right, up),
+                FxKind::Debris => sprite(ov, oi, c, r, [disp(0.06), disp(0.06), disp(0.06), 1.0], 8.0, right, up),
+                FxKind::Fire => sprite(ov, oi, c, r, [0.9 * a, 0.3 * a, 0.06 * a, 1.0], 9.0, right, up),
+                FxKind::Flash => sprite(ov, oi, c, r, [3.0 * a, 2.2 * a, 1.2 * a, 1.0], 9.0, right, up),
+                FxKind::Spark => sprite(ov, oi, c, r, [4.0 * a, 2.8 * a, 1.2 * a, 1.0], 9.0, right, up),
+            }
+        }
     }
 
     fn draw_tint(&self) {
@@ -1375,7 +1827,7 @@ impl App {
         }
         // Bottom bar.
         let hint = format!(
-            "{} · H help · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-5 scenarios · Y showcase · K kamikaze · T harness · R reset",
+            "{} · H help · Space filter · B escapes · C camera ({}) · V renderer ({}) · 1-5 scenarios · Y showcase · K kamikaze · Tab dogfight · T harness · R reset",
             SCENARIOS[self.scenario],
             CAM_NAMES[self.cam_mode],
             RENDERER_NAMES[self.renderer]
@@ -1386,15 +1838,20 @@ impl App {
         ui.text(&fps, w - ui.width(&fps, 13.0, true) - 14.0, h - 10.0, 13.0, dim, true);
 
         if self.sim.crashed {
-            draw_rectangle(0.0, 0.0, w, h, Color::new(0.3, 0.0, 0.0, 0.35));
-            let t = "CRASH";
+            let df = self.dogfight.as_ref().filter(|d| d.player_dead);
+            // Lighter in a dogfight, so the explosion shows through.
+            draw_rectangle(0.0, 0.0, w, h, Color::new(0.3, 0.0, 0.0, if df.is_some() { 0.12 } else { 0.35 }));
+            let t = if df.is_some_and(|d| d.player_hits >= HITS_TO_KILL) { "SHOT DOWN" } else { "CRASH" };
             ui.text(t, (w - ui.width(t, 64.0, false)) * 0.5, h * 0.42, 64.0, WHITE, false);
-            let sub = format!(
-                "true clearance {:.1} m at t = {:.1} s · filter was {} · R retry · Space toggles the filter",
-                self.sim.crash_clear,
-                self.sim.time(),
-                if on { "ON" } else { "OFF" }
-            );
+            let sub = match df {
+                Some(d) => format!("{} kills · R fly again · Tab leaves the dogfight", d.kills),
+                None => format!(
+                    "true clearance {:.1} m at t = {:.1} s · filter was {} · R retry · Space toggles the filter",
+                    self.sim.crash_clear,
+                    self.sim.time(),
+                    if on { "ON" } else { "OFF" }
+                ),
+            };
             ui.text(&sub, (w - ui.width(&sub, 17.0, false)) * 0.5, h * 0.42 + 40.0, 17.0, WHITE, false);
         }
         if self.show_help {
@@ -1407,10 +1864,100 @@ impl App {
         }
     }
 
+    /// Dogfight overlay: hit flash, health bars, bandit marker or edge arrow, gun cross and lead pipper.
+    fn draw_combat_hud(&self, ui: &Ui, cam: &Camera3D) {
+        let Some(d) = &self.dogfight else { return };
+        let (w, h) = (screen_width(), screen_height());
+        let flash = 0.35 * (-d.since_hit as f32 * 6.0).exp();
+        if flash > 0.01 {
+            draw_rectangle(0.0, 0.0, w, h, Color::new(0.8, 0.05, 0.0, flash));
+        }
+        // Health bars and kills, top centre under the status pills.
+        let red = Color::new(1.0, 0.3, 0.22, 1.0);
+        let y = 52.0;
+        let bar = |x: f32, label: &str, hits: u32, col: Color| {
+            let left = 1.0 - (hits as f32 / HITS_TO_KILL as f32).min(1.0);
+            ui.text(label, x, y + 22.0, 14.0, WHITE, false);
+            draw_rectangle(x + 64.0, y + 11.0, 130.0, 12.0, Color::new(0.0, 0.0, 0.0, 0.5));
+            draw_rectangle(x + 64.0, y + 11.0, 130.0 * left, 12.0, col);
+        };
+        let x0 = w * 0.5 - 230.0;
+        draw_rectangle(x0 - 12.0, y, 484.0, 34.0, Color::new(0.04, 0.06, 0.09, 0.55));
+        bar(x0, "YOU", d.player_hits, Color::new(0.3, 0.8, 1.0, 1.0));
+        match &d.bandit {
+            Some(b) => bar(x0 + 210.0, "FLY", b.hits, red),
+            None => ui.text("fly inbound…", x0 + 210.0, y + 22.0, 14.0, Color::new(1.0, 1.0, 1.0, 0.6), false),
+        }
+        ui.text(&format!("kills {}", d.kills), x0 + 410.0, y + 22.0, 14.0, WHITE, false);
+        match &d.brain {
+            // Drawn last, from the main loop (`draw_fly_hud`), so it sits over the markers.
+            Some(_) => {}
+            None => {
+                let t = "fly pilot: hand-written pursuit law (no assets/flybrain.bin)";
+                ui.text(t, (w - ui.width(t, 12.0, false)) * 0.5, y + 50.0, 12.0, Color::new(1.0, 1.0, 1.0, 0.7), false);
+            }
+        }
+        if d.since_kill < 2.5 {
+            let a = (2.5 - d.since_kill as f32).min(1.0);
+            ui.text(d.kill_msg, (w - ui.width(d.kill_msg, 44.0, false)) * 0.5, h * 0.3, 44.0, Color::new(1.0, 0.85, 0.3, a), false);
+        }
+        if d.player_dead {
+            return;
+        }
+        let Some(b) = &d.bandit else {
+            if let Some(q) = project(cam, sv3(&self.sim.s) + dv3(combat::dir(&self.sim.s)) * 600.0) {
+                glow_cross(q, false, get_time() as f32);
+            }
+            return;
+        };
+        let player = &self.sim.s;
+        let bp = dv3(combat::pos(&b.s));
+        let range = (bp - sv3(player)).length();
+        let on_screen = project(cam, bp).filter(|q| q.x > 0.0 && q.x < w && q.y > 0.0 && q.y < h);
+        match on_screen.filter(|_| self.cam_mode != 5) {
+            // Fly cam looks at the fly: no bracket over it.
+            None if self.cam_mode == 5 => {}
+            Some(q) => {
+                // Bracket and range.
+                let r = (2200.0 / range.max(1.0)).clamp(12.0, 60.0);
+                for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+                    let c = vec2(q.x + sx * r, q.y + sy * r);
+                    draw_line(c.x, c.y, c.x - sx * r * 0.5, c.y, 2.0, red);
+                    draw_line(c.x, c.y, c.x, c.y - sy * r * 0.5, 2.0, red);
+                }
+                ui.text(&format!("{:.0} m", range), q.x + r + 6.0, q.y + 5.0, 14.0, red, true);
+            }
+            None => {
+                // Edge arrow toward the bandit.
+                let fwd = (cam.target - cam.position).normalize_or_zero();
+                let right = fwd.cross(cam.up).normalize_or_zero();
+                let up = right.cross(fwd);
+                let rel = bp - cam.position;
+                let dir = vec2(rel.dot(right), -rel.dot(up)).normalize_or(vec2(0.0, 1.0));
+                let c = vec2(w * 0.5, h * 0.5) + dir * (w.min(h) * 0.42);
+                let n = vec2(-dir.y, dir.x);
+                draw_triangle(c + dir * 16.0, c - dir * 8.0 + n * 11.0, c - dir * 8.0 - n * 11.0, red);
+                ui.text(&format!("{:.0} m", range), c.x - 20.0, c.y + 30.0, 14.0, red, true);
+            }
+        }
+        // Gun cross on the flight path at the bandit's range, and where to put it (the lead pipper).
+        let at = if range < 1200.0 { range } else { 600.0 };
+        let cross = project(cam, sv3(player) + dv3(combat::dir(player)) * at);
+        let pip = (range < 1200.0).then(|| project(cam, dv3(combat::lead_point(player, &b.s)))).flatten();
+        if let Some(q) = pip {
+            draw_circle(q.x, q.y, 11.0, Color { a: 0.12, ..red });
+            draw_circle_lines(q.x, q.y, 7.0, 2.0, red);
+        }
+        if let Some(q) = cross {
+            let hot = pip.is_some_and(|p| p.distance(q) < 14.0);
+            glow_cross(q, hot, get_time() as f32);
+        }
+    }
+
     fn draw_help(&self, ui: &Ui) {
         let (w, h) = (screen_width(), screen_height());
         let pw = 700.0f32.min(w - 40.0);
-        let lines: [(&str, &str); 22] = [
+        let lines: [(&str, &str); 23] = [
             ("W/S  ↑/↓", "pitch (stick forward = nose down; I inverts)"),
             ("A/D  ←/→", "roll · release the keys to hold flight path and bank"),
             ("Q / E", "throttle down / up"),
@@ -1423,6 +1970,7 @@ impl App {
             ("1 2 3 4 5", "tower run · dive · ridge · slow and low · tower gap"),
             ("Y", "tower gap with the scripted showcase pilot (threads the gap, turns into a tower)"),
             ("K", "kamikaze autopilot (flies at buildings and terrain)"),
+            ("Tab", "dogfight: a fly hunts you; Shift fires"),
             ("T", "run the 200-episode headless harness"),
             ("R", "reset the scenario"),
             ("V", "renderer: classic · photoreal · ray traced (Metal RT + MetalFX)"),
@@ -1685,6 +2233,8 @@ async fn main() {
         sun_el: SUN[2].asin().to_degrees(),
         sun_az: SUN[1].atan2(SUN[0]).to_degrees(),
         label: None,
+        dogfight: None,
+        trigger: false,
         renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
             (true, false, true) => 2,
             (true, false, false) => 1,
@@ -1732,6 +2282,9 @@ async fn main() {
             app.sun_az = az;
         }
     }
+    if args.iter().any(|a| a == "--dogfight") {
+        app.dogfight = Some(Dogfight::new(app.seed, gui_brain()));
+    }
     if args.iter().any(|a| a == "--kamikaze") {
         app.kamikaze = Some(Kamikaze::new(app.seed));
     }
@@ -1774,6 +2327,10 @@ async fn main() {
     if args.iter().any(|a| a == "--off") {
         app.sim.set_filter(false);
     }
+    // The fly's view for the dogfight HUD, rendered offscreen by the classic renderer.
+    let dpi = screen_dpi_scale();
+    let fly_rt = render_target_ex((FLY_VIEW.0 * dpi) as u32, (FLY_VIEW.1 * dpi) as u32, RenderTargetParams { sample_count: 1, depth: true });
+    fly_rt.texture.set_filter(FilterMode::Linear);
     let mut frame = 0u32;
     let mut perf = (0.0f64, 0u32, 0.0f64, 0.0f64);
     let mut perf_t = std::time::Instant::now();
@@ -1798,6 +2355,7 @@ async fn main() {
 
         let cam = app.camera(dt as f32);
         clear_background(Color::new(FOG[0], FOG[1], FOG[2], 1.0));
+        let fly_cam = app.render_fly_view(&scene, &fly_rt);
         match (app.renderer, photo.as_mut()) {
             (1 | 2, Some(ph)) => {
                 let (lv, li, mut ov, mut oi) = app.photo_dynamic(cam.position, 1.0);
@@ -1807,6 +2365,7 @@ async fn main() {
                 let up = right.cross(fwd);
                 ph.lamp_sprites(&mut ov, &mut oi, cam.position, right, up, night);
                 let lights = app.aircraft_lights(&mut ov, &mut oi, cam.position, right, up);
+                app.photo_combat(&mut ov, &mut oi, cam.position, right, up);
                 ph.draw(&photo::FrameIn {
                     cam_pos: cam.position,
                     cam_target: cam.target,
@@ -1822,7 +2381,11 @@ async fn main() {
                         [app.prop_angle, app.surfaces().1 / 60.0 * std::f32::consts::TAU, 0.0, 1.0 / 120.0]
                     },
                     lens: photo::Lens {
-                        focus: if app.cam_mode == 1 { 400.0 } else { (sv3(&app.drawn_state()) - cam.position).length().max(2.0) },
+                        focus: match (app.cam_mode, app.bandit_drawn()) {
+                            (1, _) => 400.0,
+                            (5, Some((bp, ..))) => (bp - cam.position).length().max(2.0),
+                            _ => (sv3(&app.drawn_state()) - cam.position).length().max(2.0),
+                        },
                         focal_mm: app.focal_mm,
                         fstop: app.fstop,
                         tilt_shift: LENSES[app.lens].5,
@@ -1851,6 +2414,10 @@ async fn main() {
         }
         set_default_camera();
         app.draw_tint();
+        app.draw_combat_hud(&ui, &cam);
+        if let Some(br) = app.dogfight.as_ref().and_then(|d| d.brain.as_ref()) {
+            app.draw_fly_panel(&ui, br, fly_cam.as_ref().map(|c| (&fly_rt, c)));
+        }
         app.draw_hud(&ui);
 
         frame += 1;
