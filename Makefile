@@ -171,6 +171,11 @@ export:
 pdf:
 	cd docs && tectonic termsound-proof.tex
 
+# Sufficiency of the plant-abstraction families of issue #58 (docs/termsound/abstractions.tex) as PDF; needs tectonic.
+.PHONY: abstractions
+abstractions:
+	cd docs/termsound && tectonic abstractions.tex
+
 # SLOW (tens of minutes, several GB of Mathlib per Mathlib-based project): build every archived experiment
 # (experiments/README.md) from its own folder and print the axioms of the theorems each README names.
 .PHONY: experiments
@@ -190,7 +195,7 @@ help:
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
-	@echo "Docs:     make pdf"
+	@echo "Docs:     make pdf | abstractions"
 	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
 	@echo "Lean app: make install | build | run | clean"
 
