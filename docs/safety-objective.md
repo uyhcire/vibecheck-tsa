@@ -70,8 +70,8 @@ leads to a reachable crash.
   file's and the published span (35.8 ft, ±214.8 in), and its nose points lie about 2 m ahead of the propeller
   hub; both make the hull larger, which is conservative.
 - **Beyond the 6 km map, terrain continues the edge profile** (the clamp in `World::terrain`, 731 to 927 m on the
-  demo map). Leaving the map is neither a crash nor an escape. The current gate filter treats leaving the map as
-  clear, which is not sound under this definition.
+  demo map). Leaving the map is neither a crash nor an escape. The exact-rollout gate checks its rollouts and end sets
+  against this continued terrain.
 - **Contact is checked at each frame.** A state crashes if the convex hull of its airframe points touches terrain
   or a building. Frames are 1/128 s apart (0.39 m at 50 m/s), so contact strictly between two frames is not counted:
   a thin obstacle passed between frames is missed (`Spec/CitySafetyChecks.lean` shows a 2 cm ledge). Chosen over a

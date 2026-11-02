@@ -1,12 +1,12 @@
 import CityGate.Map
 import CityGate.Plant
 import VcFilter.Exact
+import Spec.CitySafety
 
 /-! What a crash is (trusted surface), the clearance test the gate runs on every frame of every rollout, and its
 soundness (`clear_sound`). -/
 
 namespace CityGate
-open VcFilter (ratOfFloat)
 
 /-! ### What a crash is (trusted surface) -/
 
@@ -39,9 +39,14 @@ def Solid (x y z : Rat) : Prop :=
 /-- Half-size (m) of the airframe envelope. -/
 def envHalf : Rat := 6
 
-/-- The aircraft's exact map position: its doubles (`Plane.pos`) decoded to the rationals they denote, if finite. -/
+/-- The aircraft's exact map position (m), as the spec places the CG (`CitySafety.mapPoint`): the plant's reported
+CG (`CitySafety.report`: east = ECEF y, north = ECEF z, up = altitude above sea level, ft) read exactly, converted
+to metres in `Rat`, plus the map offset `(ox, oy)`; `none` if a number involved is not finite. -/
 def exactPos (p : Plane) : Option (Rat × Rat × Rat) := do
-  pure (← ratOfFloat p.pos.1, ← ratOfFloat p.pos.2.1, ← ratOfFloat p.pos.2.2)
+  let r := CitySafety.report p.st
+  pure ((← CitySafety.ratOf p.ox) + (← CitySafety.ratOf r.loc.y) * CitySafety.ft,
+    (← CitySafety.ratOf p.oy) + (← CitySafety.ratOf r.loc.z) * CitySafety.ft,
+    (← CitySafety.ratOf r.hsl) * CitySafety.ft)
 
 /-- **A crash**: some point of the airframe envelope is solid, or the position is not finite. The envelope is the
 cube of half-size `envHalf` = 6 m around the aircraft's reference point, edges along the map axes. It contains every
@@ -338,9 +343,13 @@ theorem clear_sound (e : Float) (p : Plane) : clearAt e p = true → ¬ Crash p 
     · exact box_case hb wx1 wx2 wy1 wy2 wz1 wz2 hbm b1 b2 b3 b4 b5 b6
     · exact terrain_case ht wx1 wx2 wy1 wy2 wz1 hter
 
-/-- A plane whose reported position is `(x, y, z)` (map metres), for checks. -/
-def planeAt (x y z : Float) : Plane := { st := CityJsb.template, ob := ⟨#[y, x, z]⟩, ox := 0, oy := 0 }
+/-- `clearAt`'s test at the exact position `(x, y, z)` (m). -/
+def clearXYZ (x y z : Rat) : Bool :=
+  let k : Int := keepBase
+  terrainClear ((x * S).floor - k) ((x * S).ceil + k) ((y * S).floor - k) ((y * S).ceil + k) ((z * S).floor - k) &&
+    boxesClear ((x * S).floor - k) ((x * S).ceil + k) ((y * S).floor - k) ((y * S).ceil + k)
+      ((z * S).floor - k) ((z * S).ceil + k)
 
-#guard clearAt 0 (planeAt (-120) (-180) 60) && !clearAt 0 (planeAt 63 63 300) && !clearAt 0 (planeAt (-120) (-180) 5)
+#guard clearXYZ (-120) (-180) 60 && !clearXYZ 63 63 300 && !clearXYZ (-120) (-180) 5
 
 end CityGate

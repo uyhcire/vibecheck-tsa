@@ -1790,9 +1790,7 @@ async fn main() {
         cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(&l), std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
-    if let Some(m) = arg("--margin").and_then(|s| s.parse::<f64>().ok()) {
-        cityflight::envfilter::set_filter_margin(m, arg("--check-every").and_then(|s| s.parse().ok()).unwrap_or(cityflight::envfilter::SAMPLE));
-    }
+    cityflight::envfilter::check_flags(&args);
     #[cfg(feature = "jsb")]
     if let Some(n) = arg("--escapes").and_then(|s| s.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
