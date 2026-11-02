@@ -14,6 +14,19 @@ def FRAC_PI_2 : Float := 1.5707963267948966
 def FRAC_1_SQRT_2 : Float := 0.7071067811865476
 def NAN : Float := 0.0 / 0.0
 
+/-! Numeric literals of the functions below as constants: a `Float` literal inside a function body is converted
+from decimal on every call. -/
+def F0_0 : Float := 0.0
+def F0_01 : Float := 0.01
+def F0_02 : Float := 0.02
+def F0_1 : Float := 0.1
+def F0_5 : Float := 0.5
+def F0_8 : Float := 0.8
+def F1_0 : Float := 1.0
+def F2_0 : Float := 2.0
+def F3_0 : Float := 3.0
+def F5_0 : Float := 5.0
+
 /-- `f64::min` (a NaN argument is ignored). -/
 def fmin (a b : Float) : Float := if a.isNaN then b else if b.isNaN then a else if b < a then b else a
 /-- `f64::max` (a NaN argument is ignored). -/
@@ -21,7 +34,7 @@ def fmax (a b : Float) : Float := if a.isNaN then b else if b.isNaN then a else 
 /-- `f64::clamp`. -/
 def clamp (x lo hi : Float) : Float := if x < lo then lo else if x > hi then hi else x
 /-- `f64::signum`. -/
-def signum (x : Float) : Float := if x.isNaN then x else if x.toBits >>> 63 == 1 then -1.0 else 1.0
+def signum (x : Float) : Float := if x.isNaN then x else if x.toBits >>> 63 == 1 then -F1_0 else F1_0
 
 /-- C `fmod` for finite `x` and `y ≠ 0`: the remainder is representable, so `fma` gives it exactly once the
 quotient is right. -/
@@ -32,15 +45,15 @@ def fmod (x y : Float) : Float :=
   else
     let q := (ax / ay).floor
     let r0 := Float.fma (-q) ay ax
-    let r := if r0 < 0.0 then Float.fma (-(q - 1.0)) ay ax
-      else if r0 ≥ ay then Float.fma (-(q + 1.0)) ay ax else r0
-    if x < 0.0 then -r else r
+    let r := if r0 < F0_0 then Float.fma (-(q - F1_0)) ay ax
+      else if r0 ≥ ay then Float.fma (-(q + F1_0)) ay ax else r0
+    if x < F0_0 then -r else r
 
 /-- `f64::rem_euclid`. -/
-def remEuclid (x y : Float) : Float := let r := fmod x y; if r < 0.0 then r + y.abs else r
+def remEuclid (x y : Float) : Float := let r := fmod x y; if r < F0_0 then r + y.abs else r
 
 /-- Angle to `[-π, π)` (`wrap`). -/
-def wrap (a : Float) : Float := remEuclid (a + PI) (2.0 * PI) - PI
+def wrap (a : Float) : Float := remEuclid (a + PI) (F2_0 * PI) - PI
 
 /-- `x as f32 as f64`. -/
 def toF32 (x : Float) : Float := x.toFloat32.toFloat
@@ -61,8 +74,8 @@ def terr : FloatArray :=
 
 /-- `World::terrain`: barycentric on the render triangulation, clamped to the grid. -/
 def terrainAt (x y : Float) : Float :=
-  let fx := clamp ((x + MAP_HALF) / TSP) 0.0 ((TN - 1).toFloat - 1e-9)
-  let fy := clamp ((y + MAP_HALF) / TSP) 0.0 ((TN - 1).toFloat - 1e-9)
+  let fx := clamp ((x + MAP_HALF) / TSP) F0_0 ((TN - 1).toFloat - 1e-9)
+  let fy := clamp ((y + MAP_HALF) / TSP) F0_0 ((TN - 1).toFloat - 1e-9)
   let i := fx.toUInt64.toNat
   let j := fy.toUInt64.toNat
   let u := fx - i.toFloat
@@ -74,7 +87,7 @@ def terrainAt (x y : Float) : Float :=
   if u ≥ v then h00 + u * (h10 - h00) + v * (h11 - h10) else h00 + v * (h01 - h00) + u * (h11 - h01)
 
 /-- Cell index of a coordinate (`ci` in `rasterize` and `helix_clear`). -/
-def cellIdx (v : Float) : Nat := Nat.min (fmax ((v + MAP_HALF) / CELL).floor 0.0).toUInt64.toNat (NC - 1)
+def cellIdx (v : Float) : Nat := Nat.min (fmax ((v + MAP_HALF) / CELL).floor F0_0).toUInt64.toNat (NC - 1)
 
 /-- `World::rasterize`: per 2.5 m cell, the max of the terrain at its corners and of every overlapping box top,
 in `f32`. -/
@@ -126,13 +139,16 @@ def V_SETTLED : Float := 1.0
 def R_SETTLED : Float := 0.03
 def C_SETTLED : Float := 0.05
 def E_AIR : Float := 7.0
-def G0T : Float := 9.80665
 /-- Level-off ending: the whole window at least `Z_LEVEL` (m) high at a mean airspeed of at least `V_LEVEL` (m/s). -/
 def Z_LEVEL : Float := 980.0
 def V_LEVEL : Float := 30.0
+def G2 : Float := 2.0 * 9.80665
+def F1_225T : Float := 1.225
+def F2_2558em5T : Float := 2.2558e-5
+def F4_256T : Float := 4.256
 
-/-- `rho_of`: the law's density model. -/
-def rhoT (h : Float) : Float := 1.225 * (fmax (1.0 - 2.2558e-5 * h) 0.5).pow 4.256
+/-- `rho_of`: the escape law's density model. -/
+def rhoT (h : Float) : Float := F1_225T * (fmax (F1_0 - F2_2558em5T * h) F0_5).pow F4_256T
 
 structure Hist where
   t : Float
@@ -156,64 +172,63 @@ structure Seg where
   e : Hist
 
 /-- Specific energy `z + v²/2g` (m). -/
-def energy (h : Hist) : Float := h.z + h.v * h.v / (2.0 * G0T)
+def energy (h : Hist) : Float := h.z + h.v * h.v / G2
 
 def seg (h : Array Hist) : Seg :=
   let a := h[0]!
   let b := h[h.size - 1]!
   let n := h.size.toFloat
   { omega := (b.psi - a.psi) / (b.t - a.t)
-    vh := (h.foldl (fun s x => s + x.vh) (-0.0)) / n
-    vzMin := h.foldl (fun m x => fmin m x.vz) (1.0 / 0.0)
-    vzMean := (h.foldl (fun s x => s + x.vz) (-0.0)) / n
-    vMean := (h.foldl (fun s x => s + x.v) (-0.0)) / n
-    zMin := h.foldl (fun m x => fmin m x.z) (1.0 / 0.0)
+    vh := (h.foldl (fun s x => s + x.vh) (-F0_0)) / n
+    vzMin := h.foldl (fun m x => fmin m x.vz) (F1_0 / F0_0)
+    vzMean := (h.foldl (fun s x => s + x.vz) (-F0_0)) / n
+    vMean := (h.foldl (fun s x => s + x.v) (-F0_0)) / n
+    zMin := h.foldl (fun m x => fmin m x.z) (F1_0 / F0_0)
     de := energy b - energy a
     e := b }
 
 /-- `helix_check_annulus`: every raw cell within the annulus `[r0, r1]` around `c` is at least `R_BODY + MARGIN`
-below `z`; an annulus reaching past the map's edge fails. -/
+below `z` (or `z` is that far above the map's top); an annulus reaching past the map's edge fails. -/
 def helixClearAnn (cx cy r0 r1 z : Float) : Bool := Id.run do
   let floor := z - R_BODY - MARGIN
   if floor > top then return true
   if !onMap (cx - r1) (cy - r1) || !onMap (cx + r1) (cy + r1) then return false
   let pad := CELL * FRAC_1_SQRT_2
-  let lo2 := let d := fmax (r0 - pad) 0.0; d * d
+  let lo2 := let d := fmax (r0 - pad) F0_0; d * d
   let hi2 := let d := r1 + pad; d * d
   let floor := toF32 floor
   for j in [cellIdx (cy - r1 - pad):cellIdx (cy + r1 + pad) + 1] do
-    let dy := -MAP_HALF + (j.toFloat + 0.5) * CELL - cy
+    let dy := -MAP_HALF + (j.toFloat + F0_5) * CELL - cy
     for i in [cellIdx (cx - r1 - pad):cellIdx (cx + r1 + pad) + 1] do
       if raster[j * NC + i]! ≤ floor then continue
-      let dx := -MAP_HALF + (i.toFloat + 0.5) * CELL - cx
+      let dx := -MAP_HALF + (i.toFloat + F0_5) * CELL - cx
       let d2 := dx * dx + dy * dy
       if d2 ≥ lo2 && d2 ≤ hi2 then return false
   return true
 
-/-- `helix_clear`: every raw cell within the annulus `r ± (m + R_BODY)` around `c` is at least `R_BODY + MARGIN`
-below `z` (or `z` is that far above the map's top). -/
-def helixClear (cx cy r m z : Float) : Bool := helixClearAnn cx cy (fmax (r - m - R_BODY) 0.0) (r + m + R_BODY) z
+/-- `helix_clear`: `helixClearAnn` on the annulus `r ± (m + R_BODY)`. -/
+def helixClear (cx cy r m z : Float) : Bool := helixClearAnn cx cy (fmax (r - m - R_BODY) F0_0) (r + m + R_BODY) z
 
 /-- `ray_clear`: a climbing ray from `p` along track `psi` at gradient `grad`, in a corridor widening 2% of the
 distance, stays `R_BODY + MARGIN` above every raw cell until it is that far above the map's top. Off the map the
 lookups clamp to the edge cells, as the terrain continues the edge; a ray still low after 10,000 steps fails. -/
 def rayClear (px py pz psi grad : Float) : Bool := Id.run do
-  if grad < 0.02 then return false
+  if grad < F0_02 then return false
   let c := psi.cos
   let s := psi.sin
-  let mut d := 0.0
+  let mut d := F0_0
   for _ in [0:10000] do
     let x := px + d * c
     let y := py + d * s
     let z := pz + d * grad
     let floor := z - R_BODY - MARGIN
     if floor > top then return true
-    let w := R_BODY + 5.0 + 0.02 * d
+    let w := R_BODY + F5_0 + F0_02 * d
     let mut l := -w
     while l ≤ w do
       if surface (x - l * s) (y + l * c) > floor then return false
-      l := l + 0.5 * CELL
-    d := d + 0.5 * CELL
+      l := l + F0_5 * CELL
+    d := d + F0_5 * CELL
   return false
 
 /-- `terminal`: the escape has settled into its terminal set (climbing ray or helix, by `dir`) and that set is
@@ -227,17 +242,17 @@ def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run d
   if fmin a.zMin b.zMin ≥ Z_LEVEL && b.vMean ≥ V_LEVEL then return true
   if fmin a.vzMin b.vzMin < VZ_MIN then return false
   let e := b.e
-  if dir == 0.0 then
-    if fmax a.omega.abs b.omega.abs > 0.01 then return false
+  if dir == F0_0 then
+    if fmax a.omega.abs b.omega.abs > F0_01 then return false
     -- during the zoom climb vz is still falling and its gradient overstates the settled climb
     if !((a.vzMean - b.vzMean).abs ≤ VZ_SETTLED) then return false
-    let grad := fmin (0.8 * fmin (a.vzMean / fmax a.vh 1.0) (b.vzMean / fmax b.vh 1.0)) GRAD_MAX
+    let grad := fmin (F0_8 * fmin (a.vzMean / fmax a.vh F1_0) (b.vzMean / fmax b.vh F1_0)) GRAD_MAX
     return rayClear e.x e.y e.z e.psi grad
   else
     let want := -dir
-    if a.omega * want ≤ 0.02 || b.omega * want ≤ 0.02 then return false
+    if a.omega * want ≤ F0_02 || b.omega * want ≤ F0_02 then return false
     -- speed first: settled above the post-stall branch, and not climbing on airspeed
-    if b.vMean < V_HELIX_MIN[kind]! || (a.vMean - b.vMean).abs > V_SETTLED || a.de < 0.0 || b.de < 0.0 then
+    if b.vMean < V_HELIX_MIN[kind]! || (a.vMean - b.vMean).abs > V_SETTLED || a.de < F0_0 || b.de < F0_0 then
       return false
     let circ := fun (s : Seg) =>
       let rr := s.vh / s.omega
@@ -247,8 +262,8 @@ def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run d
     let dR := (ra - rb).abs
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
     if dR > R_SETTLED * rb || dC > C_SETTLED * rb then return false
-    let m := 5.0 + 3.0 * (dR + dC)
-    let grow := if e.z < top then rb * (rhoT e.z / rhoT top - 1.0) else 0.0
-    return helixClearAnn cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + grow + E_AIR) e.z
+    let m := F5_0 + F3_0 * (dR + dC)
+    let grow := if e.z < top then rb * (rhoT e.z / rhoT top - F1_0) else F0_0
+    return helixClearAnn cbx cby (fmax (rb - m - E_AIR) F0_0) (rb + m + grow + E_AIR) e.z
 
 end CityGate.Esc

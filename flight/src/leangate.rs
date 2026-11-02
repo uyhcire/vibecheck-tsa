@@ -36,6 +36,7 @@ extern "C" {
     fn citygate_obs(g: *const Raw, out: *mut f64);
     fn citygate_path(g: *const Raw, xyz: *mut f64, max_points: usize) -> usize;
     fn citygate_frames(g: *const Raw, elev: f64, ail: f64, rud: f64, thr: f64) -> u64;
+    fn citygate_probe(g: *const Raw, elev: f64, ail: f64, rud: f64, thr: f64, out: *mut f64, max: usize) -> usize;
     fn citygate_set_parallel(g: *mut Raw, par: u32, round: u32);
     fn citygate_trace(g: *const Raw, out: *mut f64, max: usize) -> usize;
     fn citygate_free(g: *mut Raw);
@@ -101,6 +102,10 @@ pub struct LeanGate {
     pub frames_tick: Option<Vec<u32>>,
     /// With `CITYGATE_COUNT`: per tick, the critical path in frames if every candidate ran at once.
     pub crit_tick: Vec<u32>,
+    /// With `CITYGATE_PROBE` set: per checked frame, `tick frame` and `CityGate.probeE`'s output; and per tick the
+    /// thread CPU (ms) of the gate's own frames, without the probe.
+    pub probe: Option<Vec<String>>,
+    pub gate_ms: Vec<f32>,
 }
 
 // The handle is only ever used by the thread that owns the `Sim`; the C ABI registers that thread with Lean.
@@ -144,6 +149,8 @@ impl LeanGate {
             trace: std::env::var_os("CITYGATE_TRACE").map(|_| Vec::new()),
             frames_tick: std::env::var_os("CITYGATE_COUNT").map(|_| Vec::new()),
             crit_tick: Vec::new(),
+            probe: std::env::var_os("CITYGATE_PROBE").map(|_| Vec::new()),
+            gate_ms: Vec::new(),
         };
         let mut o = [0.0; NOBS + 3];
         unsafe { citygate_obs(raw, o.as_mut_ptr()) };
@@ -157,6 +164,7 @@ impl LeanGate {
     pub fn tick(&mut self, u: &Pilot, dt: f64, filter_on: bool) {
         let (w0, c0, p0) = (std::time::Instant::now(), crate::envfilter::thread_cpu(), proc_cpu());
         self.lag -= dt;
+        self.gate_ms.push(0.0);
         if let Some(f) = self.frames_tick.as_mut() {
             f.push(0);
             self.crit_tick.push(0);
@@ -192,7 +200,16 @@ impl LeanGate {
             *f.last_mut().unwrap() += (n >> 32) as u32;
             *self.crit_tick.last_mut().unwrap() += (n & 0xffff_ffff) as u32;
         }
+        if let (Some(log), true) = (self.probe.as_mut(), filter_on) {
+            let mut buf = vec![0.0; 14 * 8];
+            let n = unsafe { citygate_probe(self.raw, s[0], s[1], s[2], s[3], buf.as_mut_ptr(), buf.len()) };
+            if n > 0 {
+                let vals: Vec<String> = buf[..n].iter().map(|v| format!("{v}")).collect();
+                log.push(format!("{} {} {}", self.wall_ms.len(), self.frames, vals.join(" ")));
+            }
+        }
         let mut out = [0.0; NOUT];
+        let c0 = crate::envfilter::thread_cpu();
         unsafe {
             if filter_on {
                 citygate_frame(self.raw, s[0], s[1], s[2], s[3], out.as_mut_ptr());
@@ -208,6 +225,7 @@ impl LeanGate {
                 t.extend_from_slice(&v.to_bits().to_le_bytes());
             }
         }
+        *self.gate_ms.last_mut().unwrap() += ((crate::envfilter::thread_cpu() - c0) * 1e3) as f32;
         let a = [out[0], out[1], out[2], out[3]];
         for i in 0..4 {
             let d = (a[i] - self.surf[i]).abs();

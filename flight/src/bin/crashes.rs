@@ -65,6 +65,8 @@ struct Stats {
     /// Lean gate: per-tick process CPU (ms), and the frame trace (`CITYGATE_TRACE`).
     proc_ms: Vec<f32>,
     trace: Option<Vec<u8>>,
+    /// Lean gate with `CITYGATE_PROBE`: per-tick gate CPU and the instrumented checks (`CityGate.probeE`).
+    probe: Option<String>,
     /// `digest` of the episode's records.
     digest: u64,
     /// Lowest flown airframe clearance (m).
@@ -168,6 +170,10 @@ fn run(world: &World, e: u64, s0: State, pk: PilotKind, dur: f64) -> (bool, Vec<
         st.cpu_ms = g.cpu_ms.clone();
         st.proc_ms = g.proc_ms.clone();
         st.trace = g.trace.clone();
+        if let Some(lines) = g.probe.as_ref() {
+            let ticks: Vec<String> = g.gate_ms.iter().enumerate().map(|(i, m)| format!("T {i} {m}")).collect();
+            st.probe = Some([ticks, lines.clone()].concat().join("\n"));
+        }
         st.frames = g.frames_tick.clone().unwrap_or_default();
         st.frames_all = g.crit_tick.clone();
     }
@@ -337,6 +343,9 @@ fn main() {
             let mut st = Stats { digest: digest(&recs), ..st };
             if let Some(t) = st.trace.take() {
                 std::fs::write(format!("{out}/{name}.trace"), t).unwrap();
+            }
+            if let Some(p) = st.probe.take() {
+                std::fs::write(format!("{out}/{name}.probe"), p).unwrap();
             }
             let off = recs.iter().any(|r| r.s[X].abs() > MAP_HALF || r.s[Y].abs() > MAP_HALF);
             (name.clone(), crashed, recs.last().map_or(0.0, |r| r.t), st, off)

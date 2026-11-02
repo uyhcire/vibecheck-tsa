@@ -122,8 +122,8 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   settled gradient, at most 0.11 so the pull-up's zoom climb cannot set it, in a corridor widening 2% of
   distance) that clears every raw cell until it is above the map's top. A turn needs a steady helix (radius
   and centre agree to 10% across two 2 s windows, climbing ≥ 1 m/s) whose ground annulus, widened for that
-  drift, is clear at the current height. Beyond the map edge the terrain continues the edge profile
-  (731-927 m), so the ray and the annulus are checked against it there, and so is the crash test. Every path
+  drift, is clear at the current height, and lies within the map. Beyond the map edge the terrain continues
+  the edge profile (731-927 m), so the ray (at most 12.5 km) and the crash test are checked against it. Every path
   sample (every 8th frame) keeps 4 m of true clearance. `--swept` checks every frame instead, including the
   frames of the pilot's candidate tick, each keeping `--margin M` (default 4 m) plus half a frame of travel
   of any airframe point, so no contact can occur between frames; `--handback-extra M` overrides the 3 m

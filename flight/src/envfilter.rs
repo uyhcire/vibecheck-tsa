@@ -489,6 +489,9 @@ pub const E_AIR: f64 = 7.0;
 /// Level-off ending: the whole window at least `Z_LEVEL` (m) high at a mean airspeed of at least `V_LEVEL` (m/s).
 pub const Z_LEVEL: f64 = 980.0;
 pub const V_LEVEL: f64 = 30.0;
+/// Steps (half a cell each, 12.5 km in all) after which a climbing ray still below the map's top fails, as in
+/// `CityGate/Terminal.lean`'s `rayClear`; bounds the end test's cost on the real-time path.
+pub const RAY_STEPS: usize = 10_000;
 /// Settling window for terminal tests (samples): two halves of 2 s each.
 const HALF: usize = 32;
 
@@ -540,6 +543,10 @@ pub enum TermFail {
     /// A raw cell of this height at `(x, y)` blocks the climbing ray (straight) or the helix annulus (turns).
     RayBlocked { x: f64, y: f64, h: f64 },
     HelixBlocked { x: f64, y: f64, h: f64 },
+    /// The helix annulus leaves the map.
+    HelixOffMap,
+    /// The climbing ray is still below the map's top after `RAY_STEPS` steps.
+    RayLong,
 }
 
 /// Rollout settings: the clearance every path sample needs, the terminal sets' vertical margin, the horizon (s),
@@ -870,8 +877,8 @@ fn terminal(world: &World, dir: f64, kind: usize, hist: &[Hist], margin: f64) ->
 }
 
 /// Every raw cell within the annulus `r ± (m + R_BODY)` around `c` is at least `R_BODY + MARGIN` below `z`
-/// (or `z` is that far above everything on the map). Off the map, each cell is the edge cell it clamps to: the
-/// terrain continues the edge profile there, and an edge cell's raw height bounds that profile along its strip.
+/// (or `z` is that far above everything on the map). An annulus reaching past the map edge fails, as in
+/// `CityGate/Terminal.lean`'s `helixClear`.
 pub fn helix_clear(world: &World, c: [f64; 2], r: f64, m: f64, z: f64, top: f64) -> bool {
     helix_check(world, c, r, m, z, top, MARGIN).is_ok()
 }
@@ -887,18 +894,19 @@ pub fn helix_check_annulus(world: &World, c: [f64; 2], r0: f64, r1: f64, z: f64,
     if floor > top {
         return Ok(());
     }
+    if !on_map(c[0] - r1, c[1] - r1) || !on_map(c[0] + r1, c[1] + r1) {
+        return Err(TermFail::HelixOffMap);
+    }
     // Cell centres within half a cell diagonal of the annulus.
     let pad = CELL * std::f64::consts::FRAC_1_SQRT_2;
     let (lo2, hi2) = ((r0 - pad).max(0.0).powi(2), (r1 + pad).powi(2));
-    let ci = |v: f64| ((v + MAP_HALF) / CELL).floor() as i64;
+    let ci = |v: f64| (((v + MAP_HALF) / CELL).floor().max(0.0) as usize).min(NC - 1);
     let (i0, i1, j0, j1) = (ci(c[0] - r1 - pad), ci(c[0] + r1 + pad), ci(c[1] - r1 - pad), ci(c[1] + r1 + pad));
-    let clamp = |k: i64| k.clamp(0, NC as i64 - 1) as usize;
     let floor = floor as f32;
     for j in j0..=j1 {
         let dy = -MAP_HALF + (j as f64 + 0.5) * CELL - c[1];
-        let row = &world.raw[clamp(j) * NC..(clamp(j) + 1) * NC];
+        let row = &world.raw[j * NC..(j + 1) * NC];
         for i in i0..=i1 {
-            let i = clamp(i);
             if row[i] <= floor {
                 continue;
             }
@@ -914,8 +922,8 @@ pub fn helix_check_annulus(world: &World, c: [f64; 2], r0: f64, r1: f64, z: f64,
 
 /// A climbing ray from `p` along track `psi` (point-mass convention) at gradient `grad`, inside a corridor
 /// of half-width `R_BODY + 5 m + 2% of the distance`: every raw cell under the corridor stays `R_BODY +
-/// MARGIN` below the ray until the ray is that far above the map's top. Off the map the terrain continues the
-/// edge profile (`surface` clamps to the edge cells).
+/// MARGIN` below the ray until the ray is that far above the map's top, within `RAY_STEPS` steps. Off the map
+/// the terrain continues the edge profile (`surface` clamps to the edge cells).
 pub fn ray_clear(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64) -> Option<Vec<[f64; 3]>> {
     ray_clear_m(world, p, psi, grad, top, MARGIN).ok()
 }
@@ -927,7 +935,7 @@ pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, ma
     }
     let (c, s) = (psi.cos(), psi.sin());
     let mut d = 0.0;
-    loop {
+    for _ in 0..RAY_STEPS {
         let (x, y, z) = (p[0] + d * c, p[1] + d * s, p[2] + d * grad);
         let floor = z - R_BODY - margin;
         if floor > top {
@@ -944,6 +952,7 @@ pub fn ray_clear_m(world: &World, p: [f64; 3], psi: f64, grad: f64, top: f64, ma
         }
         d += 0.5 * CELL;
     }
+    Err(TermFail::RayLong)
 }
 
 /// Fly escape `esc` from `p` for `secs` with no checks: the path (every `SAMPLE` frames) and the end state.

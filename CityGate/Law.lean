@@ -63,22 +63,18 @@ def GC_LO_T : Float := 0.0
 def GC_HI_T : Float := 0.5
 def H_LEVEL : Float := 1000.0
 def K_HOLD : Float := 0.005
+def F0_6 : Float := 0.6
 
 /-! The law's numeric literals as constants: a `Float` literal inside a function body is converted from decimal on
 every call. -/
-def F0_0 : Float := 0.0
 def F2_2558em5 : Float := 2.2558e-5
 def F0_05 : Float := 0.05
-def F0_1 : Float := 0.1
 def F0_15 : Float := 0.15
 def F0_25 : Float := 0.25
 def F0_3 : Float := 0.3
 def F0_35 : Float := 0.35
 def F0_4 : Float := 0.4
 def F0_45 : Float := 0.45
-def F0_5 : Float := 0.5
-def F0_6 : Float := 0.6
-def F1_0 : Float := 1.0
 def F1_225 : Float := 1.225
 def F4_256 : Float := 4.256
 def F10_0 : Float := 10.0

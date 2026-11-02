@@ -1,5 +1,5 @@
 import GateSafety.Parallel
-import CityGate.Gate
+import CityGate.Probe
 
 /-! The city gate for a C host (`libcityjsb`, `c/citygate_abi.c`): one JSBSim frame of the gated closed loop per
 call. `frameOut_fst` proves the next state is `cityGate.frame`, the frame `city_safe` is about; the candidates'
