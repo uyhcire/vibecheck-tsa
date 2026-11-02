@@ -372,6 +372,13 @@ html.trisk .statement .big { font-family: "Trisk", sans-serif; font-weight: 400;
 .legend dt { color: var(--ink); white-space: nowrap; }
 .legend dd { margin: 0; }
 html.trisk .legend { font-family: "Trisk", "Barlow", sans-serif; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
+
+.perf-fig { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; align-items: center; justify-content: center; }
+.perf { width: 100%; height: 100%; max-height: 100%; font-family: "Barlow", sans-serif; }
+.perf .lab { font-size: 20px; fill: var(--ink); }
+.perf .ax { font-size: 17px; fill: var(--ink-2); }
+.perf .val { font-size: 26px; font-weight: 600; fill: var(--ink); }
+html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; }
 </style>
 </head>
 <body class="deck">
@@ -748,22 +755,10 @@ html.trisk .legend { font-family: "Trisk", "Barlow", sans-serif; font-size: var(
   <p class="badge conditional"><b>Conditional</b><span>Lean-checked, conditional on <code>TermSoundR</code> (not yet true for today's end test) and <code>TbBounded</code>.</span></p>
 </section>
 
-<section class="slide" id="s-evidence" data-nav="The evidence" hidden>
-  <h2>The evidence</h2>
-  <p class="sub">200 hostile episodes from random starts, a quarter of them kamikaze, plus the kamikaze autopilot in each named scenario (from <code>flight/README.md</code>).</p>
-  <div class="tablewrap">
-      <table>
-        <thead>
-          <tr><th>Filter, on the JSBSim aircraft</th><th class="n">Crashes in 200 episodes</th><th class="n">Kamikaze crashes</th><th class="n">Ticks with the filter flying</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>Point-mass filter: predicts with a simplified model, flown on JSBSim</td><td class="n" data-label="Crashes in 200 episodes">27 <span class="bar" style="width:5.4rem" aria-hidden="true"></span></td><td class="n" data-label="Kamikaze crashes">2 of 4</td><td class="n" data-label="Ticks with the filter flying">–</td></tr>
-          <tr><td>Gate, 3 escapes, body sphere only</td><td class="n" data-label="Crashes in 200 episodes">2 (0 of 195 verified) <span class="bar" style="width:0.4rem" aria-hidden="true"></span></td><td class="n" data-label="Kamikaze crashes">1 of 4 (Ridge, unverified start)</td><td class="n" data-label="Ticks with the filter flying">31.7%</td></tr>
-          <tr><td>Gate, 5 escapes, body sphere only</td><td class="n" data-label="Crashes in 200 episodes">0 (0 of 198 verified) <span class="zero" aria-hidden="true"></span></td><td class="n" data-label="Kamikaze crashes">0 of 4</td><td class="n" data-label="Ticks with the filter flying">29.5%</td></tr>
-          <tr class="ours"><td>Gate as shipped: 6 escapes, wing check</td><td class="n" data-label="Crashes in 200 episodes">0 (0 of 198 verified) <span class="zero" aria-hidden="true"></span></td><td class="n" data-label="Kamikaze crashes">0 of 5, incl. Tower gap</td><td class="n" data-label="Ticks with the filter flying">28.9%</td></tr>
-        </tbody>
-      </table>
-    </div>
+<section class="slide" id="s-evidence" data-nav="Performance" hidden>
+  <h2>Performance</h2>
+  <p class="sub">200 hostile episodes from random starts on the JSBSim aircraft, a quarter of them kamikaze (<code>flight/README.md</code>). The point-mass filter predicts with a simplified model; the gate as shipped has 6 escapes and checks the wings.</p>
+  <figure class="perf-fig"><svg class="perf" viewBox="0 0 1100 436" role="img" aria-label="Bar chart: crashes in 200 hostile episodes for each filter; the gate as shipped has none."><line x1="330" x2="330" y1="32" y2="382" style="stroke:var(--rule)"/><text x="330" y="402" text-anchor="middle" class="ax">0</text><line x1="503" x2="503" y1="32" y2="382" style="stroke:var(--rule)"/><text x="503" y="402" text-anchor="middle" class="ax">10</text><line x1="677" x2="677" y1="32" y2="382" style="stroke:var(--rule)"/><text x="677" y="402" text-anchor="middle" class="ax">20</text><line x1="850" x2="850" y1="32" y2="382" style="stroke:var(--rule)"/><text x="850" y="402" text-anchor="middle" class="ax">30</text><text x="590" y="424" text-anchor="middle" class="ax">crashes in 200 hostile episodes</text><text x="874" y="26" class="ax">time gate flies</text><text x="316" y="75" text-anchor="end" class="lab">Point-mass filter</text><rect x="330" y="40" width="468" height="58" style="fill:var(--red)"/><text x="810" y="77" class="val" style="fill:var(--red)">27</text><text x="874" y="77" class="val">–</text><text x="316" y="159" text-anchor="end" class="lab">Gate, 3 escapes</text><rect x="330" y="124" width="35" height="58" style="fill:var(--red)"/><text x="377" y="161" class="val" style="fill:var(--red)">2</text><text x="874" y="161" class="val">31.7%</text><text x="316" y="243" text-anchor="end" class="lab">Gate, 5 escapes</text><rect x="330" y="208" width="3" height="58" style="fill:var(--green)"/><text x="342" y="245" class="val" style="fill:var(--green)">0</text><text x="874" y="245" class="val">29.5%</text><text x="316" y="327" text-anchor="end" class="lab">Gate as shipped</text><rect x="330" y="292" width="3" height="58" style="fill:var(--green)"/><text x="342" y="329" class="val" style="fill:var(--green)">0</text><text x="874" y="329" class="val">28.9%</text></svg></figure>
 </section>
 </main>
 <script>
