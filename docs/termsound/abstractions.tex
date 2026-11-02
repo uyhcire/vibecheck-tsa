@@ -1,0 +1,439 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{remark}[theorem]{Remark}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\Conf}{\ensuremath{\mathrm{Conf}}}
+\newcommand{\Geo}{\ensuremath{\mathrm{Geo}}}
+\newcommand{\Dyn}{\ensuremath{\mathrm{Dyn}}}
+\newcommand{\Fast}{\ensuremath{\mathrm{Fast}}}
+\newcommand{\Start}{\ensuremath{\mathrm{Start}}}
+\newcommand{\zTop}{z_{\mathrm{top}}}
+\newcommand{\G}{\mathcal{G}}
+\newcommand{\nQ}[1]{\|#1\|_Q}
+\title{Plant abstractions for level-flight terminal safety:\\ sufficiency of four families (issue \#58)}
+\author{vibecheck-tsa, issue \#58}
+\date{2026-11-01}
+\begin{document}
+\sloppy
+\maketitle
+
+\begin{abstract}
+Issue \#58 replaces one plant abstraction by several \emph{families} of parameterised properties $P[\theta](F)$ of the closed-loop frame map $F$. This note proves, once and independently of the plant, that each family is \emph{sufficient}: if the parameters $\theta$ satisfy the family's side conditions (inequalities in $\theta$ alone) and $F$ has the property $P[\theta]$, then from every start state the altitude never goes below the floor $z$. The four families are $k$-step contraction (Theorem~\ref{thm:k}), energy barrier (Theorems~\ref{thm:barrier} and~\ref{thm:near}), slow-fast (Theorem~\ref{thm:sf}) and differential inclusion (Theorem~\ref{thm:incl}). Every proof is in exact real arithmetic and reduces to one $k$-step invariance lemma (Lemma~\ref{lem:core}). Each family comes with a satisfying toy map, every hypothesis discharged, and a sinking map that provably fails it. Section~\ref{sec:city} connects the families' common conclusion to the city gate's end sets: it supplies exactly the hypotheses \texttt{hconf} and \texttt{hinv} of \texttt{rayEndSet} and \texttt{helixEndSet} (\texttt{CityGate/EndSets.lean}), with a $k$-frame version of \texttt{CityGate/TermSkeleton.lean}'s per-frame abstraction interface, and lists what is still missing. Membership of the real closed loop in any family is not addressed here.
+\end{abstract}
+
+\tableofcontents
+
+\section{Setting and conventions}\label{sec:setting}
+
+The notation follows \texttt{docs/termsound-proof.tex} (branch \texttt{eric/informal-proof}).
+
+\begin{itemize}
+\item $X$ is a set of closed-loop states and $F : X \to X$ the closed-loop frame map (for the city gate, one JSBSim frame $\Delta t = 1/128$\,s of \texttt{cityGate.fly}; Section~\ref{sec:city}). $F^0 = \mathrm{id}$ and $F^{n+1} = F \circ F^n$, so $F^{m+n} = F^m \circ F^n$.
+\item $h : X \to \R$ is the altitude and $z \in \R$ the floor. Issue \#58 takes $z = \zTop + e$ (934\,m plus the airframe margin $e = 7$\,m). Section~\ref{sec:city} shows that $z = \zTop$ already suffices for the end sets.
+\item All quantities are real and all arithmetic is exact. The examples use rational numbers only.
+\item A \emph{family} is a parameter set $\Theta$, a start set $\Start_\theta \subseteq X$ for each $\theta \in \Theta$, side conditions $\Sigma(\theta)$ (inequalities in $\theta$ alone, checkable without the plant), and a property $P[\theta](F)$ of the plant.
+\item \textbf{Sufficiency} of a family is the statement
+\[ \forall \theta.\ \Sigma(\theta) \wedge P[\theta](F) \;\Longrightarrow\; \forall x \in \Start_\theta.\ \forall n \in \N.\ h(F^n x) \ge z. \]
+\item The safety claim is written $\mathrm{Safe}(\Start) :\iff \forall x \in \Start.\ \forall n \in \N.\ h(F^n x) \ge z$.
+\end{itemize}
+
+\section{The common core}\label{sec:core}
+
+\begin{lemma}[$k$-step invariance]\label{lem:core}
+Let $k \ge 1$ and $I \subseteq X$ with
+\begin{itemize}
+\item[(I1)] $x \in I \Rightarrow F^k x \in I$;
+\item[(I2)] $x \in I \wedge 0 \le j < k \Rightarrow h(F^j x) \ge z$.
+\end{itemize}
+Then $\mathrm{Safe}(I)$. Moreover the union of images $U = \{F^j y : y \in I,\ 0 \le j < k\}$ contains $I$, satisfies $F(U) \subseteq U$, and $h \ge z$ on $U$.
+\end{lemma}
+\begin{proof}
+First, $F^{qk} x \in I$ for $x \in I$ and every $q \in \N$, by induction on $q$: $F^0 x = x$, and $F^{(q+1)k} x = F^k(F^{qk} x) \in I$ by (I1). Given $n$, divide by $k$: $n = qk + j$ with $0 \le j < k$. Then $F^n x = F^j(F^{qk} x)$ with $F^{qk} x \in I$, so $h(F^n x) \ge z$ by (I2).
+
+$I \subseteq U$ with $j = 0$. If $x = F^j y \in U$ then $F x = F^{j+1} y$, which is in $U$ if $j + 1 < k$; if $j + 1 = k$ then $F x = F^k y \in I \subseteq U$ by (I1). Finally $h \ge z$ on $U$ is (I2).
+\end{proof}
+
+With $k = 1$, (I2) reduces to $h \ge z$ on $I$ and $U = I$. Lemma~\ref{lem:core} is \texttt{docs/termsound-proof.tex}'s ``union of images'' lemma with the altitude bound added.
+
+\begin{lemma}[between steps from a sink-rate bound]\label{lem:sink}
+Let $k \ge 1$, $I \subseteq X$ and $\eta \ge 0$. Suppose that for $x \in I$:
+\begin{itemize}
+\item $h(F^{j+1} x) \ge h(F^j x) - \eta$ for $0 \le j < k - 1$;
+\item $h(x) \ge z + (k-1)\eta$.
+\end{itemize}
+Then (I2) holds.
+\end{lemma}
+\begin{proof}
+By induction on $j$, $h(F^j x) \ge h(x) - j\eta$ for $0 \le j \le k - 1$. Hence $h(F^j x) \ge z + (k - 1 - j)\eta \ge z$.
+\end{proof}
+
+In flight terms $\eta = \bar w\,\Delta t$, where $\bar w$ bounds the sink rate on the intermediate frames. The bound is a claim about $F^j x$ for $x \in I$, not about $I$ alone. This is how \texttt{docs/termsound-proof.tex} bounds the altitude between whole seconds (Certificate ``level flight, one-second abstraction'': $970.2 - 12.9 \ge 957$\,m).
+
+\begin{lemma}[rejection through sufficiency]\label{lem:reject}
+Suppose $F$ eventually goes below the floor from every state: $\forall x\ \exists n.\ h(F^n x) < z$. Then for every family proved sufficient and every $\theta$ with $\Sigma(\theta)$ and $\Start_\theta \ne \emptyset$, $P[\theta](F)$ is false. In particular this holds for every $F$ with $h(F x) \le h(x) - \eta$ for all $x$ and some $\eta > 0$ (a \emph{sinking map}), since then $h(F^n x) \le h(x) - n\eta < z$ for $n > (h(x) - z)/\eta$.
+\end{lemma}
+\begin{proof}
+If $P[\theta](F)$ held, sufficiency would give $h(F^n x) \ge z$ for all $n$ at any $x \in \Start_\theta$, contradicting the hypothesis at that $x$.
+\end{proof}
+
+Each family below also names the clause of $P[\theta]$ that fails, for a sinking map and the example's $\theta$.
+
+\section{Family 1: $k$-step contraction}\label{sec:k}
+
+For a symmetric positive definite $Q \in \R^{m \times m}$ write $\nQ{v} = \sqrt{v^\top Q v}$. This is a norm: $\nQ{v} = \|Q^{1/2} v\|_2$.
+
+\begin{definition}[$k$-step contraction family]\label{def:k}
+The parameters are $\theta = (k, m, \pi, A, Q, r, \delta, \Fast, h_0, w)$:
+\begin{itemize}
+\item $k \ge 1$ frames per step;
+\item an observable $\pi : X \to \R^m$ (for level flight, the errors $(e_h, s, e_V)$ of \texttt{docs/termsound-proof.tex}, Section ``Terminal safety by abstraction'');
+\item a linear map $A \in \R^{m \times m}$ (the $k$-frame model);
+\item $Q \succ 0$ and a radius $r > 0$;
+\item a residual bound $\delta \ge 0$;
+\item a predicate $\Fast \subseteq X$ (boxes on the states $\pi$ leaves out);
+\item an affine altitude bound $h_0 \in \R$, $w \in \R^m$.
+\end{itemize}
+The set is $I_\theta = \{x \in X : \nQ{\pi x} \le r,\ x \in \Fast\}$, and $\Start_\theta = I_\theta$.
+
+The \textbf{side conditions} $\Sigma_1(\theta)$:
+\begin{itemize}
+\item[($\Sigma$a)] $k \ge 1$, $Q = Q^\top \succ 0$, $r > 0$, $\delta \ge 0$;
+\item[($\Sigma$b)] there is $c \ge 0$ with $c^2 Q - A^\top Q A \succeq 0$ and $c\,r + \delta \le r$;
+\item[($\Sigma$c)] $h_0 \ge z$ and $r^2\, w^\top Q^{-1} w \le (h_0 - z)^2$.
+\end{itemize}
+The \textbf{property} $P_1[\theta](F)$: for every $x \in I_\theta$,
+\begin{itemize}
+\item[(C1)] residual: $\nQ{\pi(F^k x) - A\,\pi(x)} \le \delta$;
+\item[(C2)] fast states: $F^k x \in \Fast$;
+\item[(C3)] between steps: $h(F^j x) \ge z$ for $1 \le j < k$;
+\item[(C4)] altitude: $h(x) \ge h_0 + w^\top \pi(x)$.
+\end{itemize}
+\end{definition}
+
+\begin{remark}[checking the side conditions]\label{rem:sigma}
+\begin{itemize}
+\item The least $c$ in ($\Sigma$b) is $\|A\|_Q = \sqrt{\lambda_{\max}(Q^{-1} A^\top Q A)}$. An exact certificate is a rational $c$ and an exact $LDL^\top$ factorisation of $c^2 Q - A^\top Q A$ with $D \ge 0$.
+\item rung 1's \texttt{q\_robust\_step} (PR \#38) asks instead for the budget $(1+t)c^2 r^2 + (1 + 1/t)\delta^2 \le r^2$ with some $t > 0$. The budget implies $c\,r + \delta \le r$, since $2 c r \delta \le t c^2 r^2 + \delta^2/t$ gives $(c r + \delta)^2 \le r^2$. Conversely, if $c r > 0$ and $\delta > 0$, then $t = \delta/(c r)$ turns the budget into $(c r + \delta)^2 \le r^2$.
+\item If the residual is measured as a box $|d_i| \le \delta_i$, then (C1) holds with $\delta = \sqrt{K}$, $K = \max\{v^\top Q v : v_i = \pm\delta_i\}$. The function $v \mapsto v^\top Q v$ is convex, so its maximum over the box is at one of the $2^m$ vertices.
+\item ($\Sigma$c) is one scalar inequality. With $w = e_1$ and $\pi_1 = h - h^\star$ it says $h^\star - r\sqrt{(Q^{-1})_{11}} \ge z$: the ellipsoid's lowest altitude is above the floor.
+\end{itemize}
+\end{remark}
+
+\begin{lemma}[robust step in the $Q$-ellipsoid]\label{lem:qstep}
+Assume ($\Sigma$b). If $\nQ{v} \le r$ and $\nQ{u - A v} \le \delta$, then $\nQ{u} \le r$.
+\end{lemma}
+\begin{proof}
+$\nQ{Av}^2 = v^\top A^\top Q A v \le c^2\, v^\top Q v$ by $c^2 Q - A^\top Q A \succeq 0$. Since $c \ge 0$, $\nQ{Av} \le c\,\nQ{v} \le c\,r$. By the triangle inequality, $\nQ{u} \le \nQ{Av} + \nQ{u - Av} \le c\,r + \delta \le r$.
+\end{proof}
+
+\begin{lemma}[linear functional on the ellipsoid]\label{lem:lin}
+For $Q \succ 0$, $|w^\top v| \le \sqrt{w^\top Q^{-1} w}\;\nQ{v}$.
+\end{lemma}
+\begin{proof}
+$w^\top v = (Q^{-1/2} w)^\top (Q^{1/2} v)$, and Cauchy--Schwarz bounds it by $\|Q^{-1/2} w\|_2 \|Q^{1/2} v\|_2$.
+\end{proof}
+
+\begin{theorem}[sufficiency, $k$-step contraction]\label{thm:k}
+If $\Sigma_1(\theta)$ and $P_1[\theta](F)$, then $\mathrm{Safe}(I_\theta)$. Moreover $U_\theta = \{F^j y : y \in I_\theta,\ j < k\}$ is invariant under $F$ and $h \ge z$ on it.
+\end{theorem}
+\begin{proof}
+We check Lemma~\ref{lem:core}'s hypotheses for $I = I_\theta$.
+
+(I1): let $x \in I_\theta$. Lemma~\ref{lem:qstep} with $v = \pi x$ ($\nQ{v} \le r$) and $u = \pi(F^k x)$ (C1) gives $\nQ{\pi(F^k x)} \le r$. (C2) gives $F^k x \in \Fast$. So $F^k x \in I_\theta$.
+
+(I2), $j = 0$: by (C4), Lemma~\ref{lem:lin} and ($\Sigma$c),
+\[ h(x) \;\ge\; h_0 + w^\top \pi x \;\ge\; h_0 - \sqrt{w^\top Q^{-1} w}\; r \;\ge\; z. \]
+(The last step uses $h_0 - z \ge 0$ and $r^2 w^\top Q^{-1} w \le (h_0 - z)^2$.) (I2), $1 \le j < k$: this is (C3).
+\end{proof}
+
+\begin{remark}[what the membership side must show]\label{rem:kmember}
+\begin{itemize}
+\item (C1) and (C2) are needed on the \emph{whole} set $I_\theta$, with $\Fast$ a stated predicate. A smaller start set $S_0 \subseteq I_\theta$ is safe too, but the residual must still be bounded on all of $I_\theta$.
+\item \texttt{docs/termsound-proof.tex}'s one-second abstraction has this shape: $k = 128$, $\pi = (e_h, s, e_V)$, $A = A_{\mathrm{frame}}^{128}$, $Q = P$, $w = e_1$, $h_0 = h^\star = 1{,}000.22$\,m. It reports $c_1 = 0.922$ and a measured residual box with $\sqrt{K} = 0.034 \le (1 - c_1) r = 0.152$. Its residual was measured on \emph{settled} states along rollouts, which is a layer in the sense of Family~3 (Section~\ref{sec:sf}), not on a stated $\Fast$.
+\item (C3) can come from Lemma~\ref{lem:sink}.
+\end{itemize}
+\end{remark}
+
+\begin{example}[non-vacuity]\label{ex:k}
+Take $X = \R$, $h(x) = 1000 + x$, $z = 934$ and $F(x) = x/2 + 5$. Let $k = 2$, $m = 1$, $\pi(x) = x$, $A = 1/4$, $Q = 1$, $r = 30$, $\delta = 10$, $\Fast = \R$, $h_0 = 1000$, $w = 1$. Then $I_\theta = [-30, 30] \ne \emptyset$.
+\begin{itemize}
+\item ($\Sigma$a) holds.
+\item ($\Sigma$b) with $c = 1/4$: $c^2 Q - A^2 Q = 0 \succeq 0$, and $c\,r + \delta = 7.5 + 10 = 17.5 \le 30$.
+\item ($\Sigma$c): $h_0 = 1000 \ge 934$ and $r^2 w^2/Q = 900 \le 66^2 = 4356$.
+\item (C1): $F^2 x = x/4 + 15/2$, so the residual is $15/2 \le 10$ for every $x$.
+\item (C2) holds trivially.
+\item (C3), $j = 1$: $h(F x) = 1005 + x/2 \ge 990 \ge 934$ for $|x| \le 30$.
+\item (C4) holds with equality.
+\end{itemize}
+Theorem~\ref{thm:k} gives $h(F^n x) \ge 934$ for $|x| \le 30$. (Directly: $F^n x \to 10$ monotonically.)
+\end{example}
+
+\begin{example}[rejection]\label{ex:knot}
+Take the same $X$, $h$, $z$ and $\theta$, and the sinking map $G(x) = x - 1$ (one metre per frame). (C1) fails at $x = -30 \in I_\theta$: $G^2(-30) - A\cdot(-30) = -32 + 7.5 = -24.5$, and $24.5 > 10$. Since $h(G x) = h(x) - 1$, Lemma~\ref{lem:reject} shows more: no $\theta$ with $\Sigma_1(\theta)$ and $I_\theta \ne \emptyset$ has $P_1[\theta](G)$, for any $k$, $\pi$, $A$ or $Q$.
+\end{example}
+
+\section{Family 2: energy barrier}\label{sec:barrier}
+
+\begin{definition}[energy-barrier family]\label{def:barrier}
+The parameters are $\theta = (k, B, b, R)$:
+\begin{itemize}
+\item $k \ge 1$;
+\item a scalar $B : X \to \R$ (for level flight, the altitude plus weighted energy and climb terms);
+\item a threshold $b \in \R$;
+\item a region $R \subseteq X$.
+\end{itemize}
+The set is $I_\theta = R \cap \{B \ge b\}$, and $\Start_\theta = I_\theta$. The side condition $\Sigma_2(\theta)$ is $k \ge 1$. The \textbf{property} $P_2[\theta](F)$: for every $x \in I_\theta$,
+\begin{itemize}
+\item[(B1)] $F^k x \in R$ and $B(F^k x) \ge b$;
+\item[(B2)] $h(F^j x) \ge z$ for $1 \le j < k$;
+\item[(B3)] $h(x) \ge z$.
+\end{itemize}
+\end{definition}
+
+\begin{remark}[a checkable form of (B3)]\label{rem:b3}
+Suppose $B = h + \varphi$ on $R$ and $\varphi \le M$ on $R$; for example $\varphi = w_V (V^2 - V^{\star 2})/(2g) + w_v v_z$ with $R$ bounding $V$ and $v_z$. Then $b - M \ge z$ implies (B3): on $I_\theta$, $h = B - \varphi \ge b - M \ge z$.
+\end{remark}
+
+\begin{theorem}[sufficiency, energy barrier]\label{thm:barrier}
+If $\Sigma_2(\theta)$ and $P_2[\theta](F)$, then $\mathrm{Safe}(I_\theta)$, and $U_\theta = \{F^j y : y \in I_\theta,\ j < k\}$ is $F$-invariant with $h \ge z$ on it.
+\end{theorem}
+\begin{proof}
+(B1) is (I1) for $I = I_\theta$, and (B3) with (B2) is (I2). Apply Lemma~\ref{lem:core}.
+\end{proof}
+
+\paragraph{Variant: no drop near the threshold.} (B1) asks every state of $I_\theta$ to keep $B \ge b$. The variant splits it into a coarse clause far from the threshold and a careful clause in a band of width $\Delta$ above it. Far from the threshold, a crude bound on how fast $B$ can fall over $k$ frames is enough. Only the band needs the careful check.
+
+\begin{definition}[barrier with margin]\label{def:near}
+The parameters are $\theta' = (k, B, b, R, \varepsilon, \Delta)$. The side conditions $\Sigma_2'(\theta')$ are $k \ge 1$ and $0 \le \varepsilon \le \Delta$. The \textbf{property} $P_2'[\theta'](F)$: for every $x \in I_\theta$, (B2), (B3), and
+\begin{itemize}
+\item[(B1a)] region: $F^k x \in R$;
+\item[(B1b)] bounded drop above the band: if $B(x) \ge b + \Delta$ then $B(F^k x) \ge B(x) - \varepsilon$;
+\item[(B1c)] no drop in the band: if $B(x) < b + \Delta$ then $B(F^k x) \ge B(x)$.
+\end{itemize}
+Together, (B1b) and (B1c) say $B(F^k x) \ge B(x) - \varepsilon\,[B(x) \ge b + \Delta]$, where $[\cdot]$ is $1$ if the condition holds and $0$ otherwise.
+\end{definition}
+
+\begin{theorem}[sufficiency, barrier with margin]\label{thm:near}
+If $\Sigma_2'(\theta')$ and $P_2'[\theta'](F)$, then $P_2[\theta](F)$ for $\theta = (k, B, b, R)$. Hence $\mathrm{Safe}(I_\theta)$ by Theorem~\ref{thm:barrier}.
+\end{theorem}
+\begin{proof}
+Let $x \in I_\theta$. (B1a) gives $F^k x \in R$. If $B(x) \ge b + \Delta$, then by (B1b) and $\varepsilon \le \Delta$, $B(F^k x) \ge b + \Delta - \varepsilon \ge b$. Otherwise $b \le B(x) < b + \Delta$, and (B1c) gives $B(F^k x) \ge B(x) \ge b$. So (B1) holds; (B2) and (B3) are assumed.
+\end{proof}
+
+(B1c) may be weakened to $B(F^k x) \ge b$ in the band; the proof is unchanged.
+
+\begin{example}[non-vacuity]\label{ex:barrier}
+Take $X = \R^2$, $x = (h, u)$ (altitude, climb per frame), $z = 934$ and $F(h, u) = (h + u,\ u/2)$. Let $k = 1$, $B(h, u) = h + 2u$ (the altitude the state will settle at), $b = 1000$ and $R = \{|u| \le 20\}$. Then $(1000, 0) \in I_\theta$.
+\begin{itemize}
+\item (B1): $B(F x) = h + u + 2\cdot u/2 = B(x)$, and $|u/2| \le 10 \le 20$.
+\item (B2) is vacuous ($k = 1$).
+\item (B3) by Remark~\ref{rem:b3} with $\varphi = 2u \le M = 40$ on $R$: $b - M = 960 \ge 934$.
+\end{itemize}
+The altitude itself is not monotone: from $(1040, -20)$ it falls towards $1000$. The barrier allows this; a bound on $h$ alone would not.
+
+For the variant, let $\varepsilon = \Delta = 1$ and $F_\sigma(h, u) = (h + u,\ (u - \sigma)/2)$, with $\sigma = 1$ if $B(h, u) \ge b + \Delta$ and $\sigma = 0$ otherwise. This plant gives energy away while it has a margin and holds it in the band. $B(F_\sigma x) = B(x) - \sigma$, so (B1b) holds with drop $1 = \varepsilon$ and (B1c) with no drop. (B1a): $|u - \sigma|/2 \le 21/2 \le 20$. (B3) is as before, and $\Sigma_2'$ holds since $0 \le 1 \le 1$.
+\end{example}
+
+\begin{example}[rejection]\label{ex:barriernot}
+$G(h, u) = (h + u,\ (u - 1)/2)$ sinks: $u_n \to -1$, so $h$ eventually falls by almost 1\,m per frame. $B(G x) = B(x) - 1$ everywhere. At $x = (1000, 0) \in I_\theta$, $B(G x) = 999 < b$, so (B1) fails. In the variant, (B1c) fails at the same $x$. Lemma~\ref{lem:reject} applies too, since $h(G^n x) \to -\infty$ from every $x$.
+\end{example}
+
+\section{Family 3: slow-fast}\label{sec:sf}
+
+\begin{definition}[slow-fast family]\label{def:sf}
+The parameters are $\theta = (S_0, T, L, \theta_1)$:
+\begin{itemize}
+\item a start set $S_0 \subseteq X$;
+\item a transient length $T \in \N$ (frames);
+\item a layer $L \subseteq X$ (fast states near their quasi-steady values);
+\item Family~1 parameters $\theta_1$ whose fast predicate is the layer, $\Fast = L$. Write $I_1 = \{x : \nQ{\pi x} \le r\} \cap L$ for Family~1's set.
+\end{itemize}
+$\Start_\theta = S_0$. The side conditions $\Sigma_3(\theta)$ are $\Sigma_1(\theta_1)$. The \textbf{property} $P_3[\theta](F)$:
+\begin{itemize}
+\item[(SF1)] reach: for each $x \in S_0$ there is $t_x \le T$ with $F^{t_x} x \in I_1$;
+\item[(SF2)] transient: $h(F^n x) \ge z$ for $x \in S_0$ and $0 \le n < T$;
+\item[(SF3)] slow model on the layer: $P_1[\theta_1](F)$. Its (C1) is the residual on the layer only; its (C2) says the layer is kept from step to step.
+\end{itemize}
+\end{definition}
+
+\begin{theorem}[sufficiency, slow-fast]\label{thm:sf}
+If $\Sigma_3(\theta)$ and $P_3[\theta](F)$, then $\mathrm{Safe}(S_0)$.
+\end{theorem}
+\begin{proof}
+Let $x \in S_0$ and $n \in \N$, and take $t = t_x \le T$ from (SF1). If $n < t$ then $n < T$, and (SF2) gives $h(F^n x) \ge z$. If $n \ge t$, then $F^n x = F^{n-t}(F^t x)$ with $F^t x \in I_1$. Theorem~\ref{thm:k} (applicable by $\Sigma_1(\theta_1)$ and (SF3)) gives $h(F^{n-t}(F^t x)) \ge z$.
+\end{proof}
+
+\begin{remark}
+\begin{itemize}
+\item The layer need not be invariant frame by frame. Only $F^k(I_1) \subseteq L$ is needed, which is (C2). Entry may happen at any frame up to $T$, not only at multiples of $k$: the $k$-step clock restarts at entry.
+\item The forward orbit $O(S_0) = \{F^n x : x \in S_0,\ n \in \N\}$ is $F$-invariant, and by the theorem $h \ge z$ on it. This is the per-frame set Section~\ref{sec:city} uses.
+\item A checkable form of (SF2) is Lemma~\ref{lem:sink}'s: $h \ge z + T\eta$ on $S_0$ and a per-frame drop of at most $\eta$ along the first $T$ frames.
+\item In \texttt{docs/termsound-proof.tex}'s one-second abstraction, ``settled'' plays the role of $L$, and its measured claim ``the first 3\,s never go below 970\,m'' is (SF2) with $T = 384$. To use the theorem, $L$ must be a stated predicate, for example boxes around the fast states' quasi-steady values, as that note's ``Next'' item proposes.
+\end{itemize}
+\end{remark}
+
+\begin{example}[non-vacuity]\label{ex:sf}
+Take $X = \R^2$, $x = (e, \phi)$ (slow altitude error, fast state), $h = 1000 + e$, $z = 934$ and $F(e, \phi) = (e/2 + \phi,\ \phi/4)$. Let:
+\begin{itemize}
+\item $S_0 = \{|e| \le 30,\ |\phi| \le 16\}$, $T = 2$, $L = \{|\phi| \le 1\}$;
+\item $\theta_1$: $k = 1$, $\pi(e, \phi) = e$, $A = 1/2$, $Q = 1$, $r = 30$, $\delta = 1$, $\Fast = L$, $h_0 = 1000$, $w = 1$.
+\end{itemize}
+\begin{itemize}
+\item $\Sigma_1(\theta_1)$: $c = 1/2$, $c\,r + \delta = 16 \le 30$; $1000 - 30 \ge 934$.
+\item (C1) on $I_1$: $\pi(F x) - A\pi(x) = \phi$, and $|\phi| \le 1$ on $L$. (C2): $|\phi/4| \le 1$. (C3) is vacuous. (C4) holds with equality.
+\item (SF1) with $t_x = 2$: $\phi_2 = \phi/16$, so $|\phi_2| \le 1$. Also $e_1 = e/2 + \phi \in [-31, 31]$ and $e_2 = e_1/2 + \phi/4$, so $|e_2| \le 15.5 + 4 = 19.5 \le 30$.
+\item (SF2): $h(x) \ge 970$ and $h(F x) = 1000 + e_1 \ge 969$.
+\end{itemize}
+The start set is not inside the layer: $|\phi|$ is up to 16 there. With the same $A$, $Q$ and $r$, Family~1 alone would need $\delta \ge 16$, and then $c\,r + \delta = 31 > 30$. The slow-fast family certifies a start set that Family~1, with these parameters, does not.
+\end{example}
+
+\begin{example}[rejection]\label{ex:sfnot}
+$G(e, \phi) = (e - 1,\ \phi/4)$ sinks 1\,m per frame. With $\theta_1$ as above, (C1) fails at $(-30, 0) \in I_1$: $\pi(G x) - A\pi(x) = -31 + 15 = -16$, and $16 > 1$. By Lemma~\ref{lem:reject}, no $\theta$ with $\Sigma_3(\theta)$ and $S_0 \ne \emptyset$ has $P_3[\theta](G)$.
+\end{example}
+
+\section{Family 4: differential inclusion}\label{sec:incl}
+
+\begin{definition}[differential-inclusion family]\label{def:incl}
+The parameters are $\theta = (\psi, \G, \Omega, J, H)$:
+\begin{itemize}
+\item an observable $\psi = (\psi_h, \psi_v, \psi_V) : X \to \R^3$ with $\psi_h = h$ (altitude, climb rate $v_z$, airspeed $V$);
+\item a set-valued envelope $\G : \R^3 \to \mathcal{P}(\R^3)$ of one-frame increments (written $F$ in issue \#58; renamed here to keep $F$ for the frame map);
+\item a region $\Omega \subseteq \R^3$ where the envelope is claimed;
+\item a candidate invariant set $J \subseteq \R^3$ of the inclusion;
+\item a predicate $H \subseteq X$ on hidden states ($H = X$ if the envelope holds whatever the hidden states are).
+\end{itemize}
+$\Start_\theta = \{x \in X : \psi(x) \in J,\ x \in H\}$.
+
+The \textbf{side conditions} $\Sigma_4(\theta)$ involve the inclusion only:
+\begin{itemize}
+\item[(D1)] $J$ is invariant under the inclusion: $y \in J \wedge d \in \G(y) \Rightarrow y + d \in J$;
+\item[(D2)] $J$ lies above the floor: $y \in J \Rightarrow y_h \ge z$;
+\item[(D3)] $J \subseteq \Omega$.
+\end{itemize}
+The \textbf{property} $P_4[\theta](F)$: for every $x \in H$ with $\psi(x) \in \Omega$,
+\begin{itemize}
+\item[(E1)] the plant is in the envelope: $\psi(F x) - \psi(x) \in \G(\psi(x))$;
+\item[(E2)] hidden states: $F x \in H$.
+\end{itemize}
+\end{definition}
+
+\begin{theorem}[sufficiency, differential inclusion]\label{thm:incl}
+If $\Sigma_4(\theta)$ and $P_4[\theta](F)$, then $\mathrm{Safe}(\Start_\theta)$, and $\Start_\theta$ is $F$-invariant.
+\end{theorem}
+\begin{proof}
+Lemma~\ref{lem:core} with $k = 1$ and $I = \Start_\theta$. (I1): let $x \in \Start_\theta$, so $\psi(x) \in J \subseteq \Omega$ by (D3). By (E1), $\psi(F x) = \psi(x) + d$ with $d \in \G(\psi(x))$, so $\psi(F x) \in J$ by (D1). By (E2), $F x \in H$. (I2): $h(x) = \psi_h(x) \ge z$ by (D2).
+\end{proof}
+
+\begin{remark}[checking (D1)--(D3) from envelope tables]\label{rem:tables}
+Let $J = \prod_{i}[\alpha_i, \beta_i]$ be a box, covered by finitely many closed cells $C^1, \dots, C^N$ (boxes $\prod_i [a^c_i, b^c_i]$). Let the envelope table give, for each cell, a box $[\ell^c, u^c] \supseteq \G(y)$ for all $y \in C^c$. Then (D1) follows from the $6N$ rational inequalities
+\[ \alpha_i \le a^c_i + \ell^c_i, \qquad b^c_i + u^c_i \le \beta_i \qquad (i \in \{h, v, V\},\ c = 1..N), \]
+since $y + d \in C^c + [\ell^c, u^c] = \prod_i [a^c_i + \ell^c_i,\ b^c_i + u^c_i] \subseteq J$. (D2) is $\alpha_h \ge z$, and (D3) is a box inclusion. State dependence of the increments (for example $\Delta h \ge 0$ near the floor) enters through the cells.
+\end{remark}
+
+\begin{remark}
+The plant enters only through (E1) and (E2); the reachability over-approximation is (D1)--(D3), a property of $\theta$ alone. (E1) must hold for every hidden state allowed by $H$. The envelope's width therefore has to absorb the unobserved fast states (attitude, rates, $\alpha$, engine), unless $H$ boxes them and (E2) keeps them boxed.
+\end{remark}
+
+\begin{example}[non-vacuity]\label{ex:incl}
+Take $X = \R^3$, $\psi = \mathrm{id}$, $y = (h, v, V)$, $z = 934$, $H = X$, and $J = \Omega = [999, 1001] \times [-1, 1] \times [50, 60]$. The envelope is
+\[ \G(y) = I_h(y_h) \times [-y_v/2 - 1/2,\ -y_v/2 + 1/2] \times [-(y_V - 55)/2 - 1/2,\ -(y_V - 55)/2 + 1/2], \]
+with $I_h(y_h) = [0, 1]$ if $y_h < 1000$ and $[-1, 0]$ otherwise.
+\begin{itemize}
+\item (D1), per coordinate. If $999 \le h < 1000$ then $h + d_h \in [999, 1001)$; if $1000 \le h \le 1001$ then $h + d_h \in [999, 1001]$. Next, $v + d_v \in [v/2 - 1/2,\ v/2 + 1/2] \subseteq [-1, 1]$ for $|v| \le 1$. Finally $V + d_V - 55 \in [(V - 55)/2 - 1/2,\ (V - 55)/2 + 1/2] \subseteq [-5, 5]$ for $|V - 55| \le 5$.
+\item (D2): $999 \ge 934$. (D3): $J = \Omega$.
+\end{itemize}
+The plant is $F(h, v, V) = (h + \min(1, \max(-1, 1000 - h)),\ v/2,\ 55 + (V - 55)/2)$.
+\begin{itemize}
+\item (E1): for $h < 1000$, $\Delta h = \min(1, 1000 - h) \in (0, 1]$; for $h \ge 1000$, $\Delta h = \max(-1, 1000 - h) \in [-1, 0]$. Also $\Delta v = -v/2$ and $\Delta V = -(V - 55)/2$, the centres of their intervals.
+\item (E2) holds trivially.
+\end{itemize}
+$\Start_\theta = J \ne \emptyset$.
+\end{example}
+
+\begin{example}[rejection]\label{ex:inclnot}
+$G(h, v, V) = (h - 1,\ v/2,\ 55 + (V - 55)/2)$ sinks. At $y = (999.5, 0, 55) \in J$, $\Delta h = -1 \notin [0, 1]$, so (E1) fails. Lemma~\ref{lem:reject} excludes every $\theta$ with $\Sigma_4(\theta)$ and $\Start_\theta \ne \emptyset$.
+\end{example}
+
+\section{Connection to the city gate}\label{sec:city}
+
+\paragraph{Instantiation.}
+\begin{itemize}
+\item $X = \texttt{Ctl} \times \texttt{Plane}$ and $F = \texttt{cityGate.fly}$. Then $F^n = \texttt{cityGate.flyN}\ n$ (\texttt{flyN}~$(n{+}1)\ x = \texttt{flyN}\ n\ (\texttt{fly}\ x)$, \texttt{GateSafety/EndSets.lean}).
+\item The altitude is the spec's: $h(x) = c_3$ if $\texttt{exactPos}\ x.2 = \texttt{some}\ c$ (the reported CG's altitude above sea level, in metres, read exactly; \texttt{CityGate/Geometry.lean}), and $h(x) = z - 1$ if \texttt{exactPos} is \texttt{none}. So $h(x) \ge z$ implies that \texttt{exactPos} is defined.
+\item The level-off phase is a predicate $\mathrm{Lvl}$ on the law's state (terminal law in level-off, held track fixed). It belongs in the family's set: in $\Fast$ (Family~1), $R$ (Family~2), $L$ (Family~3) or $H$ (Family~4). The $k$-step invariance then keeps the phase, and no restricted state type is needed.
+\end{itemize}
+
+\begin{proposition}[altitude gives \Conf]\label{prop:conf}
+Let $R$ be a ray funnel or a helix funnel with release altitude $\zTop^R \le z$. If $h(x) \ge z$, then $\exists c.\ \texttt{exactPos}\ x.2 = \texttt{some}\ c \wedge \Conf_R(\texttt{toPt}\ c)$.
+\end{proposition}
+\begin{proof}
+\texttt{exactPos} is defined, as noted above, and $c_3 = h(x) \ge z \ge \zTop^R$. That is the first disjunct of \texttt{Ray.Conf} and of \texttt{Helix.Conf} (\texttt{Spec/EndSets.lean}).
+\end{proof}
+
+\begin{proposition}[the families give the end sets' \texttt{hconf} and \texttt{hinv}]\label{prop:endset}
+Let $\Start_\theta$ be the start set of any of the four families with $\Sigma(\theta)$ and $P[\theta](\texttt{cityGate.fly})$, and let $z \ge \zTop^R$ for the funnels used. Define
+\[ \Dyn_R(x) \;:\iff\; \zTop^R \le z \;\wedge\; x \in O(\Start_\theta), \qquad O(S) = \{F^n y : y \in S,\ n \in \N\}. \]
+Then $\Dyn_R(x) \Rightarrow \exists c.\ \texttt{exactPos}\ x.2 = \texttt{some}\ c \wedge \Conf_R(\texttt{toPt}\ c)$ (\texttt{hconf}), and $\Dyn_R(x) \Rightarrow \Dyn_R(F x)$ (\texttt{hinv}). These are exactly the hypotheses of \texttt{rayEndSet} and \texttt{helixEndSet} (\texttt{CityGate/EndSets.lean}). For Families~1, 2 and 4 the stated set $U_\theta$ of Lemma~\ref{lem:core} may replace $O(\Start_\theta)$.
+\end{proposition}
+\begin{proof}
+\texttt{hinv}: $F(F^n y) = F^{n+1} y$. \texttt{hconf}: for $x = F^n y$ with $y \in \Start_\theta$, the family's theorem gives $h(x) \ge z$; apply Proposition~\ref{prop:conf}. For $U_\theta$, use the invariance and the bound $h \ge z$ in Lemma~\ref{lem:core}.
+\end{proof}
+
+\paragraph{Floor: $\zTop$ suffices.} \texttt{Ray.Geo} and \texttt{Helix.Geo} already require every solid point to lie below $\zTop - e$. A reported position at $p_z \ge \zTop$ therefore clears the $e$-box. So $z = \zTop$ is enough for the end sets, and issue \#58's $z = \zTop + e$ is conservative by $e = 7$\,m.
+
+\paragraph{The $k$-frame version of the skeleton's interface.} \texttt{CityGate/TermSkeleton.lean}'s \texttt{Abs} is per frame. Its \texttt{Dyn} is $(\exists a.\ \pi\,x = \texttt{some}\ a \wedge \texttt{DynA}\ a) \wedge \Fast\ x$, and its obligations are:
+\begin{itemize}
+\item \texttt{DynAbstractInv}: one model step is robustly invariant;
+\item \texttt{ResidualBound}: one real frame, \texttt{cityGate.fly}, stays within \texttt{Near} of the model step;
+\item \texttt{FastBounded}: $\Fast$ holds one frame later.
+\end{itemize}
+Family~1 with $k = 1$ maps onto it directly: \texttt{F}~$a = A a$, $\texttt{Near}\ a\ a' :\iff \nQ{a' - a} \le \delta$, $\texttt{DynA} = \{\nQ{a} \le r\}$. Then \texttt{DynAbstractInv} is Lemma~\ref{lem:qstep}, \texttt{ResidualBound} is (C1), \texttt{FastBounded} is (C2), and \texttt{DynConf} follows from (C4), ($\Sigma$c) and Proposition~\ref{prop:conf}. For $k > 1$, the measured case ($k = 128$), the per-frame obligations are the wrong shape: the per-frame residual is $49\times$ over budget. The $k$-frame interface replaces them by:
+\begin{itemize}
+\item \texttt{ResidualBound}$_k$, with \texttt{F} now the $k$-frame model:
+\[ \forall\,\theta\,x\,a.\ \Dyn\,\theta\,x \to \pi\,x = \texttt{some}\ a \to \exists a'.\ \pi(\texttt{flyN}\ k\ x) = \texttt{some}\ a' \wedge \texttt{Near}\,\theta\,(\texttt{F}\,\theta\,a)\,a'; \]
+\item \texttt{FastBounded}$_k$: $\Dyn\,\theta\,x \to \Fast\,\theta\,(\texttt{flyN}\ k\ x)$;
+\item \texttt{Between}$_k$: $\Dyn\,\theta\,x \to j < k \to \exists c.\ \texttt{exactPos}\ (\texttt{flyN}\ j\ x).2 = \texttt{some}\ c \wedge \Conf\,\theta\,(\texttt{toPt}\ c)$ (this is (C3) through Proposition~\ref{prop:conf}; $j = 0$ is \texttt{DynConf});
+\item \texttt{DynAbstractInv} unchanged, for the $k$-frame model.
+\end{itemize}
+The end set's predicate is the union of images $\Dyn^*\,\theta\,x :\iff \exists j < k.\ \exists y.\ \Dyn\,\theta\,y \wedge x = \texttt{flyN}\ j\ y$. By Lemma~\ref{lem:core}, $\Dyn^*$ is invariant under \texttt{cityGate.fly} (\texttt{hinv}), and \texttt{Between}$_k$ is its \texttt{hconf}. So $\Dyn^*$ plugs into \texttt{rayEndSet} and \texttt{helixEndSet} unchanged. \texttt{Ends.Sound} and \texttt{InTubes} would take $\Dyn^*$ in place of $\Dyn$; \texttt{EndTestCertified} then needs end-test states in $\Dyn^*$, and $\Dyn$ ($j = 0$) suffices. This change is not made in Lean: the direction of this work changed to informal proofs. The proof is Lemma~\ref{lem:core} with \texttt{flyN}'s composition law, about 40 lines.
+
+\paragraph{What is still missing for \texttt{TermSoundR} on the level-off.}
+\begin{enumerate}
+\item \textbf{Membership:} $P[\theta](\texttt{cityGate.fly})$ for some family and $\theta$ (the other agents of \#58). For Family~1, (C1) and (C2) are needed on the whole stated set, not on rollout-settled states. Rollout-settled states call for Family~3 with a stated layer $L$.
+\item \textbf{End-test link} (\texttt{EndTestCertified}, open in \texttt{TermSkeleton.lean}): a passing end test must put the state in $\Start_\theta$ (or in $\Dyn^*$), including the phase predicate $\mathrm{Lvl}$. The climb through $\zTop$ into the level set (\texttt{docs/termsound-proof.tex}, ``The climb'') is not covered by any family here.
+\item \textbf{Same altitude:} the families' $h$ must be \texttt{exactPos}'s third coordinate (the reported \texttt{hsl} in metres). An abstraction whose $\pi$ uses another altitude needs a proved relation to it. Under the exact-real assumption the reported altitude is that quantity; the \texttt{Float}-to-\texttt{Rat} gap belongs to the formal proof.
+\item \textbf{Release altitude:} $z \ge \zTop^R$ for every funnel used. It holds for $z = \zTop + e$, and for $z = \zTop$.
+\item \textbf{Airframe:} \texttt{AirframeNear 7} stays a hypothesis of PR \#29's theorem, as in \texttt{docs/termsound-proof.tex} (S4).
+\end{enumerate}
+
+\section{Summary}\label{sec:summary}
+
+\begin{center}
+\small
+\begin{tabular}{p{2.1cm}p{4.3cm}p{3.8cm}p{1.6cm}p{2cm}}
+\toprule
+Family & $P[\theta](F)$ on the set & Side conditions $\Sigma(\theta)$ & Theorem & Examples\\
+\midrule
+$k$-step contraction & (C1) $Q$-residual $\le \delta$ over $k$ frames; (C2) $\Fast$ kept; (C3) $h \ge z$ between steps; (C4) $h \ge h_0 + w^\top\pi$ & $c^2Q \succeq A^\top Q A$, $c r + \delta \le r$; $h_0 \ge z$, $r^2 w^\top Q^{-1} w \le (h_0 - z)^2$ & \ref{thm:k} & \ref{ex:k}, \ref{ex:knot}\\
+energy barrier & (B1) $F^k$ keeps $R \cap \{B \ge b\}$; (B2) between steps; (B3) $h \ge z$ on the set & $k \ge 1$ (and $b - M \ge z$ for (B3) via Remark~\ref{rem:b3}) & \ref{thm:barrier} & \ref{ex:barrier}, \ref{ex:barriernot}\\
+barrier, margin & (B1a) region; (B1b) drop $\le \varepsilon$ above the band; (B1c) no drop in the band; (B2); (B3) & $0 \le \varepsilon \le \Delta$ & \ref{thm:near} & \ref{ex:barrier}, \ref{ex:barriernot}\\
+slow-fast & (SF1) reach $I_1$ within $T$; (SF2) $h \ge z$ for $n < T$; (SF3) Family~1 on the layer & $\Sigma_1(\theta_1)$ & \ref{thm:sf} & \ref{ex:sf}, \ref{ex:sfnot}\\
+differential inclusion & (E1) $\Delta\psi \in \G(\psi)$ on $\Omega \cap H$; (E2) $H$ kept & (D1) $J$ invariant under $\G$; (D2) $J$ above $z$; (D3) $J \subseteq \Omega$ & \ref{thm:incl} & \ref{ex:incl}, \ref{ex:inclnot}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Nothing is assumed beyond the stated hypotheses: every theorem is proved in exact real arithmetic from its side conditions and plant property. Each family's hypotheses are satisfied together by a concrete map, and each family rejects a sinking map, by a named clause and by Lemma~\ref{lem:reject}.
+
+\end{document}

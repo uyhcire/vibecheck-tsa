@@ -186,6 +186,11 @@ export:
 pdf:
 	cd docs && tectonic termsound-proof.tex
 
+# Sufficiency of the plant-abstraction families of issue #58 (docs/termsound/abstractions.tex) as PDF; needs tectonic.
+.PHONY: abstractions
+abstractions:
+	cd docs/termsound && tectonic abstractions.tex
+
 # SLOW (tens of minutes, several GB of Mathlib per Mathlib-based project): build every archived experiment
 # (experiments/README.md) from its own folder and print the axioms of the theorems each README names.
 .PHONY: experiments
@@ -206,10 +211,19 @@ help:
 	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck   (ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
-	@echo "Docs:     make pdf"
+	@echo "Docs:     make pdf | abstractions"
 	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
 	@echo "Lean app: make install | build | run | clean"
 
 .PHONY: clean
 clean:
 	lake clean
+
+# Numerical certificates of docs/termsound-proof.tex (straight-climb end set): builds `tsmap`, makes a Python venv
+# with numpy, scipy and cvxpy under .lake/, recomputes the reference climb and prints every certificate (about 45 min).
+TSVENV ?= .lake/tsvenv
+.PHONY: certify
+certify:
+	lake build tsmap
+	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
+	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done

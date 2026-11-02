@@ -189,3 +189,9 @@ lean_exe termhunt where
 lean_exe sweepcheck where
   root := `Tools.SweepCheck
   moreLinkObjs := #[jxmath.o]
+
+/-- Offline tooling for the informal proof of `TermSoundR` (`docs/termsound-proof.tex`): the escape closed loop as a
+frame map in local coordinates. -/
+lean_exe tsmap where
+  root := `Tools.termsound.TsMap
+  moreLinkObjs := #[jxmath.o]
