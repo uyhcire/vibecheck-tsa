@@ -1,7 +1,6 @@
 """`slides_data.py TRAJ_DIR FAN_DIR DOME_DIR > media/slides-data.js`: the pilots-from-one-start runs, the candidate fan and the dome, for the slides."""
 
 import json
-import math
 import pathlib
 import struct
 import sys
@@ -23,7 +22,8 @@ def traj(d: pathlib.Path) -> dict:
         pts = [[round(t["pos"][0]), round(t["pos"][1])] for i, t in enumerate(ticks) if i % 10 == 9 or i == len(ticks) - 1]
         last = ticks[-1]
         crash = [round(last["pos"][0], 1), round(last["pos"][1], 1), last["t"]] if last.get("crashed") or last["clear"] < 0 else None
-        runs[side].append({"pilot": kind, "pts": pts, "crash": crash, "min": round(min(t["clear"] for t in ticks), 2)})
+        p3 = [[round(c, 1) for c in t["pos"]] for i, t in enumerate(ticks) if (i % 5 == 4 or i == len(ticks) - 1) and t["t"] <= 15.0 + 1e-9]
+        runs[side].append({"pilot": kind, "pts": pts, "p3": p3, "crash": crash, "crash3": [round(c, 1) for c in last["pos"]] if crash else None, "min": round(min(t["clear"] for t in ticks), 2)})
     xs = [p[0] for side in runs.values() for r in side for p in r["pts"]]
     ys = [p[1] for side in runs.values() for r in side for p in r["pts"]]
     pad = 150
@@ -66,6 +66,9 @@ def dome(d: pathlib.Path) -> dict:
 def main() -> None:
     t, f, dm = map(pathlib.Path, sys.argv[1:4])
     data = {"traj": traj(t), "fan": fan(f), "dome": dome(dm)}
+    if len(sys.argv) > 4:  # the recorded frame the 3D view is drawn on
+        shot = json.loads(pathlib.Path(sys.argv[4]).read_text().splitlines()[0])
+        data["traj"]["shot"] = {"size": shot["viewport"], "vp": [float(f"{x:.7g}") for x in shot["view_proj"]]}
     sys.stdout.write("window.SLIDES = " + json.dumps(data, separators=(",", ":")) + ";\n")
 
 

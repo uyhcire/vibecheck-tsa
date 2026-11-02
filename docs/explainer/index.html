@@ -379,6 +379,13 @@ html.trisk .legend { font-family: "Trisk", "Barlow", sans-serif; font-size: var(
 .perf .ax { font-size: 17px; fill: var(--ink-2); }
 .perf .val { font-size: 26px; font-weight: 600; fill: var(--ink); }
 html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight: 400; }
+
+.shot3d { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; flex-direction: column; }
+.shot3d-stage { position: relative; flex: 1 1 auto; min-height: 0; background: #1b2530; }
+.shot3d-stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.shot3d-stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.traj-cap3 { flex: none; }
+.traj-cap3 i { display: inline-block; width: 1.4rem; height: 4px; vertical-align: middle; margin: 0 0.35rem 0 0.8rem; border-radius: 2px; }
 </style>
 </head>
 <body class="deck">
@@ -391,10 +398,10 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
 <section class="slide" id="s-guarantee" data-nav="What it must guarantee" hidden>
   <h2>What the filter must guarantee</h2>
   <p class="sub" id="traj-sub">From one allowed start, hostile and kamikaze pilots: with the filter, nothing is touched.</p>
-  <div class="two traj">
-    <figure><svg class="svgtext traj-plan" data-side="on" viewBox="0 0 560 560" role="img" aria-label="Plan view: the pilots' paths with the filter on, over the city."></svg><figcaption class="traj-cap" data-side="on"></figcaption></figure>
-    <figure><svg class="svgtext traj-plan" data-side="off" viewBox="0 0 560 560" role="img" aria-label="Plan view: the same pilots with the filter off; crashes marked."></svg><figcaption class="traj-cap" data-side="off"></figcaption></figure>
-  </div>
+  <figure class="shot3d">
+    <div class="shot3d-stage"><img src="media/traj-shot.jpg" alt="The simulator's view from high behind the aircraft at its start, over the city."><svg class="traj3d" aria-hidden="true"></svg></div>
+    <figcaption class="traj-cap3"></figcaption>
+  </figure>
 </section>
 
 <section class="slide" id="s-decide" data-nav="Solution: a backup plan" hidden>
@@ -1652,32 +1659,29 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
 
   const S = window.SLIDES;
   if (!S) return;
-  // What the filter must guarantee: the same pilots from one start, filter on and off, over the city.
-  const T = S.traj, [x0, x1, y0, y1] = T.win;
-  const side = Math.max(x1 - x0, y1 - y0), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-  const W = 560, k = W / side;
-  const X = (x) => ((x - cx + side / 2) * k).toFixed(1), Y = (y) => ((cy + side / 2 - y) * k).toFixed(1);
-  const shade = (h) => (h > 300 ? "b4" : h > 200 ? "b3" : h > 90 ? "b2" : "b1");
+  // What the filter must guarantee: the same pilots from one start, filter on and off, drawn on the sim's own frame.
+  const T = S.traj, sh = T.shot;
   const crashes = T.runs.off.filter((r) => r.crash).length, n = T.runs.on.length;
-  for (const svg of document.querySelectorAll(".traj-plan")) {
-    const on = svg.dataset.side === "on";
-    let o = `<rect width="${W}" height="${W}" style="fill:var(--paper-2)"/>`;
-    for (const b of T.boxes) o += `<rect x="${X(b[0])}" y="${Y(b[3])}" width="${((b[1] - b[0]) * k).toFixed(1)}" height="${((b[3] - b[2]) * k).toFixed(1)}" style="fill:var(--${shade(b[4])})"/>`;
-    for (const r of T.runs[svg.dataset.side]) {
-      const col = on ? (r.pilot.startsWith("kamikaze") ? "var(--magenta)" : "var(--blue)") : "var(--off)";
-      o += `<polyline points="${r.pts.map((p) => X(p[0]) + "," + Y(p[1])).join(" ")}" style="fill:none;stroke:${col};stroke-width:2;stroke-opacity:.8;stroke-linejoin:round"/>`;
-      if (r.crash) { const [a, c] = [+X(r.crash[0]), +Y(r.crash[1])]; o += `<path d="M${a - 7} ${c - 7}l14 14m0 -14l-14 14" style="stroke:var(--red);stroke-width:3.5"/>`; }
-    }
-    o += `<circle cx="${X(T.start[0])}" cy="${Y(T.start[1])}" r="6" style="fill:var(--ink);stroke:#fff;stroke-width:2"/>`;
-    o += `<line x1="14" y1="${W - 16}" x2="${(14 + 500 * k).toFixed(1)}" y2="${W - 16}" style="stroke:var(--ink);stroke-width:2"/><text x="14" y="${W - 22}" style="fill:var(--ink)">500 m</text>`;
+  if (sh) {
+    const [W, H] = sh.size, M = sh.vp;
+    const P = ([x, y, z]) => {
+      const w = M[3] * x + M[7] * y + M[11] * z + M[15];
+      if (w < 1) return null;
+      return [(((M[0] * x + M[4] * y + M[8] * z + M[12]) / w + 1) / 2) * W, ((1 - (M[1] * x + M[5] * y + M[9] * z + M[13]) / w) / 2) * H];
+    };
+    const line = (pts) => pts.map(P).filter(Boolean).map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+    const svg = document.querySelector(".traj3d");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    let o = "";
+    for (const r of T.runs.on) o += `<polyline points="${line(r.p3)}" style="fill:none;stroke:#fff;stroke-width:7;stroke-opacity:.6"/><polyline points="${line(r.p3)}" style="fill:none;stroke:var(--green);stroke-width:4"/>`;
+    for (const r of T.runs.off) o += `<polyline points="${line(r.crash ? r.p3.concat([r.crash3]) : r.p3)}" style="fill:none;stroke:#fff;stroke-width:6;stroke-opacity:.55"/><polyline points="${line(r.crash ? r.p3.concat([r.crash3]) : r.p3)}" style="fill:none;stroke:var(--red);stroke-width:3.5;stroke-dasharray:12 8"/>`;
+    for (const r of T.runs.off) { const c = r.crash3 && P(r.crash3); if (c) o += `<path d="M${c[0] - 11} ${c[1] - 11}l22 22m0 -22l-22 22" style="stroke:#fff;stroke-width:8"/><path d="M${c[0] - 11} ${c[1] - 11}l22 22m0 -22l-22 22" style="stroke:var(--red);stroke-width:5"/>`; }
+    const st = P(T.start);
+    if (st) o += `<circle cx="${st[0]}" cy="${st[1]}" r="9" style="fill:var(--ink);stroke:#fff;stroke-width:3"/>`;
     svg.innerHTML = o;
   }
-  const kinds = (side) => { const h = T.runs[side].filter((r) => r.pilot.startsWith("hostile")).length; return `${h} hostile and ${T.runs[side].length - h} kamikaze pilots`; };
-  for (const c of document.querySelectorAll(".traj-cap")) {
-    c.innerHTML = c.dataset.side === "on"
-      ? `<b>Filter on:</b> ${kinds("on")} for 30 s each from the same start (black dot); none touches anything (closest ${Math.min(...T.runs.on.map((r) => r.min)).toFixed(1)} m). Blue: hostile; magenta: kamikaze.`
-      : `<b>Filter off:</b> the same pilots; ${crashes} of ${n} hit something (red ×).`;
-  }
+  document.querySelector(".traj-cap3").innerHTML = `The simulator at the start, from above and behind (black dot: the aircraft). Each pilot's first 15 s:<i style="background:var(--green)"></i>filter on, ${n} pilots, none touches anything<i style="background:var(--red)"></i>filter off, the same pilots: ${crashes} of ${n} hit something (×).`;
   document.getElementById("traj-sub").textContent = `From one allowed start, ${n} hostile and kamikaze pilots: with the filter none touches anything; without it ${crashes} of ${n} crash.`;
 })();
 </script>
