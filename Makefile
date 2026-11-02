@@ -197,3 +197,12 @@ help:
 .PHONY: clean
 clean:
 	lake clean
+
+# Numerical certificates of docs/termsound-proof.tex (straight-climb end set): builds `tsmap`, makes a Python venv
+# with numpy, scipy and cvxpy under .lake/, recomputes the reference climb and prints every certificate (about 45 min).
+TSVENV ?= .lake/tsvenv
+.PHONY: certify
+certify:
+	lake build tsmap
+	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
+	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
