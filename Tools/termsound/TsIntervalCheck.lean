@@ -1,5 +1,6 @@
 import Lean.Data.Json
 import Tools.termsound.TsInterval
+import Tools.termsound.TableStop
 
 /-! # `tsintervalcheck [N]`: sampling test of `TsInterval.frameBox` (`make tsinterval-check`, see the README). -/
 

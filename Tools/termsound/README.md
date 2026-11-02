@@ -44,7 +44,8 @@ default value and carries on. With it, the process stops and the script's read f
 Lookups on the interval path never return a default value:
 
 - Table reads (`JsbExact.Table.at'`) are checked: an index past the end gives NaN, which the instance reads as
-  unbounded.
+  unbounded. At `Float`, `TableStop.lean` proves the checked read and the stopped walk equal the old ones on in-range
+  reads (`at'_eq_old`, `seg1_eq_old`, and `get1_eq_old` for every key).
 - The one-column table walk (`Table.seg1`) stops at the last segment. Without the stop, an undecided comparison
   walks past the end of the table (the piston's `mixEff` panic).
 - Chart, observation and input indexing (`ix`) and derivative indexing (`ID.dget`) are checked.
