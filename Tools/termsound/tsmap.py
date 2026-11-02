@@ -25,10 +25,19 @@ def f(s):
     return struct.unpack("<d", struct.pack("<Q", int(s)))[0]
 
 
+# A Lean panic (e.g. an out-of-range `arr[i]!`) prints, returns a default value and carries on, which silently
+# corrupts results; with this set the Lean runtime aborts instead, and the pipe read fails loudly.
+ENV = dict(os.environ, LEAN_ABORT_ON_PANIC="1")
+
+
+class InvalidEnclosure(RuntimeError):
+    """`tsmap B` returned an enclosure marked invalid (`TsInterval.BoxResult.valid`): its numbers are not bounds."""
+
+
 class TsMap:
     def __init__(self):
         self.p = subprocess.Popen(["nice", "-n", "10", EXE], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  text=True, bufsize=1)
+                                  text=True, bufsize=1, env=ENV)
 
     def smooth(self, on=True):
         """Use the smoothed loop (unit quaternion before every frame) for M and S commands."""
@@ -198,14 +207,22 @@ TsMap.reftraj = _reftraj
 
 def _box(self, c, bw, psi=0.0, north=0.0):
     """Interval-dual frame over the box c ± bw (33 inputs): (lo, hi) arrays of shape (34,) for the values
-    (h', y', beta) and (34, 34) for the derivatives, plus the saturation flags (1 = can be active)."""
+    (h', y', beta) and (34, 34) for the derivatives, plus the saturation flags (1 = can be active).
+    Raises InvalidEnclosure when the Lean side marks the enclosure invalid (reasons in the message)."""
     self._send(" ".join(["B", b(psi), b(north)] + [b(v) for v in c] + [b(v) for v in bw]))
     vals, ders = [], []
     for _ in range(34):
-        r = [f(s) for s in self.p.stdout.readline().split()]
+        ln = self.p.stdout.readline()
+        if not ln:
+            raise RuntimeError("tsmap exited during B (a Lean panic aborts it; see stderr)")
+        r = [f(s) for s in ln.split()]
         vals.append(r[:2]); ders.append(np.array(r[2:]).reshape(34, 2))
     sats = [int(x) for x in self.p.stdout.readline().split()]
     self.last_alpha = [f(s) for s in self.p.stdout.readline().split()]
+    status = self.p.stdout.readline().strip()
+    self.last_valid = status == "VALID"
+    if not self.last_valid:
+        raise InvalidEnclosure(status if status else "tsmap gave no validity line")
     vals = np.array(vals); ders = np.array(ders)
     return vals[:, 0], vals[:, 1], ders[:, :, 0], ders[:, :, 1], sats
 

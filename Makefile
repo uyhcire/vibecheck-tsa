@@ -226,7 +226,7 @@ help:
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck   (ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs | safe-region"
-	@echo "Numerics: make certify | barrier   (K=\"128 512\")"
+	@echo "Numerics: make certify | barrier | tsinterval-check   (K=\"128 512\", N=...)"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf | abstractions"
 	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
@@ -244,6 +244,14 @@ certify:
 	lake build tsmap
 	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
 	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify lateral membership_lat lateral_climb reftraj_lat; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
+
+# Sampling test of the interval tool `tsmap B` (Tools/termsound/README.md): boxes around the level trim from 1e-9 of
+# the scales to metre scale and across table breakpoints; every sampled point's exact frame must lie in its box's
+# enclosure whenever the enclosure is marked valid (exit 1 otherwise). N points per box (default 200).
+.PHONY: tsinterval-check
+tsinterval-check:
+	lake build tsintervalcheck
+	nice -n 10 .lake/build/bin/tsintervalcheck $(if $(filter command line,$(origin N)),$(N),200)
 
 # Energy-barrier family for level-flight terminal safety (docs/termsound/barrier.md, issue #58): sizes the region's
 # boxes and searches conditions C1-C3 adversarially on the real loop for each k; prints the theta table. K="128 512"

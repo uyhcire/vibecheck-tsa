@@ -195,3 +195,8 @@ frame map in local coordinates. -/
 lean_exe tsmap where
   root := `Tools.termsound.TsMap
   moreLinkObjs := #[jxmath.o]
+
+/-- Sampling test of `TsInterval.frameBox`'s enclosures against the `Float` frame (`make tsinterval-check`). -/
+lean_exe tsintervalcheck where
+  root := `Tools.termsound.TsIntervalCheck
+  moreLinkObjs := #[jxmath.o]
