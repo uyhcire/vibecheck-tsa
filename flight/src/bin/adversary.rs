@@ -128,7 +128,7 @@ fn mutate(rng: &mut Rng, p: &Prog) -> Prog {
 }
 
 fn fly(world: &World, p: &Prog) -> (f64, bool) {
-    let cfg = SimCfg { filter_on: true, filter: cityflight::filter::FilterCfg { phase: cityflight::filter::Phase::P1, robust: false }, mismatch: false, seed: 0 };
+    let cfg = SimCfg { filter_on: true, filter: cityflight::filter::FilterCfg { phase: cityflight::filter::Phase::P1, robust: false }, wind: false, model_error: false, seed: 0 };
     let mut sim = Sim::new(world, p.start, cfg);
     let mut started = None;
     for k in 0..(p.dur() / DT_F) as usize {

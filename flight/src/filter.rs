@@ -61,22 +61,16 @@ pub struct FilterCfg {
 }
 
 /// Committed plan: hold `hold` until physics step `hold_end`, then fly
-/// escape `esc`; `psi0` is the heading when the escape began.
+/// escape `esc` along `eref`, the ground path the predictor verified.
 #[derive(Clone, Copy, Debug)]
 pub struct Plan {
     pub hold: Cmd,
     pub hold_end: u64,
     pub esc: usize,
-    pub psi0: Option<f64>,
+    pub eref: Option<EscRef>,
 }
 
 impl Plan {
-    /// Command this plan applies at step `k` (and records `psi0`).
-    pub fn begin_step(&mut self, k: u64, s: &State) {
-        if k >= self.hold_end && self.psi0.is_none() {
-            self.psi0 = Some(s[PSI]);
-        }
-    }
     pub fn tail(&self, k: u64) -> (Option<(Cmd, f64)>, f64) {
         if k < self.hold_end {
             (Some((self.hold, (self.hold_end - k) as f64 * DT)), 0.0)
@@ -144,10 +138,10 @@ impl FilterState {
 
     /// Initialise the committed plan from a state inside the safe set.
     pub fn init(&mut self, pred: &Pred, s: &State, k: u64) -> bool {
-        let (h, i) = pred.best(s, None, &self.order, f64::INFINITY);
+        let (h, i, e) = pred.best_ref(s, None, &self.order, f64::INFINITY);
         self.h = h;
         if h >= 0.0 {
-            self.plan = Some(Plan { hold: [1.0, 0.0, 1.0], hold_end: k, esc: i, psi0: None });
+            self.plan = Some(Plan { hold: [1.0, 0.0, 1.0], hold_end: k, esc: i, eref: e });
             true
         } else {
             false
@@ -160,7 +154,7 @@ impl FilterState {
         let chk = Pred { accept: false, ..*pred };
         self.last_tail = self.plan.map(|pl| {
             let (hold, te) = pl.tail(k);
-            chk.rollout(s, hold, pl.esc, te, pl.psi0, f64::NEG_INFINITY, None)
+            chk.rollout(s, hold, pl.esc, te, pl.eref, f64::NEG_INFINITY, None)
         });
         self.tail_ok = self.last_tail.map_or(false, |r| r.valid);
         self.fresh_ok = false;
@@ -187,13 +181,13 @@ impl FilterState {
     fn tick_p1(&mut self, pred: &Pred, s: &State, k: u64, u_p: Cmd) -> (CmdSrc, bool) {
         // How long could the pilot keep this command and still escape?
         let mut lam_t = 1.0;
-        let (mut h_a, mut i_a) = (f64::NEG_INFINITY, self.order[0]);
+        let (mut h_a, mut i_a, mut e_a) = (f64::NEG_INFINITY, self.order[0], None);
         for (n, &(hold, lam_v)) in T_MARGIN.iter().enumerate() {
-            let (h, i) = pred.best(s, Some((u_p, hold)), &self.order, PERM_ENOUGH);
+            let (h, i, e) = pred.best_ref(s, Some((u_p, hold)), &self.order, PERM_ENOUGH);
             if h >= EPS_ACC {
                 lam_t = lam_v;
                 if n == 0 {
-                    (h_a, i_a) = (h, i);
+                    (h_a, i_a, e_a) = (h, i, e);
                 }
                 break;
             }
@@ -203,7 +197,7 @@ impl FilterState {
         }
         let lam = lam_t.max(self.lam - LAM_DECAY * DT_F).clamp(0.0, 1.0);
         if lam <= 1e-3 && h_a >= EPS_ACC {
-            self.plan = Some(Plan { hold: u_p, hold_end: k + T_FREE_STEPS, esc: i_a, psi0: None });
+            self.plan = Some(Plan { hold: u_p, hold_end: k + T_FREE_STEPS, esc: i_a, eref: e_a });
             self.promote(i_a);
             self.lam = 0.0;
             self.mode = Mode::Free;
@@ -213,13 +207,13 @@ impl FilterState {
         }
         let (h_n, i_n) = pred.best(s, None, &self.order, f64::INFINITY);
         let i_b = if h_n > f64::NEG_INFINITY { i_n } else { i_a };
-        let u_b = esc_law(&pred.prm, s, i_b, 0.0, s[PSI]).cmd;
+        let u_b = esc_law(&pred.prm, s, i_b, 0.0, &pred.esc_ref(s, i_b), &pred.wind).cmd;
         let u_l = lerp_cmd(&u_p, &u_b, lam);
-        let (h_l, i_l) = pred.best(s, Some((u_l, T_LOOK)), &self.order, f64::INFINITY);
+        let (h_l, i_l, e_l) = pred.best_ref(s, Some((u_l, T_LOOK)), &self.order, f64::INFINITY);
         self.h = h_n;
         self.fresh_ok = h_n >= 0.0;
         if h_l >= EPS_ACC {
-            self.plan = Some(Plan { hold: u_l, hold_end: k + T_LOOK_STEPS, esc: i_l, psi0: None });
+            self.plan = Some(Plan { hold: u_l, hold_end: k + T_LOOK_STEPS, esc: i_l, eref: e_l });
             self.promote(i_l);
             self.lam = lam;
             self.mode = Mode::Blend;
@@ -231,10 +225,10 @@ impl FilterState {
     }
 
     fn tick_perm(&mut self, pred: &Pred, s: &State, k: u64, u_p: Cmd) -> (CmdSrc, bool) {
-        let (h, i) = pred.best(s, Some((u_p, DT_F)), &self.order, PERM_ENOUGH);
+        let (h, i, e) = pred.best_ref(s, Some((u_p, DT_F)), &self.order, PERM_ENOUGH);
         self.h = h;
         if h >= EPS_ACC {
-            self.plan = Some(Plan { hold: u_p, hold_end: k + STEPS_PER_TICK, esc: i, psi0: None });
+            self.plan = Some(Plan { hold: u_p, hold_end: k + STEPS_PER_TICK, esc: i, eref: e });
             self.promote(i);
             self.lam = 0.0;
             self.mode = Mode::Free;
@@ -252,7 +246,7 @@ impl FilterState {
         if h0 == f64::NEG_INFINITY {
             return self.commit();
         }
-        let u_b = esc_law(&pred.prm, s, i0, 0.0, s[PSI]).cmd;
+        let u_b = esc_law(&pred.prm, s, i0, 0.0, &pred.esc_ref(s, i0), &pred.wind).cmd;
         // The closed form works on a smooth (bilinear) version of h_i0.
         let sm = Pred { swept: false, accept: false, ..*pred };
         let hs = sm.rollout(s, None, i0, 0.0, None, f64::NEG_INFINITY, None);
@@ -279,9 +273,9 @@ impl FilterState {
             }
         };
         let u = lerp_cmd(&u_p, &u_b, beta);
-        let (h_v, i_v) = pred.best(s, Some((u, DT_F)), &self.order, f64::INFINITY);
+        let (h_v, i_v, e_v) = pred.best_ref(s, Some((u, DT_F)), &self.order, f64::INFINITY);
         if h_v >= EPS_ACC {
-            self.plan = Some(Plan { hold: u, hold_end: k + STEPS_PER_TICK, esc: i_v, psi0: None });
+            self.plan = Some(Plan { hold: u, hold_end: k + STEPS_PER_TICK, esc: i_v, eref: e_v });
             self.promote(i_v);
             self.lam = beta;
             self.mode = if beta > 1e-3 { Mode::Blend } else { Mode::Free };

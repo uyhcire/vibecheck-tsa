@@ -1,0 +1,44 @@
+I
+1100 Version
+JOY
+
+# Thrustmaster T.Flight Hotas One, macOS, base switch in PC mode (USB 044f:b68d).
+# In Xbox mode (044f:b68c) the device is not a HID joystick and X-Plane cannot see it.
+# Axis order measured from the HID report descriptor on macOS:
+#   0 X stick roll, 1 Y stick pitch, 2 Z throttle lever,
+#   3 Rz twist grip, 7 Dial rocker paddle on the throttle, 4/5/6 unused by the hardware.
+OS: Mac
+Name: T.Flight Hotas One
+ID: VID:0x044fPID:0xb68d
+Display: T.Flight Hotas One
+
+Assignments:
+--------------------------------------------------------------
+Axis 0: joy_use_roll
+Axis 1: joy_use_ptch
+Axis 2: joy_use_thro
+Axis 3: joy_use_hdng
+Axis 4: hidden
+Axis 5: hidden
+Axis 6: hidden
+Hat Switch 0 Direction 0: sim/general/hat_switch_up
+Hat Switch 0 Direction 1: sim/general/hat_switch_up_right
+Hat Switch 0 Direction 2: sim/general/hat_switch_right
+Hat Switch 0 Direction 3: sim/general/hat_switch_down_right
+Hat Switch 0 Direction 4: sim/general/hat_switch_down
+Hat Switch 0 Direction 5: sim/general/hat_switch_down_left
+Hat Switch 0 Direction 6: sim/general/hat_switch_left
+Hat Switch 0 Direction 7: sim/general/hat_switch_up_left
+
+# Same body as the T.Flight Hotas 4, so its pictures fit.
+View: Front
+-----------------------------------------------------------------------
+Image: T.Flight Hotas 4_front.png
+Hat Switch 0 (Hat Switch): 588 82
+Axis Group (Stick): 0 1
+Axis 1 (Pitch): 670 262
+Axis 0 (Roll): 0 0
+
+View: Throttle Close Up
+-----------------------------------------------------------------------
+Image: T.Flight Hotas 4_throttle.png

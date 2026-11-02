@@ -186,7 +186,7 @@ fn main() {
                 for e in 0..n_esc() {
                     let r = rollout_cfg(&world, &p, Law::new(e), usize::MAX, None, &CONTACT);
                     if r.ok() {
-                        let off = |q: &[f64; 3]| q[0].abs() >= cityflight::world::MAP_HALF || q[1].abs() >= cityflight::world::MAP_HALF;
+                        let off = |q: &[f64; 3]| q[0] <= world.x0 || q[0] >= world.x1 || q[1] <= world.y0 || q[1] >= world.y1;
                         let leaves = r.path.last().is_some_and(off) || r.tail.iter().any(off);
                         out.push(format!("{}{}", ESCAPES[e].name, if leaves { " (its certificate runs past the map edge, over the continued edge profile)" } else { "" }));
                     }
