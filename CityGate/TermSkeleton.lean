@@ -28,20 +28,20 @@ def Abs.Dyn (E : Abs Θ A) (θ : Θ) (x : Ctl × Plane) : Prop :=
 
 /-! ## The obligations -/
 
-/-- **`dyn_abstract_inv`**: `DynA` is robustly invariant under the model step with disturbance `Near`. -/
+/-- **OPEN `dyn_abstract_inv`** (the informal proof): `DynA` is robustly invariant under the model step and `Near`. -/
 def Abs.DynAbstractInv (E : Abs Θ A) : Prop :=
   ∀ θ a a', E.DynA θ a → E.Near θ (E.F θ a) a' → E.DynA θ a'
 
-/-- **`residual_bound`**: one frame of the real gate (escape law on `JsbExact`), read through `π`, lands within
-`Near` of the model step, from every state in `Dyn`. -/
+/-- **OPEN `residual_bound`** (measurement, then proof): one real gate frame, read through `π`, lands within `Near`
+of the model step, from every state in `Dyn`. -/
 def Abs.ResidualBound (E : Abs Θ A) : Prop :=
   ∀ θ x a, E.Dyn θ x → E.π x = some a → ∃ a', E.π (cityGate.fly x) = some a' ∧ E.Near θ (E.F θ a) a'
 
-/-- **`fast_states_bounded`**: the left-out states stay in their boxes for one frame, from every state in `Dyn`. -/
+/-- **OPEN `fast_states_bounded`** (measurement, then proof): the left-out states stay in their boxes on `Dyn`. -/
 def Abs.FastBounded (E : Abs Θ A) : Prop :=
   ∀ θ x, E.Dyn θ x → E.Fast θ (cityGate.fly x)
 
-/-- **`dyn_conf`**: `Dyn` puts the gate's exact position in the funnel `Conf` that `Geo` is checked against. -/
+/-- **OPEN `dyn_conf`** (the informal proof's set): `Dyn` puts the exact position in the funnel `Conf` `Geo` uses. -/
 def Abs.DynConf (E : Abs Θ A) (Conf : Θ → CitySafety.Pt → Prop) : Prop :=
   ∀ θ x, E.Dyn θ x → ∃ c, exactPos x.2 = some c ∧ Conf θ (toPt c)
 
@@ -83,8 +83,8 @@ def Ends.Sound (E : Ends A) : Prop :=
 
 /-! ## The end test -/
 
-/-- **`term_sound_mem`**, the obligation on the fixed end test `T`: on every rollout the gate starts (`Origin`),
-`T` passing at frame `n` puts the state in some `C_k`. -/
+/-- **OPEN `term_sound_mem`** (the end-test fix): on every rollout the gate starts (`Origin`), `T` passing at
+frame `n` puts the state in some `C_k`. -/
 def EndTestCertified (E : Ends A) (T : Ctl × Plane → Bool) : Prop :=
   ∀ x, Origin cityGate GInit x → ∀ n, T (cityGate.flyN n x) = true → InTubes E (cityGate.flyN n x)
 
@@ -130,7 +130,7 @@ theorem termSoundR_of (E : Ends A) (hE : E.Sound) {T : Ctl × Plane → Bool} (h
 
 end CityGate.TermSkeleton
 
-/-! ## The city instance: the open pieces as `opaque`s, the open lemmas as `sorry` -/
+/-! ## A default reading for the abstraction -/
 
 namespace CityGate.TermSkeleton.City
 open GateSafety CityGate.SpecBridge CityGate.EndSets CitySafety.EndSets CityGate.TermSkeleton
@@ -152,64 +152,35 @@ def piPM (x : Ctl × Plane) : Option AbsSt := do
   pure ⟨px, py, pz, ← CitySafety.ratOf (Esc.obN o), ← CitySafety.ratOf (Esc.obE o), ← CitySafety.ratOf (Esc.obD o),
     ← CitySafety.ratOf o[6]!⟩
 
-/-- The fixed end test (to be defined by the end-test work; today's `cityGate.term` is known not to certify). -/
-opaque certTest : Ctl × Plane → Bool
-
-/-- The model step of each kind's escape law (the informal proof's abstraction). -/
-opaque stepH : Helix → AbsSt → AbsSt
-opaque stepR : Ray → AbsSt → AbsSt
-opaque stepS : Ray → AbsSt → AbsSt
-/-- The per-frame disturbance bound `‖a' - F a‖ ≤ δ` of each kind. -/
-opaque nearH : Helix → AbsSt → AbsSt → Prop
-opaque nearR : Ray → AbsSt → AbsSt → Prop
-opaque nearS : Ray → AbsSt → AbsSt → Prop
-/-- The informal proof's invariant sets. -/
-opaque dynH : Helix → AbsSt → Prop
-opaque dynR : Ray → AbsSt → Prop
-opaque dynS : Ray → AbsSt → Prop
-/-- The boxes on attitude, rates, α and engine that the model assumes. -/
-opaque fastH : Helix → Ctl × Plane → Prop
-opaque fastR : Ray → Ctl × Plane → Prop
-opaque fastS : Ray → Ctl × Plane → Prop
-
-def cityEnds : Ends AbsSt where
-  helix := ⟨piPM, stepH, nearH, dynH, fastH⟩
-  ray := ⟨piPM, stepR, nearR, dynR, fastR⟩
-  street := ⟨piPM, stepS, nearS, dynS, fastS⟩
-
-/-- **`term_sound_mem` (open)**: the fixed end test passing on a rollout puts the state in some `C_k`. -/
-theorem end_test_certified : EndTestCertified cityEnds certTest := by sorry
-
-/-- **`dyn_abstract_inv` (open)**: each `DynA` is robustly invariant in the model. -/
-theorem dyn_abstract_inv : cityEnds.helix.DynAbstractInv ∧ cityEnds.ray.DynAbstractInv ∧
-    cityEnds.street.DynAbstractInv := by sorry
-
-/-- **`residual_bound` (open)**: one real gate frame stays within `δ` of the model step on `Dyn`. -/
-theorem residual_bound : cityEnds.helix.ResidualBound ∧ cityEnds.ray.ResidualBound ∧
-    cityEnds.street.ResidualBound := by sorry
-
-/-- **`fast_states_bounded` (open)**: the left-out states stay in their boxes on `Dyn`. -/
-theorem fast_states_bounded : cityEnds.helix.FastBounded ∧ cityEnds.ray.FastBounded ∧
-    cityEnds.street.FastBounded := by sorry
-
-/-- **`dyn_conf` (open)**: `Dyn` puts the exact position in the funnel `Conf`. -/
-theorem dyn_conf : cityEnds.helix.DynConf Helix.Conf ∧ cityEnds.ray.DynConf Ray.Conf ∧
-    cityEnds.street.DynConf Ray.Conf := by sorry
-
-/-- **`geo_clear`** (proved from `dyn_conf`): `Dyn_k ∧ Geo_k → ¬ CrashH 7`. -/
-theorem geo_clear (x : Ctl × Plane) (hx : InTubes cityEnds x) : ¬ CrashH 7 x.2 := by
-  rcases hx with ⟨H, hd, hg⟩ | ⟨R, hd, hg⟩ | ⟨R, hd, hg⟩
-  · exact geo_clear_helix dyn_conf.1 hd hg
-  · exact geo_clear_ray dyn_conf.2.1 hd hg
-  · exact geo_clear_ray dyn_conf.2.2 hd hg
-
-theorem cityEnds_sound : cityEnds.Sound :=
-  ⟨⟨dyn_abstract_inv.1, residual_bound.1, fast_states_bounded.1, dyn_conf.1⟩,
-   ⟨dyn_abstract_inv.2.1, residual_bound.2.1, fast_states_bounded.2.1, dyn_conf.2.1⟩,
-   ⟨dyn_abstract_inv.2.2, residual_bound.2.2, fast_states_bounded.2.2, dyn_conf.2.2⟩⟩
-
-/-- **The composition**, from the open lemmas and the link to the fixed end test. -/
-theorem cityGate_termSoundR (hL : TermLink certTest) : TermSoundR cityGate (CrashH 7) GInit :=
-  termSoundR_of cityEnds cityEnds_sound end_test_certified hL
-
 end CityGate.TermSkeleton.City
+
+/-! ## Non-vacuity of the obligations' shapes -/
+
+namespace CityGate.TermSkeleton.Checks
+open CityGate.TermSkeleton
+
+/-- A one-state model: `DynA = [-1, 1]`, `F a = a / 2`, disturbance `δ`. -/
+def toy (δ : Rat) : Abs Unit Rat where
+  π _ := none
+  F _ a := a / 2
+  Near _ b a' := -δ ≤ a' - b ∧ a' - b ≤ δ
+  DynA _ a := -1 ≤ a ∧ a ≤ 1
+  Fast _ _ := True
+
+/-- `dyn_abstract_inv` holds for the budget `δ = 1/2 = (1 - λ) r`. -/
+example : (toy (1 / 2)).DynAbstractInv := by
+  intro _ a a' h hn
+  simp only [toy] at h hn ⊢
+  grind
+
+/-- It fails for `δ = 1`: the statement is not vacuous. -/
+example : ¬ (toy 1).DynAbstractInv := by
+  intro h
+  have := h () 1 (3 / 2) (by simp only [toy]; decide +kernel) (by simp only [toy]; decide +kernel)
+  simp only [toy] at this
+  revert this; decide +kernel
+
+/-- The link holds when the fixed end test is the gate's own. -/
+example : TermLink cityGate.term := fun _ h => h
+
+end CityGate.TermSkeleton.Checks
