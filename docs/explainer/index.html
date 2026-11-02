@@ -363,24 +363,22 @@ html.trisk .slide .sub { font-size: var(--t-body); line-height: var(--t-body-lh)
 html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh); }
 .dome-pick button { font: 600 0.8rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.3rem 0.5rem; border-radius: 2px; cursor: pointer; margin-left: 0.3rem; }
 .dome-pick button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+.statement { justify-content: center; align-items: center; }
+.statement .big { margin: 0; text-align: center; font: 600 clamp(2.4rem, 5vw, 5rem)/1.15 "Barlow Condensed", sans-serif; max-width: 22ch; }
+html.trisk .statement .big { font-family: "Trisk", sans-serif; font-weight: 400; font-size: var(--t-h1); line-height: var(--t-h1-lh); }
+.lean-wrap { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 1.4rem; align-items: center; }
+.legend { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 0.8rem; font: 400 0.95rem/1.4 "Barlow", sans-serif; color: var(--ink-2); border-left: 1.5px solid var(--rule); padding-left: 1rem; }
+.legend dt { color: var(--ink); white-space: nowrap; }
+.legend dd { margin: 0; }
+html.trisk .legend { font-family: "Trisk", "Barlow", sans-serif; font-size: var(--t-sm); line-height: var(--t-sm-lh); }
 </style>
 </head>
 <body class="deck">
 <nav class="deck-nav" aria-label="Slides"><div class="deck-tabs" role="tablist" aria-orientation="vertical"></div><p class="deck-hint">↑ ↓ or Page Up / Down</p></nav>
 <main class="deck-main">
-<section class="slide title-slide" id="s-title" data-nav="A filter keeps a way out">
-  <h1>A pilot flies the city. A filter keeps a way out.</h1>
-  <p class="sub">Every 20 ms the gate test-flies escapes from where the pilot's input leads. The pilot keeps control while one of them gets away clean.</p>
-  <figure class="hero-shot"><img src="media/hero-tower-gap.jpg" width="1600" height="900" alt="A white Cessna 172 banked between two glass towers in a narrow street, with an orange ribbon ahead of it showing the escape the filter is flying, and a blue trail behind where the pilot was flying."><div class="callout" aria-hidden="true" hidden><span><b>8.4 m</b>clearance at t = 3.3 s</span></div></figure>
-</section>
-
-<section class="slide" id="s-problem" data-nav="The problem" hidden>
-  <h2>The problem</h2>
-  <p class="sub">JSBSim's Cessna 172, reproduced bit for bit, in a procedural city. Anyone can fly it, and fly it into a building.</p>
-  <div class="two">
-    <figure><img src="media/c172-photo.jpg" alt="A Cessna 172 in flight against a blue sky."><figcaption>A real Cessna 172 (N4811V). Photo: Eddie Maloney, <a href="https://creativecommons.org/licenses/by-sa/2.0">CC BY-SA 2.0</a>, via <a href="https://commons.wikimedia.org/wiki/File:Cessna_172_N4811V_(2700356170).jpg">Wikimedia Commons</a>.</figcaption></figure>
-    <figure><img src="media/cc-towergap-off.jpg" alt="The simulated Cessna 172 at the moment it hits a building, filter off."><figcaption>The sim with the filter off: the Tower gap pilot banks into a building, contact at 5.64 s.</figcaption></figure>
-  </div>
+<section class="slide statement" id="s-problem" data-nav="The problem">
+  <p class="big">A plane that you can't crash, even if you try</p>
 </section>
 
 <section class="slide" id="s-guarantee" data-nav="What it must guarantee" hidden>
@@ -392,8 +390,8 @@ html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh)
   </div>
 </section>
 
-<section class="slide" id="s-decide" data-nav="How the gate decides" hidden>
-  <h2>How the gate decides, every 20 ms</h2>
+<section class="slide" id="s-decide" data-nav="Solution: a backup plan" hidden>
+  <h2>Solution: maintain a &ldquo;backup plan&rdquo; at all times</h2>
   <p class="sub">After the pilot's next input, it test-flies its escapes in order. The first that gets away clean is kept and the pilot flies on; if none does, it flies the last one that passed.</p>
   <figure class="plate pf" id="pf-fan">
     <div class="pf-body side">
@@ -722,33 +720,10 @@ html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh)
     </figure>
 </section>
 
-<section class="slide" id="s-dome" data-nav="The circle-safe dome" data-group="Why it can't crash" hidden>
-  <p class="kicker">Why it can't crash, and the one open condition</p>
-  <h2>The circle-safe dome</h2>
-  <p class="sub">An escape may end in a climbing circle only above this surface: the lowest height at which a circle around each point clears everything under its ring.</p>
-  <figure class="plate pf" id="pf-dome">
-    <div class="pf-body side">
-      <div class="cc-stage pf-stage" data-clip="towergap-high" data-view="dome" data-start="160">
-        <video src="media/proof-towergap-high.mp4" poster="media/proof-towergap-high.jpg" muted playsinline preload="metadata" aria-label="High view of downtown with the circle-safe dome drawn over it."></video>
-        <svg class="pf-ov" aria-hidden="true"></svg>
-        <span class="pf-tag" hidden></span>
-      </div>
-      <div class="pf-aside"><h4>From above <span class="dome-pick"></span></h4><canvas class="dome-map" width="360" height="360"></canvas><p class="dome-note"></p></div>
-    </div>
-    <div class="cc-bar pf-ctl">
-      <button class="cc-play" type="button">Play</button>
-      <div class="pf-track"><div class="pf-strip" aria-hidden="true"></div><input class="pf-scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Scrub through the high Tower gap clip"></div>
-      <span class="cc-time">t = 1.00 s</span>
-      <p class="pf-status" aria-live="polite"></p>
-    </div>
-    <figcaption><b>An escape may end only above this surface.</b> Computed with the gate's own circle test (<code>make dome</code>); the faint line above is the flat ceiling, 935 m, above which everything is clear.</figcaption>
-  </figure>
-</section>
-
 <section class="slide" id="s-lean" data-nav="In Lean" data-group="Why it can't crash" hidden>
   <p class="kicker">Why it can't crash, and the one open condition</p>
   <h2>In Lean: the statement, and its two conditions</h2>
-  <div class="lean">
+  <div class="lean-wrap"><div class="lean">
     <p class="lean-what">No reachable state is a crash:</p>
     <pre><code>def Safe (M : CityMap) (F : Filter) : Prop :=
   ∀ p, Reach F p → ¬ Crash M p.1</code></pre>
@@ -759,6 +734,17 @@ html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh)
     <pre><code>theorem cityGate_spec_safe_of_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded) :
     CitySafety.Safe cityMap specFilter</code></pre>
   </div>
+  <dl class="legend">
+    <dt><code>M</code></dt><dd>the city: its buildings and terrain (<code>cityMap</code>)</dd>
+    <dt><code>F</code></dt><dd>the filter, which sits between the pilot and the aircraft (<code>specFilter</code>)</dd>
+    <dt><code>p</code></dt><dd>a closed-loop state: the aircraft's state together with the filter's state; <code>p.1</code> is the aircraft's part</dd>
+    <dt><code>Reach F p</code></dt><dd><code>p</code> can be reached from an allowed start, whatever the pilot does at each frame</dd>
+    <dt><code>Crash M s</code></dt><dd>some point of the airframe in state <code>s</code> is inside a building or the terrain</dd>
+    <dt><code>G</code></dt><dd>the gate, the filter as written in Lean (<code>cityGate</code>)</dd>
+    <dt><code>x</code>, <code>Origin</code></dt><dd>where one of the gate's test flights starts: an escape and the aircraft state it starts from</dd>
+    <dt><code>G.flyN n x</code></dt><dd>that test flight after <code>n</code> frames; <code>G.term</code> is the end-of-escape check</dd>
+    <dt><code>SafeForever</code></dt><dd>flying that escape on from there never crashes</dd>
+  </dl></div>
   <p class="badge conditional"><b>Conditional</b><span>Lean-checked, conditional on <code>TermSoundR</code> (not yet true for today's end test) and <code>TbBounded</code>.</span></p>
 </section>
 
