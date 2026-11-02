@@ -1287,7 +1287,7 @@ impl App {
         #[cfg(feature = "jsb")]
         if let Some(g) = &self.sim.lean {
             let e = if g.escaping { "escape" } else { "pilot" };
-            env = Some(("lean gate (proved)".to_string(), e, *g.wall_ms.last().unwrap_or(&0.0) as f64, g.start_ok));
+            env = Some(("lean gate".to_string(), e, *g.wall_ms.last().unwrap_or(&0.0) as f64, g.start_ok));
         }
         #[cfg(feature = "jsb")]
         if let (Some(k), Some(g)) = (cityflight::envfilter::kind(), &self.sim.env_gate) {
