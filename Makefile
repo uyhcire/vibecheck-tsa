@@ -152,6 +152,21 @@ termcheck:
 	lake build $(LAKE_OPTS) termskelcheck
 	.lake/build/bin/termskelcheck
 
+# End-test falsifier: escapes that pass the end-of-escape test, flown on; exits 1 on any contact.
+.PHONY: termhunt
+termhunt:
+	$(CITY) $(CARGO_HEADLESS) termhunt -- $(ARGS)
+
+.PHONY: termhunt-lean
+termhunt-lean:
+	lake build $(LAKE_OPTS) termhunt
+	.lake/build/bin/termhunt $(ARGS)
+
+.PHONY: sweepcheck
+sweepcheck:
+	lake build $(LAKE_OPTS) sweepcheck
+	.lake/build/bin/sweepcheck $(ARGS)
+
 .PHONY: plantcheck
 plantcheck:
 	lake build $(LAKE_OPTS) cityplanttest cityimporttest citygatespot specbridgeinit
@@ -193,6 +208,7 @@ help:
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
+	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck   (ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf | abstractions"

@@ -1,0 +1,21 @@
+# End-test passes of the Rust exact-rollout gate followed by contact. Gate: origin/main 876c468 (#34 merged; gate code unchanged through fa018d3 apart from verdict-neutral end-set reporting in envfilter.rs) (with #34).
+# Contact: the 6 m crash cube against terrain (continued past the edge) and buildings; the 4.5 m sphere
+# plus wing clearance is shown alongside. Search: make termhunt ARGS="SEED N"; replay one: make termhunt ARGS="SEED N --only I".
+# seed 22: 3000 cases, 1185 passed the end test, 6 hit, closest -20.11
+# seed 21: 3000 cases, 1112 passed the end test, 7 hit, closest -20.01
+# Total: 13 contacts; by escape: left 9, left40 2, right 1, right40 1
+# Earlier witnesses (29, eric/gate-overcautious f927b7b): 6 reproduce here; gone: straight 23 (21/75, 21/260, 21/278, 22/103, 22/268, 22/326, 22/413, 22/446, 22/447, 22/473, 22/534, 22/566, 22/978, 22/1055, 22/1418, 22/1543, 22/1748, 22/1853, 22/1973, 22/2407, 22/2410, 22/2618, 22/2975)
+# seed index escape verdict-time cube-margin sphere-clearance contact-time(s since escape start) contact-position
+22 1381 left 14.00 -20.06 -15.15 218.0 1660, -1824, 48
+22 1751 left40 7.50 -4.38 -2.63 19.9 -217, -139, 171
+22 1809 left 15.50 -20.03 -17.99 157.4 -1535, -976, 16
+22 2499 right 11.00 -20.11 -11.20 22.2 1365, -2741, 701
+22 2524 left 14.50 -20.01 -17.48 196.8 -2078, 1806, 20
+22 2848 left 13.00 -20.00 -17.81 204.4 1972, -1838, 31
+21 701 left40 12.50 -20.00 -17.98 98.6 1955, 719, 12
+21 994 left 15.00 -20.01 -17.46 105.1 1390, 1082, 4
+21 1442 left 14.50 -20.01 -17.78 133.6 -2063, -1039, 14
+21 1855 left 14.00 -11.34 -9.83 310.6 -97, -981, 2
+21 2333 left 12.50 -20.01 -17.66 78.6 1615, 1435, 27
+21 2578 right40 7.50 -6.00 -4.50 21.4 93, 301, 201
+21 2800 left 15.00 -20.00 -17.52 181.7 1634, -1593, 17
