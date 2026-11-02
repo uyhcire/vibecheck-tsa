@@ -340,10 +340,10 @@ The comparison against today's accepted states (boundary-regimes cases) needs th
 
 \begin{itemize}
 \item \textbf{Footing.} Exact real arithmetic throughout. The interval tool encloses the remainder over $D$, the one part of the bound for which no simpler analytic route over the full 33-coordinate map was found. Everything else (the trim, the linear part, the kink's lifted S-procedure) is explicit linear algebra on derivatives computed exactly by forward-mode differentiation through the same code.
-\item \textbf{Enclosures from the real code.} \texttt{JsbExact.step} is generic over its \texttt{Scalar} interface. \texttt{Tools/termsound/TsInterval.lean} supplies an instance of interval duals: an outward-rounded interval for each value and for each of its 34 partial derivatives. It also has generic versions of the chart, its inverse, the observation and the spec'd law. One frame evaluated on a box of the 33 inputs encloses, for every real point of the box, the frame map and its Jacobian. Undecided branches are evaluated both ways and joined. Every law saturation is reported, and none may be possible on the box.
+\item \textbf{Enclosures from the real code.} \texttt{JsbExact.step} is generic over its \texttt{Scalar} interface. \texttt{Tools/termsound/TsInterval.lean} supplies an instance of interval duals: an outward-rounded interval for each value and for each of its 34 partial derivatives. It also has generic versions of the chart, its inverse, the observation and the spec'd law. One frame evaluated on a box of the 33 inputs encloses, for every real point of the box, the frame map and its Jacobian, when the result is marked valid (no ground contact on the box, $|\beta| < 0.349$, finite values). Undecided branches are evaluated both ways and joined. Every law saturation is reported, and none may be possible on the box.
 \item \textbf{Assumption.} The C maths library is within 4 ulps for \texttt{sin}, \texttt{cos}, \texttt{atan}, \texttt{asin}, \texttt{exp} and \texttt{log}.
 \item \textbf{Check.} At a point box the enclosure contains the \texttt{Float} frame (widths below $3.2\times10^{-8}$), and its Jacobian matches central differences to $2.3\times10^{-4}$ scaled (\texttt{level\_cert.py}, L0, and \texttt{tsmap} command \texttt{B}).
-\item \textbf{The $\beta$ tables (exact-real structural fact).} \texttt{CYb}, \texttt{Clb} and \texttt{Cnb} take the values $(0.137, 0, -0.137)$, $(0.0322, 0, -0.0322)$ and $(-0.0205, 0, 0.0205)$ at $\beta = (-0.349, 0, 0.349)$ (flap column 0 for \texttt{CYb}). So both segments' interpolations are the same line: on $|\beta| \le 0.349$ each table is exactly linear in $\beta$, contributing nothing to the remainder. The enclosure uses this directly (\texttt{TsInterval.linRule}). A comparison between the literal row key 0 and $\beta$, or an affine image of $\beta$ by constants, is settled as ``upper segment, unclamped''. That evaluates the same line, so it is exact for these three tables. It would be wrong only for a table with a row at 0 that is not linear across it, and the run checks that no other table sees such a comparison: $\alpha$, the only other \texttt{atan2} result reaching a table, stays below $-0.0175$ on every box. With the rule, the Jacobian enclosure's radius scales with the box ($1.8\times10^{-4}$, $1.8\times10^{-3}$, $1.8\times10^{-2}$ scaled at boxes of $10^{-8}$, $10^{-7}$, $10^{-6}$ of the scales); before it, the radius was a constant $4.89$.
+\item \textbf{The $\beta$ tables (exact-real structural fact).} \texttt{CYb}, \texttt{Clb} and \texttt{Cnb} take the values $(0.137, 0, -0.137)$, $(0.0322, 0, -0.0322)$ and $(-0.0205, 0, 0.0205)$ at $\beta = (-0.349, 0, 0.349)$ (flap column 0 for \texttt{CYb}). So both segments' interpolations are the same line: on $|\beta| \le 0.349$ each table is exactly linear in $\beta$, contributing nothing to the remainder. The enclosure uses this directly (\texttt{TsInterval.linRule}). A comparison between the literal row key 0 and $\beta$, or an affine image of $\beta$ by constants, is settled as ``upper segment, unclamped''. That evaluates the same line, so it is exact in real arithmetic for these three tables; the \texttt{Float} lower segment differs by a few roundings, and every product with a marked value is widened by $10^{-15}$ to cover it. Only $\beta$ is marked (an \texttt{atan2} whose second argument is a square root), so the comparisons of $\alpha$ and the Euler angles are joined like any other, and \texttt{frameBox} marks a box invalid unless $|\beta| < 0.349$ on it (\texttt{Tools/termsound/README.md}). With the rule, the Jacobian enclosure's radius scales with the box ($1.8\times10^{-4}$, $1.8\times10^{-3}$, $1.8\times10^{-2}$ scaled at boxes of $10^{-8}$, $10^{-7}$, $10^{-6}$ of the scales); before it, the radius was a constant $4.89$.
 \item \textbf{The $|\beta|$ kink as an input.} The value \texttt{abs} receives in \texttt{magBeta := abs beta} is marked (it comes straight from \texttt{atan2}). That \texttt{abs} is replaced by an independent input $w \in [0, \max|\beta|]$. So the frame map is $G(x, w)$, smooth on the box, with $F(x) = G(x, |\beta(x)|)$, and the run also encloses $\beta$ and its gradient $v$.
 \end{itemize}
 
@@ -397,16 +397,16 @@ Flying east, at latitude 0, with $Q$ from the one-second Lyapunov equation ($\mu
 $r$ & factor & $\mu_{\mathrm{lin}}$ & nonlinear & box consistent \\
 \midrule
 $10^{-8}$ & $0.988$ & $0.948$ & $0.040$ & yes \\
-$3\times10^{-8}$ & $\mathbf{0.978}$ & $0.948$ & $0.029$ & yes \\
-$10^{-7}$ & $0.990$ & $0.948$ & $0.042$ & yes \\
-$2\times10^{-7}$ & $1.014$ & $0.948$ & $0.066$ & yes \\
-$10^{-6}$ & $1.210$ & $0.948$ & $0.262$ & yes \\
+$3\times10^{-8}$ & $\mathbf{0.978}$ & $0.948$ & $0.030$ & yes \\
+$10^{-7}$ & $0.991$ & $0.948$ & $0.043$ & yes \\
+$2\times10^{-7}$ & $1.015$ & $0.948$ & $0.067$ & yes \\
+$10^{-6}$ & $1.211$ & $0.948$ & $0.263$ & yes \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \begin{itemize}
-\item On every certified box, $\alpha \in [-0.02191, -0.02190]$, inside \texttt{CDwbh}'s segment $[-0.0349, -0.0175]$ and below 0, so the $\beta$ rule applies only to the $\beta$ tables. $|\beta| \le 10^{-6} \ll 0.349$.
+\item On every certified box, $\alpha \in [-0.02191, -0.02190]$, inside \texttt{CDwbh}'s segment $[-0.0349, -0.0175]$. $|\beta| \le 10^{-6} \ll 0.349$.
 \item The only law clamp active is the climb gradient's, at its upper limit 0.5. The level cap ($\le 0.35$) is then the minimum, decided on the box.
 \item The altitude on the union of the one-second images is at least $1{,}000.217$\,m, above $\zTop = 934$\,m.
 \end{itemize}
@@ -424,7 +424,7 @@ Assume:
 Then, for the law of \texttt{docs/escape-law-terminal.md} holding track east, every state in $D = \{\|\Delta\|_Q \le 10^{-7}\}$ around the level trim at latitude 0 stays, under the closed loop, in the union of $D$'s one-second images, until its latitude leaves the 50\,km band where the sensitivity was measured. That set lies above $\zTop$, so by Lemma~\ref{lem:clear}'s release disjunct it is never \texttt{CrashH 7}.
 \end{theorem}
 \begin{proof}
-Lemma~\ref{lem:nframe}, with the LMI for the linear part and the enclosures for the remainder, gives $F^{128}(D) \subseteq D$ with factor $0.990$. Lemma~\ref{lem:union} and the box give the intermediate frames. The altitude bound and Lemma~\ref{lem:clear} give clearance.
+Lemma~\ref{lem:nframe}, with the LMI for the linear part and the enclosures for the remainder, gives $F^{128}(D) \subseteq D$ with factor $0.991$. Lemma~\ref{lem:union} and the box give the intermediate frames. The altitude bound and Lemma~\ref{lem:clear} give clearance.
 \end{proof}
 
 \textbf{Why $D$ is so small, and what dominates.}
@@ -676,7 +676,7 @@ Certificate & Code & Margin or status\\
 \ref{cert:newlaw} new law & \texttt{terminal.py}, \texttt{reftraj.py} & one norm, $0.902$ per second (linear)\\
 \ref{cert:abstract}, \ref{cert:abstract1s} level abstraction & \texttt{abstract.py}, \texttt{abstract1s.py} & one second: measured residual within budget, headroom 4.5\\
 \ref{cert:member} $k$-step membership & \texttt{membership.py}, \texttt{membership\_verify.py} & $k = 512$, $w_h = 20$\,m: survives search (0.40 / 0.94 / 0.76)\\
-\ref{cert:levelcert2} level trim & \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{TsInterval.lean} & factor $0.990$ at $r = 10^{-7}$ (microscopic $D$)\\
+\ref{cert:levelcert2} level trim & \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{TsInterval.lean} & factor $0.991$ at $r = 10^{-7}$ (microscopic $D$)\\
 \bottomrule
 \end{tabular}
 \end{center}

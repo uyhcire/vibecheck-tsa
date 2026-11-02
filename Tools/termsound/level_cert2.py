@@ -176,7 +176,7 @@ def run(psi, north, label, d_extra_scale=None):
         b = np.array([det["box"][n] for n in NAMES33])
         m.box(x, b, psi, north)
         det["alpha_box"] = list(m.last_alpha)
-    say("  alpha on the boxes (must stay inside CDwbh's segment [-0.0349, -0.0175], below 0 for the beta rule):",
+    say("  alpha on the boxes (must stay inside CDwbh's segment [-0.0349, -0.0175]):",
         [f"{d['alpha_box'][0]:.6f}..{d['alpha_box'][1]:.6f}" for d in results])
     m.close()
     return x, mu_lin, results

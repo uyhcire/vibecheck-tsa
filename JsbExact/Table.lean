@@ -14,7 +14,10 @@ structure Table where
 variable {α : Type} [Scalar α]
 
 namespace Table
-@[inline] def at' (t : Table) (i : Nat) : α := lit t.data[i]!
+/-- `data[i]`, checked: an index past the end gives NaN, never a panic's default value. No lookup below reads past
+the end (each walk stops at the last row or column), so the `Float` instance never takes that branch; for a
+set-valued instance NaN is the explicit failure (an interval instance reads it as unbounded). -/
+@[inline] def at' (t : Table) (i : Nat) : α := lit (if h : i < t.data.size then t.data[i] else 0.0 / 0.0)
 
 /-- Interpolation on segment `r` (between key rows `r - 1` and `r`) of a one-column table. -/
 @[inline] def interp1 (t : Table) (key : α) (r : Nat) : α :=
@@ -24,10 +27,16 @@ namespace Table
   let y0 : α := t.at' (2 * r - 1)
   mac factor (t.at' (2 * r + 1) - y0) y0
 
-/-- `interp1` on the first segment from `r` whose upper key is not below `key`. -/
+/-- `interp1` on the first segment from `r` whose upper key is not below `key`, stopping at the last segment (`r =
+rows`). `get1` calls it only for `key` below the last key, so on a point the walk never reaches the stop and the stop
+changes nothing; a set-valued instance that cannot decide a comparison explores both sides, and without the stop it
+walked past the end of `data`. -/
 def seg1 (t : Table) (key : α) (r : Nat) : (fuel : Nat) → α
   | 0 => t.interp1 key r
-  | fuel + 1 => sif lt (t.at' (2 * r)) key then t.seg1 key (r + 1) fuel else t.interp1 key r
+  | fuel + 1 =>
+    if r < t.rows then
+      sif lt (t.at' (2 * r)) key then t.seg1 key (r + 1) fuel else t.interp1 key r
+    else t.interp1 key r
 
 def get1 (t : Table) (key : α) : α :=
   let n := t.rows

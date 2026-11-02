@@ -313,15 +313,7 @@ def bits (f : Float) : String := toString f.toBits.toNat
 def ofBits (s : String) : Float := Float.ofBits (s.toNat!.toUInt64)
 def line (xs : Array Float) : String := " ".intercalate (xs.toList.map bits)
 
-/-- A settled in-flight state for the fields `place` copies (`base`): the straight escape from 300 m, 40 m/s, 30 s. -/
-def mkBase : State Float := Id.run do
-  let mut p := startPlane 0 0 300 40 0 0 0 1 1
-  let mut l := Law.new 0
-  for _ in [0:3840] do
-    let (u, l') := l.step p
-    p := p.step u
-    l := l'
-  return p.st
+def mkBase : State Float := TsInterval.mkBase
 
 def main : IO Unit := do
   let base := mkBase
@@ -373,15 +365,17 @@ def main : IO Unit := do
       stdout.putStrLn "END"
     else if cmd == "B" then
       -- `B psi north c1..c33 b1..b33` (bits): `TsInterval.frameBox` with the terminal phase and level-off; prints 34
-      -- lines (h', y'(32), β), each `lo hi` then 34 `lo hi` derivative pairs, a line of saturation flags, then α `lo hi`.
+      -- lines (h', y'(32), β), each `lo hi` then 34 `lo hi` derivative pairs, a line of saturation flags, α `lo hi`,
+      -- then `VALID` or `INVALID <reasons>` (an invalid enclosure's numbers must not be used).
       let psi := ofBits w[1]!; let north := ofBits w[2]!
       let c := (w.extract 3 36).map ofBits; let bb := (w.extract 36 69).map ofBits
-      let ((h', y'), (beta, alpha), sats) := TsInterval.frameBox {} base psi north c bb
-      for o in #[h'] ++ y' ++ #[beta] do
+      let r := TsInterval.frameBox {} base psi north c bb
+      for o in #[r.h] ++ r.y ++ #[r.beta] do
         let ds := (List.range TsInterval.NV).toArray.map fun j => o.dget j
         stdout.putStrLn (line (#[o.v.lo, o.v.hi] ++ ds.foldl (fun acc g => acc ++ #[g.lo, g.hi]) #[]))
-      stdout.putStrLn (" ".intercalate (sats.toList.map fun s => if s.t then "1" else "0"))
-      stdout.putStrLn (line #[alpha.v.lo, alpha.v.hi])
+      stdout.putStrLn (" ".intercalate (r.sats.toList.map fun s => if s.t then "1" else "0"))
+      stdout.putStrLn (line #[r.alpha.v.lo, r.alpha.v.hi])
+      stdout.putStrLn (if r.valid then "VALID" else "INVALID " ++ "; ".intercalate r.reasons.toList)
     else if cmd == "W" then
       wind := ⟨ofBits w[1]!, ofBits w[2]!, ofBits w[3]!⟩
     else if cmd == "D" then

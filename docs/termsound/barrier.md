@@ -11,8 +11,9 @@ k = 512 frames (4 s), on θ₀, the adversarial search finds no state in the ban
 altitude face by about 10 m, and no lateral box size closes), the largest 4-second drop of `B` (49 m) exceeds the
 band (30 m), and at k = 1, 16, 64 and 128 C1 fails too. Six variants that close one of these reopen another at a
 corner of `R` (slow zooms, fast steep climbs) that explicit boxes force `R` to contain. Nothing is validated: the
-interval tool (`TsInterval.frameBox`) is sound only on boxes about 1e-6 rad wide in pitch and panics (unsoundly)
-on metre-scale boxes. C4 is proved by construction for every θ.
+interval tool (`TsInterval.frameBox`) gives a valid enclosure only on boxes about 1e-6 rad wide in pitch; on
+metre-scale boxes it reports an invalid (unbounded) enclosure (`Tools/termsound/README.md`). C4 is proved by
+construction for every θ.
 
 ## Target
 
@@ -175,10 +176,10 @@ rounding (libm assumed within 4 ulps). Measured on boxes around the level trim (
 | `θ` alone | clean only at ±1e-6 rad (±1e-5 already panics or is infinite) |
 | all of `R`'s base boxes × 1e-5 | clean, `v_dn′` ±0.0015 m/s |
 | × 1e-4 … 1 | `v_dn′` infinite, `θ′` = ±π/2, 10 saturation flags "may be active" |
-| slow coordinates only (`h` ±60, `v_al` ±18, `v_dn` ±1, `θ` ±0.05) | Lean panic `index out of bounds` in `Table.seg1` (the piston table), which returns a default value and continues, so the enclosure is **unsound**, not just wide |
+| slow coordinates only (`h` ±60, `v_al` ±18, `v_dn` ±1, `θ` ±0.05) | invalid: unbounded (first measured as a Lean panic `index out of bounds` in `Table.seg1`, the piston table, which returned a default value and continued; fixed, see `Tools/termsound/README.md`) |
 
-So a cover of `R` would need sub-boxes about 1e-6 rad wide in pitch alone, and the tool needs a guard that turns
-the panic into a failure before any wide enclosure can be trusted. Neither the k-frame conditions (C1–C3 involve
+So a cover of `R` would need sub-boxes about 1e-6 rad wide in pitch alone. Every `tsmap B` result now carries a
+validity flag, and `tsmap.py` raises on an invalid one, so a wide enclosure is either sound or reported as a failure. Neither the k-frame conditions (C1–C3 involve
 `f^k` with k ≥ 128) nor their one-frame ingredients are validated here. **Proved:** C4, for every θ of this form, on
 exact reals (`B ≤ h` and `b ≥ F`).
 
