@@ -1,7 +1,8 @@
 # Escape law: terminal phase of the straight escape, and a level-off for all escapes
 
-Status: design, for implementation in `flight/src/envfilter.rs` (Rust `Law`, `LAW_CEGIS2`) and `CityGate/Law.lean`
-(Lean `CityGate.Esc.Law`). The two must stay bit-identical. Issue #36 (step 0), proof context in
+Status: implemented in `flight/src/envfilter.rs` (Rust `Law`, `LAW_CEGIS2`) and `CityGate/Law.lean` (Lean
+`CityGate.Esc.Law`), bit-identical (`make gatefaith` checks both against the reference hashes below), and extended to
+the turning escapes (see "Turning escapes" at the end). Issue #36 (step 0), proof context in
 `docs/termsound-proof.tex`. The reference implementation is `Tools/termsound/TsMap.lean` (`Cand`, `elevHold`,
 `controlsHold`, `stepHold`) with the values of `NEW` in `Tools/termsound/terminal.py`. Numbers below come from
 `make certify` (`terminal.py`, `reftraj.py`).
@@ -182,7 +183,8 @@ order.
 - Start A exercises the terminal phase.
 - Start B (950 m) exercises the level-off.
 
-Regenerate with `make certify` (`Tools/termsound/reftraj.py`, `tsmap` command `V`).
+Regenerate with `make certify` (`Tools/termsound/reftraj.py`, `tsmap` command `V`). The heading of starts A and B
+is exactly π/2 (`np.pi / 2`); the headers below print it rounded to 6 decimals, which does not reproduce the hashes.
 
 ```
 ## start A, gate law, 2048 frames: startPlane(0.0, 0.0, 150.0, 30.0, -0.1, 1.570796, 0.4, 1.0, 1.0)
@@ -261,3 +263,23 @@ With these changes `docs/termsound-proof.tex` needs:
 What remains is a covering bound on the nonlinear remainder, the switching at the |β| kink inside each second, the
 heading disturbance, and the climb-to-level handover above `zTop`. That re-certification starts once this lands in
 both laws.
+
+## Turning escapes
+
+The terminal phase applies to every escape once its pull-up ends, with an EAS reference per kind of ending: 35.2 m/s
+straight (and for the street escape while it follows its street), 37.8 m/s in the 30° turns, 40.3 m/s in the 40° turns
+and the street escape's helix. The turn values are 35.2/√cos φ, so the turns trim at the straight climb's α (about
+0.08). `termhunt trim` (Rust):
+
+- **The gate law's turns lock into a post-stall branch.** The α integral saturates at −0.4 while the pitch-rate
+  feedforward keeps commanding the load factor the capped α would give unstalled, so the aircraft holds α ≈ 0.25–0.28
+  at 32–33 m/s and sinks 0.1–1.7 m/s indefinitely (#30's root cause A; the crash hunts saw 33–37 m/s).
+- **The terminal law has no such branch.** From every post-stall state found (5 from 400 perturbed starts, at
+  300 m), it settles at 39.0 m/s (30°) or 41.3 m/s (40°), α 0.080, climbing 5.0–5.2 m/s. From 72 level starts per turn
+  (24–55 m/s, γ −0.3 to 0.35, bank −0.9 to 1.1) it settles at 38.7–39.1 m/s (30°) and 41.0–41.5 m/s (40°) at 200 m,
+  α 0.079–0.081, climbing 4.8–5.2 m/s.
+- **The full-throttle power curve climbs at every speed from 30 m/s up** at 30° and 40° bank (stiff speed hold,
+  no α cap), from 1.1–2.6 m/s at 30 m/s to 6.4–6.9 m/s at 50 m/s: the descent is the law's, not the aircraft's.
+
+The helix end test's airspeed floor (37.5 m/s at 30°, 39.5 m/s at 40°) sits above the post-stall band and below the
+terminal trims (true airspeed rises above the EAS reference with altitude).
