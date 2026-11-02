@@ -346,7 +346,8 @@ details.more summary { cursor: pointer; color: var(--ink); font-weight: 600; }
 details.more[open], .slide details.precise[open] { position: absolute; z-index: 5; left: 1.8rem; right: 1.8rem; bottom: 1rem; max-height: 60%; overflow-y: auto; background: var(--paper); border: 1.5px solid var(--ink); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 0.6rem 0.9rem; }
 .lean { display: flex; flex-direction: column; justify-content: center; gap: 0.3rem; }
 .lean pre { margin: 0 0 0.6rem; padding: 0.7rem 1rem; background: var(--paper-2); border-left: 4px solid var(--blue); overflow-x: auto; }
-.lean pre code { font-size: clamp(1rem, 1.55vw, 1.55rem); line-height: 1.45; background: none; padding: 0; }
+.lean pre code { font-size: clamp(0.95rem, 1.3vw, 1.45rem); line-height: 1.45; background: none; padding: 0; white-space: pre-wrap; }
+.lean pre { white-space: pre-wrap; }
 .lean-what { margin: 0; font: 500 1.05rem/1.4 "Barlow", sans-serif; color: var(--ink-2); }
 .fan-steps { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .fan-steps button { font: 600 0.88rem/1 "Barlow", sans-serif; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); padding: 0.45rem 0.7rem; border-radius: 2px; cursor: pointer; }
@@ -1247,7 +1248,11 @@ html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh)
         svg += path(h, `fill:none;stroke:${col};stroke-width:${won ? 4 : 3};opacity:.35;stroke-dasharray:6 6`) + path(v, `fill:none;stroke:${col};stroke-width:${won ? 6 : 3.5}`);
         const e = sc.P(k.path[k.path.length - 1]);
         if (e && k.outcome === "Hit") svg += `<path d="M${e[0] - 9} ${e[1] - 9}l18 18m0 -18l-18 18" style="stroke:var(--red);stroke-width:5"/>`;
-        if (e) tags.push({ at: e, text: `${j + 1}. ${k.label}${k.resumed ? " (continued)" : ""}`, color: col });
+        // Labels on their own paths, at heights staggered by order so they do not stack.
+        const want = sc.H * (0.62 - 0.075 * j);
+        let lab = null;
+        for (const q of k.path) { const p = sc.P(q); if (p && p[0] > 60 && p[0] < sc.W - 60 && p[1] > 70 && p[1] < sc.H - 20 && (!lab || Math.abs(p[1] - want) < Math.abs(lab[1] - want))) lab = p; }
+        if (lab) tags.push({ at: lab, text: `${j + 1}. ${k.label}${k.resumed ? " (continued)" : ""}`, color: col });
       });
       const verdict = F.holding ? "Holding the escape it took over with (no check for 0.3 s)."
         : F.accepted ? `Kept: ${F.found + 1}. ${F.cands[F.found].label}. The pilot's input goes through.`
@@ -1576,6 +1581,8 @@ html.trisk .title-slide h1 { font-size: var(--t-h1); line-height: var(--t-h1-lh)
       else if (e.key === " ") { e.preventDefault(); play.click(); }
     });
     stage.insertAdjacentHTML("beforeend", '<span class="cc-hint">drag sideways to scrub · click to play</span>');
+    // Labels are laid out in pixels, so a slide that was hidden draws them again when it is shown.
+    addEventListener("resize", () => { if (stage.clientWidth) { const k = cur; cur = -1; show(k); } });
     const steps = fig.querySelector(".fan-steps");
     if (steps && window.SLIDES) {
       for (const F of window.SLIDES.fan) {
