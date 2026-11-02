@@ -113,8 +113,8 @@ theorem poseBounded_of (hTb : TbBounded) : PoseBounded := by
 
 def obsGap : Rat := 1 / 100
 
-/-- **Assumption:** after the first frame, `report`'s CG is within 1 cm per axis of the gate's `exactPos`; both are
-the same `Float` computation up to `obs`'s rounding, unless a gear leg touches the ground. -/
+/-- After the first frame, `report`'s CG is within 1 cm per axis of the gate's `exactPos` (a theorem with gap 0,
+`reportMatchesObs`, since `exactPos` reads `report`). -/
 def ReportMatchesObs : Prop :=
   ∀ s ob mc, CitySafety.Reach specFilter (s, some (ob, mc)) → ∀ c, exactPos (planeOf s ob) = some c →
     ∃ ly lz hs, ratOf (report s).loc.y = some ly ∧ ratOf (report s).loc.z = some lz ∧ ratOf (report s).hsl = some hs ∧

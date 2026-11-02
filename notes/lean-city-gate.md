@@ -18,8 +18,8 @@ From an allowed start, whatever surfaces and throttle the pilot gives each JSBSi
 | `GateSafety/Proofs.lean`, `Parallel.lean` | `safe`; `chooseR`, which checks candidates in parallel rounds (`Task.spawn`) and drops those behind one that verified, proven equal to `choose` | No |
 | `CityGate/Map.lean` + `CityGate/data/` | The city (seed 1337) as exported by `Tools/city-export`, parsed exactly | Yes |
 | `CityGate/Plant.lean` | `JsbExact` as the plant, one frame per step, placed on the map | Yes |
-| `CityGate/Geometry.lean` | `Crash`: a 6 m half-size cube around the exactly decoded position touches a box or the terrain. `clearAt`: integer keep-out test, 8.5 m + `extra`. `clear_sound` proves `clearAt → ¬ Crash` | `Crash` only |
-| `CityGate/ClearFast.lean` | `clearAt` in `Int` only (the doubles decoded from their bits), proven equal and swapped in by `@[csimp]` | No |
+| `CityGate/Geometry.lean` | `Crash`: a 6 m half-size cube around the exact position touches a box or the terrain. The position is the spec's: `CitySafety.report`'s CG (ECEF y, z, altitude, ft) read exactly and converted to metres in `Rat`, plus the map offset. `clearAt`: integer keep-out test, 8.5 m + `extra`. `clear_sound` proves `clearAt → ¬ Crash` | `Crash` only |
+| `CityGate/ClearFast.lean` | `clearAt` in scalar `Nat`/`Int` only (the reported doubles decoded from their bits and scaled exactly by `ft`), proven equal and swapped in by `@[csimp]` | No |
 | `CityGate/Law.lean`, `Terminal.lean`, `Gate.lean` | Port of the escape law, end-of-escape test and proposal layer | No |
 | `CityGate/Ffi.lean`, `c/citygate.h` | `citygate_*` C ABI in `libcityjsb`. `frameOut_fst` proves the exported frame is `cityGate.frame`, for every parallelism setting | No |
 | `CityGate/Safety.lean` | `city_safe` | No |
