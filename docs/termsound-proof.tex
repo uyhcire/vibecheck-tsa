@@ -539,21 +539,48 @@ ratio & $0.12$ & $\mathbf{49}$ & $\mathbf{5.2}$\\
 \end{itemize}
 \end{cert}
 
-\textbf{Verdict: the residual does not fit the budget. It is $49\times$ over in climb rate and $5\times$ over in speed.}
+\textbf{Per frame, the residual does not fit the budget: it is $49\times$ over in climb rate and $5\times$ over in speed.}
 \begin{itemize}
-\item \textbf{Why the climb-rate residual is large.} The model treats the flight-path loop as first order, $\dot v_z = -K_G(a\,e_h + v_z)$, acting at once. In the real aircraft the climb rate responds through $\alpha$, through the pitch and $\alpha$ inner loops ($K_A$, $K_Q$, the $\alpha$ integrator), and through the airframe's short-period dynamics. A state placed with a climb-rate error of several m/s and $\alpha$ at trim feels no immediate vertical acceleration, while the model predicts up to $-32$\,m/s$^2$. The residual is large even with the fast states at trim: $20.1$\,m/s$^2$.
-\item \textbf{Why the fast states leave their boxes.} $S$'s ellipsoid couples a 30\,m altitude range with climb rates up to 13\,m/s, and those need pitch excursions of about 0.2\,rad, not 0.02.
-\item \textbf{Why $S$ must be that shape.} A quadratic invariant set for this loop cannot be narrow in climb rate while wide in altitude: the level-off command, $a = V^\star K_{\mathrm{HOLD}} = 0.35$\,s$^{-1}$, turns 30\,m of altitude error into 10\,m/s of commanded climb.
+\item \textbf{Why the climb-rate residual is large.} The model treats the flight-path loop as first order, $\dot v_z = -K_G(a\,e_h + v_z)$, acting at once. In the real aircraft the climb rate responds through $\alpha$, through the pitch and $\alpha$ inner loops, and through the short-period dynamics. A state placed with a climb-rate error and $\alpha$ at trim feels no immediate vertical acceleration, while the model predicts up to $-32$\,m/s$^2$. The residual is large even with the fast states at trim: $20.1$\,m/s$^2$.
+\item \textbf{Why the fast states leave their boxes.} $S$ couples 30\,m of altitude range with climb rates up to 13\,m/s, because the level-off command, $a = 0.35$\,s$^{-1}$, turns 30\,m of altitude error into 10\,m/s of commanded climb. Those climb rates need about 0.2\,rad of pitch, not 0.02.
 \end{itemize}
 
-\textbf{The abstraction needs the inner loop, and probably a different norm.}
+\textbf{Over one second, on settled states, it fits} (\texttt{abstract1s.py}). The inner loop settles in about a second. So the step is taken as the one-second map, $e(t+1\,\mathrm{s}) = A^{128}e(t) + d$, and the residual is measured on states the real loop actually reaches: along 60 rollouts started across $S$ with fast-state offsets, from 3\,s on, at 2{,}220 one-second steps that start inside $S$.
+
+\begin{cert}[level flight, one-second abstraction]\label{cert:abstract1s}
+$c_1 = \|A^{128}\|_P = 0.922$.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+& altitude & climb-rate error $s$ & speed\\
+\midrule
+measured, one second & $0.084$\,m & $0.131$\,m/s & $0.024$\,m/s\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Lemma~\ref{lem:absinv}'s condition for the one-second map, with $\delta$ equal to the measured box, is $\sqrt{K} = 0.034 \le (1 - c_1)\,r = 0.152$. It holds with a headroom factor of $4.5$ on the whole residual. Along the rollouts the altitude never goes below $970.36$\,m.
+\end{cert}
+
+\textbf{What is proved and what is measured:}
 \begin{itemize}
-\item \textbf{Add the inner loop.} Include the flight-path angle and $\alpha$ (or pitch rate) with the inner-loop gains, giving four or five states. The residual is then the remaining aerodynamic and engine detail, which is small.
-\item \textbf{Or measure along trajectories.} Use one-second maps with the residual measured along trajectories, where the inner loop has settled.
-\item \textbf{Or change the set's geometry.} Use a non-quadratic set (a box in altitude, plus a sublevel set of the tracking error), with a barrier argument for $h \ge \zTop$.
+\item \textbf{Proved} (exact reals, Lemma~\ref{lem:absinv}). $S$ is invariant for the one-second abstraction under any residual within the measured box scaled by up to $4.5$. On $S$, $h \ge 970.2$\,m. Between whole seconds the altitude changes by at most the climb rate (at most $12.9$\,m/s on $S$), so it stays at or above $957$\,m, above $\zTop = 934$\,m.
+\item \textbf{Measured} (not proved):
+  \begin{enumerate}
+  \item On states of the real loop in $S$ at least 3\,s after an arbitrary placement in $S$ (attitude, rates, integrators and rpm offset within the coarse boxes), the one-second residual stays within the measured box.
+  \item The first 3\,s from such a placement never go below 970\,m.
+  \item The climb rate stays below the $S$ bound within each second.
+  \end{enumerate}
+  The fast states do not stay in the $\pm0.02$\,rad boxes (pitch reaches 0.19\,rad), but they settle. The claim is therefore made for settled states, a set defined by the rollouts, not by a formula.
+\item \textbf{Therefore,} given the measured items, the real aircraft in level flight under the new law, starting in $S$ (and settled), never goes below $\zTop$.
 \end{itemize}
 
-What already holds, measured: every rollout from $S$ stays above 970\,m, 36\,m clear of $\zTop$. The safety margin is there; the proof shape is not yet.
+\textbf{Next.} Replace ``settled'' by a stated set:
+\begin{itemize}
+\item a four- or five-state abstraction with the flight-path angle and $\alpha$ (or pitch rate), whose per-frame residual is the remaining aerodynamic detail;
+\item or boxes for the fast states relative to their quasi-steady values (pitch $\approx \theta^\star + \gamma + \Delta\alpha(n)$), measured to be invariant.
+\end{itemize}
 
 \textbf{The climb} (rising through $\zTop$ into the level set) is not done yet. Its set must keep $v_z > 0$ until the level set takes over. It needs the same inner-loop abstraction.
 
@@ -575,11 +602,12 @@ Certificate & Code & Margin or status\\
 \ref{cert:regime}, \ref{cert:wind} regimes & \texttt{regime.py}, \texttt{akink.py} & $\alpha$ breakpoints 0.0873, 0.09\\
 \ref{cert:level} level-off & \texttt{leveloff.py} & $0.932$ per second (linear)\\
 \ref{cert:newlaw} new law & \texttt{terminal.py}, \texttt{reftraj.py} & one norm, $0.902$ per second (linear)\\
+\ref{cert:abstract}, \ref{cert:abstract1s} level abstraction & \texttt{abstract.py}, \texttt{abstract1s.py} & one second: measured residual within budget, headroom 4.5\\
 \ref{cert:levelcert2} level trim & \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{TsInterval.lean} & factor $0.990$ at $r = 10^{-7}$ (microscopic $D$)\\
 \bottomrule
 \end{tabular}
 \end{center}
-Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py}, \texttt{terminal.py}, \texttt{reftraj.py}, \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{handover.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
+Command: \texttt{make certify} (builds \texttt{tsmap}, creates a venv with numpy and scipy under \texttt{.lake/}, runs \texttt{ref.py}, \texttt{cert.py}, \texttt{nstep.py}, \texttt{probe.py}, \texttt{regime.py}, \texttt{akink.py}, \texttt{leveloff.py}, \texttt{terminal.py}, \texttt{reftraj.py}, \texttt{level\_param.py}, \texttt{level\_cert2.py}, \texttt{handover.py}, \texttt{abstract.py}, \texttt{abstract1s.py} in \texttt{Tools/termsound/}). The document is built with \texttt{tectonic docs/termsound-proof.tex}.
 
 \section{Gaps}\label{sec:gaps}
 
