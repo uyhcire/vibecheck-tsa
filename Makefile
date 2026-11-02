@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record profile profile-lean crashes crashes-lean adversary harness regimes plantcheck termcheck export pdf help clean
+.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record proofdump profile profile-lean crashes crashes-lean adversary harness regimes plantcheck termcheck export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -93,6 +93,11 @@ showcase:
 record:
 	$(MAKE) fly ARGS="--record $(OUT) $(ARGS)"
 
+# Replay a run headless and log, per tick, the gate's verified path, failed rollout and end set, to draw over
+# `make record` footage of the same run: RUN=showcase or ep<N> (as --episode N), results in OUT.
+proofdump:
+	$(CITY) $(CARGO_HEADLESS) proofdump -- $(OUT) $(RUN) $(ARGS)
+
 # Fly while sampling the process (macOS `sample`) and logging tick times, for later analysis: results in OUT.
 profile:
 	lake build $(LAKE_OPTS) libcityjsb
@@ -141,6 +146,7 @@ pdf:
 help:
 	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
+	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
