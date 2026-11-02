@@ -77,6 +77,46 @@ Demo flags (handy for screenshots): `--map grid|sf`, `--scenario 1..5` (1..4 in 
     stone and stucco below the towers, pastel rowhouses. The classic renderer
     draws plain footprints on the OpenStreetMap-painted ground.
 
+Recording: `--record DIR` writes rendered frames as `DIR/frame_NNNNN.png` and exits after `--frames N`
+(default 1800). Like `--shot`, it steps a fixed 1/60 s of simulated time per rendered frame and runs animations
+off that clock, so the frames do not depend on how fast the machine renders (two runs give identical frames apart from the HUD's filter-time readout, which is measured wall-clock time). `--record-every K` keeps every
+K-th frame (2 gives 30 fps footage), `--record-from F` skips the first F frames, `--record-scale K` shrinks
+each frame K times (2 turns a Retina capture into its 1x size). `DIR/frames.csv` logs the flight at each kept
+frame (time, simulated time, airframe clearance and its running minimum, filter mode, crash), and
+`DIR/args.txt` the command line; the run ends by printing an `ffmpeg` command that encodes the frames.
+
+`DIR/trace.jsonl` has one JSON object per kept frame, for drawing on the footage:
+
+| key | meaning |
+|---|---|
+| `frame`, `png`, `t`, `sim_t` | rendered frame index, its PNG, time (frame / 60 s), simulated time (stops at a crash) |
+| `clear`, `min_clear`, `crashed` | airframe clearance (m), its running minimum, contact |
+| `mode` | `pilot`, `blend`, `escape` (the gate flying its escape) or `off` (filter off) |
+| `escape`, `escape_verified` | name of the escape the gate is flying, else the one it holds as verified (`street`, `left`, `left40`, ...), or `null`; whether one is verified |
+| `escape_path` | that escape's verified path (rollout plus terminal continuation, world metres), thinned to points at least 20 m apart, about 2 Hz at demo speeds. While the pilot flies it is the rollout that verified on the latest check; while the gate flies the escape it is the path verified before the takeover, from the takeover point on |
+| `aircraft`, `camera` | aircraft centre of gravity as drawn, camera position (world metres) |
+| `viewport` | the saved PNG's size in pixels `[w, h]` |
+| `view_proj` | the camera's view-projection, column-major 16 floats, from world coordinates (x east, y north, z up, metres: the gate's frame). A point `p` lands at pixel `((c.x/c.w + 1)/2 * w, (1 - c.y/c.w)/2 * h)` with `c = view_proj * [p, 1]`, in front of the camera when `c.w > 0`. The photoreal renderer's depth is reversed and infinite |
+
+`--no-paths` keeps the escape paths out of the frame (`--showcase` turns them on), for footage that is drawn on
+afterwards.
+
+`make proofdump OUT=dir RUN=showcase|ep<N>` (`src/bin/proofdump.rs`) replays the same run headless, with the GUI's
+start, seed, pilot and gate settings, so its ticks are the ones a recording of that run flies, and writes:
+
+| file | one line per | contents |
+|---|---|---|
+| `ticks.jsonl` | 20 ms tick | time, gate mode (`pilot`, `blend`, `escape`), position, airspeed, climb rate, bank, track, clearance, the escape the gate flies or holds as verified, the ids of that verified path and of the rollout that failed on this tick (`-1` if none), and its end set |
+| `paths.jsonl` | distinct path | the rollout every 8 JSBSim frames, then the end set's continuation (`failed` marks rollouts that did not verify) |
+| `settle.jsonl` | takeover | the committed escape flown on from the takeover with no checks for `--settle-secs` (default 40), every 1/16 s |
+| `boxes.json` | run | every building box |
+
+The end set is `envfilter::EndSet`, as the gate's terminal test computed it: a ray (start, track, gradient, where it
+ends) or a helix (centre, radius, drift margin, entry height, climb rate, horizontal speed, direction), plus `gap`,
+the smallest gap between the floor the test requires (`R_BODY + MARGIN` below the climb) and any raw cell under the
+footprint, and that cell. The scan is slow for long rays, so `--detail-from S` limits it to ticks from S seconds on.
+`--secs` sets the run length (default 60).
+
 ## Photoreal renderer (Metal)
 
 On macOS the demo runs on Metal and starts in a photoreal renderer; `--classic`
@@ -169,10 +209,16 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   under the wing is sampled every 0.25 m outboard of 4 m span. The tail trails inside the volume the
   sphere has just swept, so it is not checked. The point-mass filter and its crash check keep the sphere.
 - **Terminal sets**, checked on the settled rollout (from 6 s on, within 16 s): the straight escape needs a
-  climbing ray (80% of the settled gradient, in a corridor widening 2% of distance) that clears every raw
-  cell until it is above the map's top or off the map. A turn needs a steady helix (radius and centre agree
-  to 10% across two 2 s windows, climbing ≥ 1 m/s) whose ground annulus, widened for that drift, is clear
-  at the current height. Every path sample keeps 4 m of true clearance.
+  settled climb (the two 2 s windows' mean climb rates agree within 1 m/s), then a climbing ray (80% of the
+  settled gradient, at most 0.11 so the pull-up's zoom climb cannot set it, in a corridor widening 2% of
+  distance) that clears every raw cell until it is above the map's top. A turn needs a steady helix (radius
+  and centre agree to 10% across two 2 s windows, climbing ≥ 1 m/s) whose ground annulus, widened for that
+  drift, is clear at the current height, and lies within the map. Beyond the map edge the terrain continues
+  the edge profile (731-927 m), so the ray (at most 12.5 km) and the crash test are checked against it. Every path
+  sample (every 8th frame) keeps 4 m of true clearance. `--swept` checks every frame instead, including the
+  frames of the pilot's candidate tick, each keeping `--margin M` (default 4 m) plus half a frame of travel
+  of any airframe point, so no contact can occur between frames; `--handback-extra M` overrides the 3 m
+  hand-back spare clearance for measurements.
 - **Scheduling.** Each 20 ms tick checks the pilot's next tick followed by the last escape that verified;
   the pilot keeps control if it verifies. Otherwise the filter commits to the escape verified on the
   previous tick, and committed ticks try the escapes round robin. A deterministic budget of 2,200 JSBSim

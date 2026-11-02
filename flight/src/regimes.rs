@@ -115,7 +115,7 @@ pub fn classify(world: &World, r: &Roll) -> Cause {
             }
             match r.why {
                 None | Some(TermFail::NotTurning) => Cause::TermNotTurning,
-                Some(TermFail::Unsettled) | Some(TermFail::Wobble) | Some(TermFail::Shallow) => Cause::TermUnsettled,
+                Some(TermFail::Unsettled) | Some(TermFail::Wobble) | Some(TermFail::Shallow) | Some(TermFail::RayLong) => Cause::TermUnsettled,
                 Some(TermFail::RayBlocked { x, y, h }) => {
                     let (i, j) = world.raw_terr.cell(x, y);
                     if h > world.raw_terr.get(i as i64, j as i64) + 0.5 {
@@ -190,7 +190,7 @@ pub fn contact_verdict(world: &World, s: &State) -> Verdict {
     verdict_cfg(world, &JsbPlant::new(s), &CONTACT)
 }
 
-pub const CONTACT: RollCfg<'static> = RollCfg { margin: 0.0, term_margin: 0.0, horizon: HORIZON, prefix: &[], check_every: 1, offmap_clear: false };
+pub const CONTACT: RollCfg<'static> = RollCfg { margin: 0.0, term_margin: 0.0, horizon: HORIZON, prefix: &[], check_every: 1, swept: false };
 
 pub fn filter_verdict_plant(world: &World, p: &JsbPlant) -> Verdict {
     verdict_cfg(world, p, &RollCfg::filter())

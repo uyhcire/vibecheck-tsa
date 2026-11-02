@@ -1,6 +1,7 @@
 import CityGate.Map
 import CityGate.Plant
 import CityGate.Geometry
+import CityGate.ClearFast
 import CityGate.Terminal
 import CityGate.Law
 import CityGate.Gate

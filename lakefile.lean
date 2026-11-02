@@ -145,7 +145,8 @@ target libcityjsb pkg : FilePath := do
   let vcf ← (← VcFilter.get).static.fetch
   let city ← (← CityJsb.get).static.fetch
   let exact ← (← JsbExact.get).static.fetch
-  (Job.collectArray #[abi, jx, gate, gsafe, vcf, city, exact]).mapM fun files => do
+  let spec ← (← Spec.get).static.fetch
+  (Job.collectArray #[abi, jx, gate, gsafe, vcf, spec, city, exact]).mapM fun files => do
     buildFileUnlessUpToDate' lib do
       IO.FS.createDirAll (pkg.buildDir / "lib")
       let rest := (files.extract 1).map (·.toString)
@@ -159,6 +160,11 @@ target libcityjsb pkg : FilePath := do
           "-Wl,-soname,libcityjsb.so"]
       proc {cmd := "cc", args}
     return lib
+
+/-- Non-emptiness check of the `TermSoundR` skeleton's certified sets on real rollouts. -/
+lean_exe termskelcheck where
+  root := `Tools.TermSkeletonCheck
+  moreLinkObjs := #[jxmath.o]
 
 /-- Numeric check of the spec bridge's start assumption (`InitChecked cityGate GInit`) and sweep margins. -/
 lean_exe specbridgeinit where

@@ -42,7 +42,7 @@ fn use_gl() -> bool {
 }
 
 fn window_conf() -> Conf {
-    if std::env::args().any(|a| a == "--shot") {
+    if std::env::args().any(|a| a == "--shot" || a == "--record") {
         // Lets the Metal backend copy the drawable for screenshots.
         std::env::set_var("MINIQUAD_METAL_CAPTURE", "1");
     }
@@ -679,6 +679,15 @@ struct App {
     fstop: f32,
     /// Caption pill for demos (`--label`).
     label: Option<String>,
+    /// Seconds since start for animation (strobes, pulses, camera shake): the wall clock, or frames / 60 when
+    /// `--shot`/`--record` step a fixed 1/60 s per frame, so captured frames do not depend on machine speed.
+    clock: Option<f64>,
+}
+
+impl App {
+    fn now(&self) -> f64 {
+        self.clock.unwrap_or_else(get_time)
+    }
 }
 
 /// (name, focal length mm, f-stop, hexagonal aperture, cat's-eye strength, tilt-shift).
@@ -942,7 +951,7 @@ impl App {
         let p = sv3(&self.drawn_state());
         let (f, l, u) = self.aircraft_axes();
         let to_w = |q: Vec3| p + f * q.x + l * q.y + u * q.z;
-        let t = get_time() as f32;
+        let t = self.now() as f32;
         // Real C172 wingtip strobes: about 66 flashes a minute, about 50 ms each; nav lights stay steady.
         let strobe = if self.strobes && (t * 1.1).fract() < 0.05 { 1.0 } else { 0.0 };
         let navs = [(vec3(0.1, 5.47, 1.07), [3.0, 0.15, 0.08]), (vec3(0.1, -5.47, 1.07), [0.15, 3.0, 0.6]), (vec3(-5.78, 0.0, 0.36), [2.5, 2.5, 2.5])];
@@ -1188,7 +1197,7 @@ impl App {
         };
         let mut target = target;
         if self.footage && self.renderer >= 1 {
-            let t = get_time() as f32;
+            let t = self.now() as f32;
             let fwd = (target - pos).normalize_or_zero();
             let right = fwd.cross(up).normalize_or_zero();
             let upv = right.cross(fwd);
@@ -1247,7 +1256,7 @@ impl App {
         }
         if let Some(k) = &self.kamikaze {
             let t = vec3(k.target[0] as f32, k.target[1] as f32, k.target[2] as f32);
-            let pulse = 0.5 + 0.5 * (get_time() as f32 * 6.0).sin();
+            let pulse = 0.5 + 0.5 * (self.now() as f32 * 6.0).sin();
             draw_sphere(t, 6.0 + 4.0 * pulse, None, Color::new(1.0, 0.1, 0.1, 0.6));
             draw_line_3d(t, t + vec3(0.0, 0.0, 120.0), Color::new(1.0, 0.2, 0.2, 0.8));
         }
@@ -1316,7 +1325,7 @@ impl App {
         }
         if let Some(k) = &self.kamikaze {
             let t = vec3(k.target[0] as f32, k.target[1] as f32, k.target[2] as f32);
-            let pulse = 0.5 + 0.5 * (get_time() as f32 * 6.0).sin();
+            let pulse = 0.5 + 0.5 * (self.now() as f32 * 6.0).sin();
             let r = 6.0 + 4.0 * pulse;
             let c = Color::new(1.0, 0.1, 0.1, 0.6);
             for i in 0..8 {
@@ -1495,7 +1504,8 @@ impl App {
         );
         draw_rectangle(0.0, h - 30.0, w, 30.0, Color::new(0.04, 0.06, 0.09, 0.55));
         ui.text(&hint, 14.0, h - 10.0, 13.0, dim, false);
-        let fps = format!("{} fps  t={:.1}s", get_fps(), self.sim.time());
+        // A capture's frame rate is the machine's, not the footage's: show only the time.
+        let fps = if self.clock.is_some() { format!("t={:.1}s", self.sim.time()) } else { format!("{} fps  t={:.1}s", get_fps(), self.sim.time()) };
         ui.text(&fps, w - ui.width(&fps, 13.0, true) - 14.0, h - 10.0, 13.0, dim, true);
 
         if self.sim.crashed {
@@ -1669,6 +1679,167 @@ fn photo_keys(app: &mut App, ph: &mut photo::Photo) {
     }
 }
 
+/// `--record DIR`: every `every`-th rendered frame from frame `from` on, as `DIR/frame_NNNNN.png` (shrunk by an
+/// integer `scale`, box-filtered), plus `DIR/frames.csv` with the flight state at each one. Frames are encoded on
+/// a writer thread, so PNG compression overlaps the next frame's simulation and rendering.
+struct Recorder {
+    dir: std::path::PathBuf,
+    every: u32,
+    from: u32,
+    scale: u32,
+    csv: std::io::BufWriter<std::fs::File>,
+    trace: std::io::BufWriter<std::fs::File>,
+    tx: Option<std::sync::mpsc::SyncSender<(std::path::PathBuf, u32, u32, Vec<u8>)>>,
+    writer: Option<std::thread::JoinHandle<()>>,
+    saved: u32,
+}
+
+impl Recorder {
+    fn new(dir: &str, every: u32, from: u32, scale: u32) -> Recorder {
+        use std::io::Write;
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).expect("--record: cannot create the output directory");
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        std::fs::write(dir.join("args.txt"), args.join(" ") + "\n").expect("--record: cannot write args.txt");
+        let mut csv = std::io::BufWriter::new(std::fs::File::create(dir.join("frames.csv")).expect("--record: cannot write frames.csv"));
+        writeln!(csv, "frame,png,t,sim_t,clear,min_clear,mode,filter_on,crashed").unwrap();
+        let trace = std::io::BufWriter::new(std::fs::File::create(dir.join("trace.jsonl")).expect("--record: cannot write trace.jsonl"));
+        let (tx, rx) = std::sync::mpsc::sync_channel::<(std::path::PathBuf, u32, u32, Vec<u8>)>(4);
+        let scale = scale.max(1);
+        let writer = std::thread::spawn(move || {
+            for (path, w, h, px) in rx {
+                let (w, h, px) = downscale(w, h, &px, scale);
+                image::save_buffer(&path, &px, w, h, image::ColorType::Rgba8).expect("--record: cannot write a frame");
+            }
+        });
+        Recorder { dir, every: every.max(1), from, scale, csv, trace, tx: Some(tx), writer: Some(writer), saved: 0 }
+    }
+
+    /// The flight state as drawn in rendered frame `frame` (`t` = frame / 60 s; `sim_t` stops at a crash), as a
+    /// `frames.csv` row and a `trace.jsonl` line (format in `flight/README.md`).
+    fn log(&mut self, app: &App, frame: u32, cam: &Camera3D) {
+        use std::io::Write;
+        let mode = match (app.sim.cfg.filter_on, app.sim.fs.mode) {
+            (false, _) | (_, Mode::Off) => "off",
+            (_, Mode::Free) => "free",
+            (_, Mode::Blend) => "blend",
+            (_, Mode::Commit) => "commit",
+        };
+        writeln!(
+            self.csv,
+            "{frame},frame_{:05}.png,{:.4},{:.4},{:.4},{:.4},{mode},{},{}",
+            self.saved,
+            frame as f64 / 60.0,
+            app.sim.time(),
+            app.sim.true_clear.min(9999.0),
+            app.sim.min_true_clear.min(9999.0),
+            app.sim.cfg.filter_on as u8,
+            app.sim.crashed as u8
+        )
+        .unwrap();
+        // Camera: the view-projection the frame was drawn with (world metres, z up, the gate's frame) and the
+        // saved frame's size in pixels.
+        let (sw, sh) = mq::window::screen_size();
+        let vp = if app.renderer >= 1 {
+            let near = if app.cam_mode == 1 { 0.05 } else { 0.5 };
+            Mat4::perspective_infinite_reverse_rh(cam.fovy, sw / sh, near) * Mat4::look_at_rh(cam.position, cam.target, cam.up)
+        } else {
+            cam.matrix()
+        };
+        let f3 = |v: &[f64; 3]| format!("[{:.2},{:.2},{:.2}]", v[0], v[1], v[2]);
+        let mode = match (app.sim.cfg.filter_on, app.sim.fs.mode) {
+            (false, _) | (_, Mode::Off) => "off",
+            (_, Mode::Free) => "pilot",
+            (_, Mode::Blend) => "blend",
+            (_, Mode::Commit) => "escape",
+        };
+        // The gate's escape: the one it is flying, else the one it holds as verified, and its verified path
+        // (rollout plus terminal continuation), thinned to points at least 20 m apart (about 2 Hz at 40-50 m/s).
+        #[cfg_attr(not(feature = "jsb"), allow(unused_mut))]
+        let (mut esc, mut verified, mut path): (Option<&str>, bool, Vec<[f64; 3]>) = (None, false, Vec::new());
+        #[cfg(feature = "jsb")]
+        if let Some(g) = &app.sim.env_gate {
+            esc = g.law.or(g.witness).map(|l| cityflight::envfilter::ESCAPES[l.esc].name);
+            verified = g.witness.is_some() || g.law.is_some();
+            let full = if g.law.is_some() { &g.committed_path } else { &g.witness_path };
+            for (i, q) in full.iter().enumerate() {
+                let far = path.last().map_or(true, |p: &[f64; 3]| (q[0] - p[0]).hypot(q[1] - p[1]).hypot(q[2] - p[2]) >= 20.0);
+                if far || i + 1 == full.len() {
+                    path.push(*q);
+                }
+            }
+        }
+        let d = app.drawn_state();
+        writeln!(
+            self.trace,
+            "{{\"frame\":{frame},\"png\":\"frame_{:05}.png\",\"t\":{:.4},\"sim_t\":{:.4},\"clear\":{:.4},\"min_clear\":{:.4},\"crashed\":{},\"mode\":\"{mode}\",\"escape\":{},\"escape_verified\":{verified},\"aircraft\":{},\"camera\":[{:.3},{:.3},{:.3}],\"viewport\":[{},{}],\"view_proj\":[{}],\"escape_path\":[{}]}}",
+            self.saved,
+            frame as f64 / 60.0,
+            app.sim.time(),
+            app.sim.true_clear.min(9999.0),
+            app.sim.min_true_clear.min(9999.0),
+            app.sim.crashed,
+            esc.map_or("null".to_string(), |e| format!("\"{e}\"")),
+            f3(&[d[X], d[Y], d[Z]]),
+            cam.position.x,
+            cam.position.y,
+            cam.position.z,
+            sw as u32 / self.scale,
+            sh as u32 / self.scale,
+            vp.to_cols_array().iter().map(|x| format!("{x:.7e}")).collect::<Vec<_>>().join(","),
+            path.iter().map(f3).collect::<Vec<_>>().join(",")
+        )
+        .unwrap();
+    }
+
+    fn save(&mut self, w: u32, h: u32, px: Vec<u8>) {
+        let path = self.dir.join(format!("frame_{:05}.png", self.saved));
+        self.saved += 1;
+        self.tx.as_ref().unwrap().send((path, w, h, px)).expect("--record: frame writer died");
+    }
+
+    fn finish(&mut self) {
+        use std::io::Write;
+        self.csv.flush().unwrap();
+        self.trace.flush().unwrap();
+        drop(self.tx.take());
+        self.writer.take().unwrap().join().expect("--record: frame writer panicked");
+        eprintln!("recorded {} frames (every {}, from frame {}, scale 1/{}) to {}", self.saved, self.every, self.from, self.scale, self.dir.display());
+        eprintln!(
+            "encode: ffmpeg -framerate {} -i {}/frame_%05d.png -c:v libx264 -crf 23 -pix_fmt yuv420p -movflags +faststart out.mp4",
+            60.0 / self.every as f64,
+            self.dir.display()
+        );
+    }
+}
+
+/// Shrink top-row-first RGBA by an integer factor, averaging each `k`x`k` block.
+fn downscale(w: u32, h: u32, px: &[u8], k: u32) -> (u32, u32, Vec<u8>) {
+    if k <= 1 {
+        return (w, h, px.to_vec());
+    }
+    let (ow, oh) = (w / k, h / k);
+    let mut out = vec![0u8; (ow * oh * 4) as usize];
+    for y in 0..oh {
+        for x in 0..ow {
+            let mut acc = [0u32; 4];
+            for dy in 0..k {
+                let row = ((y * k + dy) * w + x * k) as usize * 4;
+                for dx in 0..k as usize {
+                    for c in 0..4 {
+                        acc[c] += px[row + dx * 4 + c] as u32;
+                    }
+                }
+            }
+            let o = ((y * ow + x) * 4) as usize;
+            for c in 0..4 {
+                out[o + c] = (acc[c] / (k * k)) as u8;
+            }
+        }
+    }
+    (ow, oh, out)
+}
+
 /// Cinematic look: fly-by camera, clear weather, a 50 mm lens at f/4 focused on the aircraft (subtle bokeh).
 fn set_cinematic(app: &mut App, ph: &mut photo::Photo) {
     app.cam_mode = 4;
@@ -1693,7 +1864,19 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let arg = |k: &str| args.iter().position(|a| a == k).and_then(|i| args.get(i + 1)).cloned();
     let shot = arg("--shot");
-    let shot_frames: u32 = arg("--frames").and_then(|s| s.parse().ok()).unwrap_or(90);
+    // Rendered frames before a `--shot` (default 90) or the end of a `--record` (default 1800, 30 s).
+    let shot_frames: u32 = arg("--frames").and_then(|s| s.parse().ok()).unwrap_or(if args.iter().any(|a| a == "--record") { 1800 } else { 90 });
+    // `--record DIR`: write rendered frames as PNGs plus a per-frame flight log, then exit after `--frames`.
+    let mut recorder = arg("--record").map(|dir| {
+        Recorder::new(
+            &dir,
+            arg("--record-every").and_then(|s| s.parse().ok()).unwrap_or(1),
+            arg("--record-from").and_then(|s| s.parse().ok()).unwrap_or(0),
+            arg("--record-scale").and_then(|s| s.parse().ok()).unwrap_or(1),
+        )
+    });
+    // Captures step a fixed 1/60 s of simulated time per rendered frame.
+    let fixed_step = shot.is_some() || recorder.is_some();
     #[cfg(feature = "jsb")]
     cityflight::jsb::parse_fuel_args(&args);
     #[cfg(feature = "jsb")]
@@ -1717,9 +1900,7 @@ async fn main() {
         cityflight::envfilter::LAW_SEL.store(cityflight::envfilter::parse_law(&l), std::sync::atomic::Ordering::Relaxed);
     }
     #[cfg(feature = "jsb")]
-    if let Some(m) = arg("--margin").and_then(|s| s.parse::<f64>().ok()) {
-        cityflight::envfilter::set_filter_margin(m, arg("--check-every").and_then(|s| s.parse().ok()).unwrap_or(cityflight::envfilter::SAMPLE));
-    }
+    cityflight::envfilter::check_flags(&args);
     #[cfg(feature = "jsb")]
     if let Some(n) = arg("--escapes").and_then(|s| s.parse().ok()) {
         cityflight::envfilter::N_USED.store(n, std::sync::atomic::Ordering::Relaxed);
@@ -1774,7 +1955,7 @@ async fn main() {
         switch_map: false,
         show_paths: args.iter().any(|a| a == "--paths"),
         strobes: args.iter().any(|a| a == "--strobes"),
-        show_help: shot.is_none(),
+        show_help: !fixed_step,
         cam_mode: arg("--cam").and_then(|s| s.parse().ok()).unwrap_or(0),
         invert: false,
         stick: (0.0, 0.0),
@@ -1805,6 +1986,7 @@ async fn main() {
         sun_el: sun_angles(map).0,
         sun_az: sun_angles(map).1,
         label: None,
+        clock: if fixed_step { Some(0.0) } else { None },
         renderer: match (photo.is_some(), args.iter().any(|a| a == "--classic"), args.iter().any(|a| a == "--rt")) {
             (true, false, true) => 2,
             (true, false, false) => 1,
@@ -1857,6 +2039,10 @@ async fn main() {
     }
     if args.iter().any(|a| a == "--showcase") {
         app.start_showcase(true);
+    }
+    // Footage for overlays drawn afterwards (the explainer's proof section): no escape paths in the frame.
+    if args.iter().any(|a| a == "--no-paths") {
+        app.show_paths = false;
     }
     // Same start, seed and pilot as the harness: episodes 0.. are random starts (every fourth a kamikaze
     // pilot), 1000 + i is scenario i + 1 with a kamikaze pilot.
@@ -1934,16 +2120,18 @@ async fn main() {
             app.reset(0);
         }
         let loop_start = std::time::Instant::now();
-        let dt = get_frame_time().min(0.1) as f64;
-        if shot.is_none() {
+        let dt = if fixed_step { 1.0 / 60.0 } else { get_frame_time().min(0.1) as f64 };
+        if let Some(c) = app.clock.as_mut() {
+            *c = frame as f64 / 60.0;
+        }
+        if !fixed_step {
             app.input(dt);
             if let Some(ph) = photo.as_mut() {
                 photo_keys(&mut app, ph);
             }
         }
-        let step_dt = if shot.is_some() { 1.0 / 60.0 } else { dt };
-        app.step(step_dt);
-        app.update_guns(step_dt);
+        app.step(dt);
+        app.update_guns(dt);
         let target = if !app.sim.cfg.filter_on {
             0.0
         } else if app.sim.fs.mode == Mode::Commit {
@@ -1971,7 +2159,7 @@ async fn main() {
                     cam_up: cam.up,
                     fovy: cam.fovy,
                     sun: app.sun_dir(),
-                    time: get_time() as f32,
+                    time: app.now() as f32,
                     dyn_lit: (&lv, &li),
                     dyn_overlay: (&ov, &oi),
                     prop: if app.footage {
@@ -1988,7 +2176,7 @@ async fn main() {
                         hexagon: LENSES[app.lens].3,
                         footage: app.footage,
                         shutter: 90.0,
-                        frame_dt: if shot.is_some() { 1.0 / 60.0 } else { dt as f32 },
+                        frame_dt: dt as f32,
                     },
                     cockpit: app.cam_mode == 1,
                     rt: app.renderer == 2,
@@ -2013,6 +2201,39 @@ async fn main() {
 
         frame += 1;
         let metal = !use_gl();
+        if let Some(rec) = recorder.as_mut() {
+            let keep = frame > rec.from && (frame - 1 - rec.from) % rec.every == 0;
+            if keep {
+                rec.log(&app, frame - 1, &cam);
+                if metal {
+                    unsafe { get_internal_gl() }.quad_context.as_metal().unwrap().request_capture();
+                }
+            }
+            next_frame().await;
+            if keep {
+                let px = if metal {
+                    unsafe { get_internal_gl() }.quad_context.as_metal().unwrap().take_capture()
+                } else {
+                    // GL reads back the frame just presented, bottom row first.
+                    let img = get_screen_data();
+                    let row = img.width as usize * 4;
+                    let mut top = vec![0u8; img.bytes.len()];
+                    for (y, r) in img.bytes.chunks_exact(row).rev().enumerate() {
+                        top[y * row..(y + 1) * row].copy_from_slice(r);
+                    }
+                    Some((img.width as u32, img.height as u32, top))
+                };
+                match px {
+                    Some((w, h, px)) => rec.save(w, h, px),
+                    None => eprintln!("frame {}: capture failed", frame - 1),
+                }
+            }
+            if frame >= shot_frames {
+                rec.finish();
+                break;
+            }
+            continue;
+        }
         if shot.is_some() {
             let now = std::time::Instant::now();
             if frame > 10 {

@@ -1,4 +1,5 @@
-import CityGate.SpecBridgeNear
+import CityGate.SpecBridgeObs
+import CityGate.TermSkeleton
 
 /-! `InitChecked cityGate GInit` and `AirframeNearInit 7` by `native_decide`, and `cityGate_spec_safe_native` without
 them. Trusts the Lean compiler and the C maths library (`jx_*`, the `jxmath` extern library) for the 4 starts: its
@@ -49,8 +50,22 @@ theorem cityGate_spec_safe_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb :
     (hR : ReportMatchesObs) : CitySafety.Safe cityMap specFilter :=
   cityGate_spec_safe_pose hT (poseBounded_of hTb) hR
 
+/-- **The city gate is safe against the spec**, assuming `TermSoundR` for the 7 m cube and `TbBounded`:
+`ReportMatchesObs` is a theorem now that `exactPos` reads the spec's `report`. -/
+theorem cityGate_spec_safe_of_tb (hT : TermSoundR cityGate (CrashH 7) GInit) (hTb : TbBounded) :
+    CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_tb hT hTb reportMatchesObs
+
+/-- The headline with `TermSoundR` replaced by the skeleton's obligations (`CityGate.TermSkeleton`). -/
+theorem cityGate_spec_safe_of_obligations {A : Type} (E : TermSkeleton.Ends A) (hE : E.Sound)
+    {T : Ctl × Plane → Bool} (hT : TermSkeleton.EndTestCertified E T) (hL : TermSkeleton.TermLink T)
+    (hTb : TbBounded) : CitySafety.Safe cityMap specFilter :=
+  cityGate_spec_safe_of_tb (TermSkeleton.termSoundR_of E hE hT hL) hTb
+
 end CityGate.SpecBridge
 
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_native
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_tb
 #print axioms CityGate.SpecBridge.cityGate_spec_safe_pose
+#print axioms CityGate.SpecBridge.cityGate_spec_safe_of_tb
+#print axioms CityGate.SpecBridge.cityGate_spec_safe_of_obligations

@@ -6,7 +6,7 @@ export PATH := $(ELAN_HOME)/bin:/opt/homebrew/bin:/usr/local/bin:$(PATH)
 SDL_PREFIX = $(shell brew --prefix sdl3 2>/dev/null || echo /opt/homebrew/opt/sdl3)
 LAKE_OPTS = -K sdl=$(SDL_PREFIX)
 
-.PHONY: install run build verify proofs test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase crashes crashes-lean adversary harness regimes plantcheck export pdf help clean
+.PHONY: install run build verify proofs safe-region test filter-lib filter-test gate gate-example gate-check fly fly-lean fly-off showcase record proofdump profile profile-lean crashes crashes-lean adversary harness regimes plantcheck termcheck export pdf help clean
 
 install:
 	@if ! command -v elan >/dev/null 2>&1; then \
@@ -39,6 +39,10 @@ verify:
 
 proofs:
 	cd proofs && lake exe cache get && lake build && lake env lean Proofs/Audit.lean
+
+# point-mass safe region against the spec's Crash (prints its axioms)
+safe-region:
+	cd proofs && lake exe cache get && lake build Proofs.SafeRegion
 
 test: build
 	lake build $(LAKE_OPTS) simtest
@@ -84,6 +88,24 @@ fly-off:
 showcase:
 	$(MAKE) fly ARGS="--showcase --cinematic --paths $(ARGS)"
 
+# Record the demo frame by frame into OUT (PNGs plus frames.csv), e.g.
+# `make record OUT=/tmp/dive ARGS="--showcase --cinematic --frames 1800 --record-every 2 --record-scale 2"`.
+record:
+	$(MAKE) fly ARGS="--record $(OUT) $(ARGS)"
+
+# Replay a run headless and log, per tick, the gate's verified path, failed rollout and end set, to draw over
+# `make record` footage of the same run: RUN=showcase or ep<N> (as --episode N), results in OUT.
+proofdump:
+	$(CITY) $(CARGO_HEADLESS) proofdump -- $(OUT) $(RUN) $(ARGS)
+
+# Fly while sampling the process (macOS `sample`) and logging tick times, for later analysis: results in OUT.
+profile:
+	lake build $(LAKE_OPTS) libcityjsb
+	cd flight && cargo build --release --features jsb --bin cityflight
+	Tools/profile-fly.sh $(OUT) $(FILTER) $(ARGS)
+profile-lean:
+	$(MAKE) profile FILTER=exact-rollout-lean OUT=/tmp/profile-lean
+
 # Headless crash test: N hostile episodes plus the kamikaze scenarios, results in OUT.
 crashes:
 	$(CITY) $(CARGO_HEADLESS) crashes -- $(OUT) $(N) --safety-filter $(FILTER) $(ARGS)
@@ -100,6 +122,11 @@ regimes:
 	$(CITY) $(CARGO_HEADLESS) regimes -- run $(ARGS) && $(CARGO_HEADLESS) regimes -- index
 
 # Plant and Lean-gate spot checks: the JsbExact plant, state import, the Lean gate's street escape, the 4 spec starts.
+# Run, not proof: the TermSoundR skeleton's Geo and Conf halves hold at the 4 spec starts' settled states.
+termcheck:
+	lake build $(LAKE_OPTS) termskelcheck
+	.lake/build/bin/termskelcheck
+
 plantcheck:
 	lake build $(LAKE_OPTS) cityplanttest cityimporttest citygatespot specbridgeinit
 	.lake/build/bin/cityplanttest
@@ -117,9 +144,11 @@ pdf:
 	cd docs && tectonic termsound-proof.tex
 
 help:
-	@echo "Fly:      make fly | fly-lean | fly-off | showcase   (FILTER=..., ARGS=\"...\")"
-	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | test   (N=..., OUT=...)"
-	@echo "Proofs:   make verify | proofs"
+	@echo "Fly:      make fly | fly-lean | fly-off | showcase | profile | profile-lean   (FILTER=..., ARGS=\"...\")"
+	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
+	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
+	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | plantcheck | termcheck | test   (N=..., OUT=...)"
+	@echo "Proofs:   make verify | proofs | safe-region"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf"
 	@echo "Lean app: make install | build | run | clean"
