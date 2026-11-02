@@ -23,6 +23,7 @@ Everything is a one-word `make` target; `make help` lists them.
 | `make showcase` | Tower gap with the scripted showcase pilot and the cinematic camera |
 | `make record` | Record the demo frame by frame into `OUT` (PNGs plus a per-frame clearance and camera log), deterministic; see `flight/README.md` |
 | `make proofdump` | Replay a run headless and log the gate's verified paths, failed rollouts and end sets per tick (`RUN=showcase` or `ep<N>`), for drawing over recordings |
+| `make present` / `present-media` | Open the explainer page (`docs/explainer`, `PORT=8763`); `present-media` first builds its clips from `docs/explainer/clips.json`, checking every recording against `clips.lock.json` (slow) |
 | `make crashes` / `crashes-lean` | Headless crash test (N hostile episodes plus the kamikaze scenarios) |
 | `make adversary`, `make harness`, `make regimes` | Gap-guided adversary; point-mass acceptance harness; boundary-regime slices |
 | `make plantcheck` | Plant, state-import and Lean-gate spot checks, plus the 4 spec starts |

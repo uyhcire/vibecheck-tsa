@@ -1,0 +1,102 @@
+{
+ "hashes": {
+  "dump:ep1001": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "ticks": "bbd1616cfbee3052be93db49eba66e8bc17020fda1e7a44de1f62aff95cd0afb"
+  },
+  "dump:showcase": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "ticks": "57cd2ad7210a9e2cd18b03f8646c2e3c47dab63a32ee60ad9cc842f75443d615"
+  },
+  "dump:showcase-off": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "ticks": "5ba37b07d3205909de3a9637fe70dd197ee0bc8878efdf98c1f16d8b02379282"
+  },
+  "fastdive": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "9ce5573275449bd86557f91da98568874ff7b47b64c68021c5f887fbf6ba82f8",
+   "trace": "57494a3763e59ea8d016cabf590a2a0c396f3bcc49134dab3137b64e58d86dd0"
+  },
+  "fastdive-twin": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "0b21aa6773725af51d2ebc12f3ef955567e42b8aec8413c070c53102d2bde505",
+   "trace": "f3ab34c4678c880d2dc6f64960a35d9a19efaa8d9485c940c3a0c3db5f2c17af"
+  },
+  "hero": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "frames_csv": "d0f0352a5a1ea1143e26aa8d6f4baa25e615e444cc6b63e0d683e51cac00f62f",
+   "trace": "6397649b6b87eea913f229b3b5b62760c3b1addd2d31ebeb0f014e09c4032e77"
+  },
+  "kamikaze": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "27dc8595463030612fcf5864d835bd7ce30fda01d8ff87faa670dfb1c8d95229",
+   "trace": "6d9d319e03a47c145c6a992771380a698f2cf5c62079ff5eefae7155bb8cd43a"
+  },
+  "paths": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "frames_csv": "6a8b9dd0d3bf43fe7ccecbb186f1ee9caec653d038e03058789e6d35838a7c46",
+   "trace": "75842b5e0524baca6b7bdf6bfa996277df0ae2dcba8e0234efbe918d5d30cddf"
+  },
+  "proof-dive": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "frames_csv": "465aaca5f0bd37a308c61a04efe7f44c1d38d9645686b5cab648cd1d60e62491",
+   "trace": "b7d4f9e71b1b5cc350b53b929a8325f8b002ad75e0c0dc478719342d336587e6"
+  },
+  "proof-towergap": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "frames_csv": "63fe159eebc0207cb2137273c498b6cc83af1fbe8bc53c9829ac0626200a1d6a",
+   "trace": "82c9345d5e137b889888a3f7b9e14d5c8dbe2fc56a871c5ae928bf2307294d61"
+  },
+  "proof-towergap-high": {
+   "code": "f03d9850c98276913cb95f8aab813ddaa0a99030",
+   "frames_csv": "63fe159eebc0207cb2137273c498b6cc83af1fbe8bc53c9829ac0626200a1d6a",
+   "trace": "b1d8c474a675600538371652bd7b53535a68a4bc30246741158d4215130155a8"
+  },
+  "streetdive": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "bd77cfb5f05d5408da729ba84299e12ab639f9357c2c27a59f8ceb5b6213ce82",
+   "trace": "52b0e988995bd3e67e32905496a4503237e6e43b3988e4801338d5f62c690f90"
+  },
+  "streetdive-deployed": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "6a8108b3999415434a69f2b59bce9ecb7651b7bd5a745a3501320283837e8a82",
+   "trace": "0133306861616fa968d2b421c0c99070da7af88cc167e614b3d057167a8c593d"
+  },
+  "streetdive-twin": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "891f653992586bf7e1f22fd7dc5c479e1930a3e197ca654027ba4c286f3eab4f",
+   "trace": "8519af79cd29307faded2967b9842eb7849f03df25f7477705e2232a0ac1a0cb"
+  },
+  "towergap": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "d3735866dbc35df19a911d58fdbb9ef4ed3177082ed3ecac5d0ea51df20248e2",
+   "trace": "62173cc3cc1a520ed702d3a2e5f5dd29109e6776b47d9c5d7d01b4afcf87daa1"
+  },
+  "towergap-off": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "3c4f13c4fcd2dea313b8048ca19a6fdbd1b3bad6b526bcb4100566504d0bf652",
+   "trace": "e21114729333c8f3918081b1fa8f548a820207ed1587a00e524f576fcc555726"
+  },
+  "wallahead": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "5647bd3d141c2edb0e4d346e87ade3c9e9350d503a38a6197f2893d9ffc31c1d",
+   "trace": "53a595ea4e0b4ac7bf260eb9423e908650e222288269822f8d66d93030d2458c"
+  },
+  "wallahead-twin": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "f0eadd3e9f06109a5e310b7c5d935eda03119ac55f97399223cc61673c468c6e",
+   "trace": "cd7ddf9aac2173fc9e3796a3a6a940dc204b787db12f385048907ef1583254b6"
+  },
+  "wallbeside": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "3f674e6b658b55e27aa93d175b421d158132ab179b3a1712a974dd1b3fd839ae",
+   "trace": "cbad11561218188e42fa4ea6614e551be9f09c83f1431a2651d72c88d707e0d8"
+  },
+  "wallbeside-twin": {
+   "code": "1fe678e78a2b14f1c72a6c55bb47257afa3f0131",
+   "frames_csv": "20d1295998caf18170682830911d96dc3e395991caa4090f4ed51170da97ab0f",
+   "trace": "ea848c6b0b2a18cd6625a92c1cf69e99006b02c1cfec2a077060ab06a098bb91"
+  }
+ },
+ "note": "frames.csv; trace.jsonl less viewport and view_proj; proofdump ticks.jsonl; code: the commit each was made at"
+}
