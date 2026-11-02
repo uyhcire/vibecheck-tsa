@@ -1,0 +1,23 @@
+name = "exp_ci_proof"
+defaultTargets = ["ExpVibecheck", "ExpJsb", "Ci", "ExpProofs"]
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.35.0"
+
+[[lean_lib]]
+name = "ExpVibecheck"
+globs = ["ExpVibecheck.+"]
+
+[[lean_lib]]
+name = "ExpJsb"
+globs = ["ExpJsb.+"]
+
+[[lean_lib]]
+name = "Ci"
+globs = ["Ci.+"]
+
+[[lean_lib]]
+name = "ExpProofs"
+globs = ["ExpProofs.+"]
