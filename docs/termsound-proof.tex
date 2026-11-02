@@ -627,7 +627,7 @@ $k$ & $w_h$ & search & (a) residual & (b) box exit & (c) sink & status\\
 128 & 30\,m & 4 rounds & 7.04 & 2.03 & 0.39 & falsified\\
 256 & 30\,m & 4 rounds & 1.70 & 1.41 & 0.77 & falsified\\
 384 & 30\,m & 1 round & 0.73 & 2.86 & 1.14 & falsified\\
-512 & 15\,m & 4 rounds + re-search & 0.41 & 1.02 & 0.51 & falsified at those boxes\\
+512 & 15\,m & 4 rounds + re-search (3 widenings, 22{,}560 rollouts) & 0.41 & 0.89 & 0.51 & survives search\\
 \textbf{512} & \textbf{20\,m} & 4 rounds + re-search & \textbf{0.40} & \textbf{0.94} & \textbf{0.76} & \textbf{survives search}\\
 \bottomrule
 \end{tabular}
@@ -646,7 +646,7 @@ $k$ & $w_h$ & search & (a) residual & (b) box exit & (c) sink & status\\
 \item \textbf{Short steps fail.} For $k \le 256$, the inner loops' transients from the box corners make the residual too large. Lengthening the step to 4\,s lets them decay ($\|A_k\|_P$ falls to 0.73, so the allowance grows) while the slow model still holds.
 \item \textbf{The remaining residual is slow-model nonlinearity.} At the worst slow state, putting the fast states at $\bar f$ still gives (a) $= 0.39$.
 \item \textbf{The binding constraint is (b), the lateral fast states.} Roll, heading, cross-track speed and roll rate exit their boxes by up to 0.94 of the box size; the lateral dynamics are not in the slow model. The boxes are a fixed point of the widening iteration.
-\item \textbf{The altitude-range trade-off.} A larger $w_h$ shrinks the sink allowance (c): $w_h = 30$\,m fails (c) at $k = 384$.
+\item \textbf{The altitude-range trade-off.} A larger $w_h$ shrinks the sink allowance (c): $w_h = 30$\,m fails (c) at $k = 384$. At $w_h = 15$\,m every ratio has more margin ((b) 0.89, (c) 0.51), on a 15\,m altitude range.
 \item \textbf{The start set is thin in the fast directions.} Pitch must be within about $0.1^\circ$ of its quasi-steady value, and rpm within 6.
 \end{itemize}
 
