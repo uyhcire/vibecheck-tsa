@@ -118,10 +118,16 @@ law on the copy, frame by frame, so a committed escape flies exactly the frames 
   under the wing is sampled every 0.25 m outboard of 4 m span. The tail trails inside the volume the
   sphere has just swept, so it is not checked. The point-mass filter and its crash check keep the sphere.
 - **Terminal sets**, checked on the settled rollout (from 6 s on, within 16 s): the straight escape needs a
-  climbing ray (80% of the settled gradient, in a corridor widening 2% of distance) that clears every raw
-  cell until it is above the map's top or off the map. A turn needs a steady helix (radius and centre agree
-  to 10% across two 2 s windows, climbing ≥ 1 m/s) whose ground annulus, widened for that drift, is clear
-  at the current height. Every path sample keeps 4 m of true clearance.
+  settled climb (the two 2 s windows' mean climb rates agree within 1 m/s), then a climbing ray (80% of the
+  settled gradient, at most 0.11 so the pull-up's zoom climb cannot set it, in a corridor widening 2% of
+  distance) that clears every raw cell until it is above the map's top. A turn needs a steady helix (radius
+  and centre agree to 10% across two 2 s windows, climbing ≥ 1 m/s) whose ground annulus, widened for that
+  drift, is clear at the current height, and lies within the map. Beyond the map edge the terrain continues
+  the edge profile (731-927 m), so the ray (at most 12.5 km) and the crash test are checked against it. Every path
+  sample (every 8th frame) keeps 4 m of true clearance. `--swept` checks every frame instead, including the
+  frames of the pilot's candidate tick, each keeping `--margin M` (default 4 m) plus half a frame of travel
+  of any airframe point, so no contact can occur between frames; `--handback-extra M` overrides the 3 m
+  hand-back spare clearance for measurements.
 - **Scheduling.** Each 20 ms tick checks the pilot's next tick followed by the last escape that verified;
   the pilot keeps control if it verifies. Otherwise the filter commits to the escape verified on the
   previous tick, and committed ticks try the escapes round robin. A deterministic budget of 2,200 JSBSim

@@ -5,7 +5,7 @@ pub mod capi;
 use cityflight::envfilter::{Gate, BUDGET, ESCAPES, TIME_CAP_MS};
 use cityflight::jsb::{JsbPlant, MapFrame, Pilot, DT_JSB};
 use cityflight::model::{X, Y, Z};
-use cityflight::world::{World, MAP_HALF};
+use cityflight::world::World;
 use std::sync::atomic::Ordering;
 
 pub const MAX_TICK_FRAMES: usize = 16;
@@ -144,7 +144,7 @@ impl Filter {
             cpu_ms: *gate.cpu_ms.last().unwrap_or(&0.0) as f64,
             wall_ms: *gate.wall_ms.last().unwrap_or(&0.0) as f64,
             map_pos: [s[X], s[Y], s[Z]],
-            clearance: if s[X].abs() < MAP_HALF && s[Y].abs() < MAP_HALF { world.airframe_clearance(&s, 200.0) } else { f64::INFINITY },
+            clearance: world.airframe_clearance(&s, 200.0),
             replay_exact,
         };
         self.prev = Some(plant);
