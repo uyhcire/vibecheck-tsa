@@ -102,7 +102,7 @@ fn trim_cmd(args: &[String]) {
     for v in (26..=50).step_by(2) {
         let mut line = format!("v_ref {v:2}:");
         for (esc, bank) in [(0usize, 0.0), (1, 0.52), (3, 0.7)] {
-            let mut p = LawP { v_eas_t: [0.0; 4], h_level: f64::INFINITY, ..law_params() };
+            let mut p = LawP { v_eas_t: [0.0; 4], kpsi_v: 0.0, h_level: f64::INFINITY, ..law_params() };
             p.v_ref = [v as f64; 6];
             (p.kv, p.gc_lo, p.gc_hi, p.amax) = (0.3, -0.4, 0.4, 0.4);
             let (vt, vz, a) = settle(Law::with_turn(esc, p, if bank == 0.0 { 0.0 } else { -1.0 }, bank), v as f64, z0, 90.0);
@@ -110,7 +110,7 @@ fn trim_cmd(args: &[String]) {
         }
         println!("{line}");
     }
-    let old = LawP { v_eas_t: [0.0; 4], h_level: f64::INFINITY, ..law_params() };
+    let old = LawP { v_eas_t: [0.0; 4], kpsi_v: 0.0, h_level: f64::INFINITY, ..law_params() };
     for (name, p) in [("gate law", old), ("terminal law", law_params())] {
         println!("{name}: settled (last 20 of 120 s) from 72 starts at {z0} m per turn escape; post-stall = alpha > 0.2");
         for esc in 1..5 {

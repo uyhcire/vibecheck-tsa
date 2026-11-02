@@ -128,7 +128,7 @@ fn laws(sp: &str, out: &str, threads: usize) {
 
 /// The reference-trajectory hashes of `docs/escape-law-terminal.md`.
 fn reftraj(p: LawP, verbose: bool) {
-    for (name, s, n) in [("A", [0.0, 0.0, 150.0, 30.0, -0.1, std::f64::consts::FRAC_PI_2, 0.4, 1.0, 1.0], 2048), ("B", [0.0, 0.0, 950.0, 40.0, 0.1, std::f64::consts::FRAC_PI_2, 0.0, 1.0, 1.0], 5120)] {
+    for (name, s, n) in [("A", [0.0, 0.0, 150.0, 30.0, -0.1, std::f64::consts::FRAC_PI_2, 0.4, 1.0, 1.0], 2048), ("B", [0.0, 0.0, 950.0, 40.0, 0.1, std::f64::consts::FRAC_PI_2, 0.0, 1.0, 1.0], 5120), ("C", [0.0, 0.0, 950.0, 40.0, 0.1, std::f64::consts::FRAC_PI_2, 0.3, 1.0, 1.0], 6400)] {
         let mut q = JsbPlant::new(&[s[0], s[1], s[2], s[3], s[4], s[5], s[6], 0.0, s[7], s[8]]);
         let mut law = Law::with(0, p);
         let mut h = FNV0;
@@ -153,7 +153,16 @@ fn main() {
     match args.first().map(|s| s.as_str()) {
         Some("starts") => starts(&args[1], args.get(2).and_then(|s| s.parse().ok()).unwrap_or(40)),
         Some("laws") => laws(&args[1], &args[2], threads),
-        Some("reftraj") => reftraj(if args.iter().any(|a| a == "--gate-law") { LawP { v_eas_t: [0.0; 4], h_level: f64::INFINITY, ..law_params() } } else { law_params() }, args.iter().any(|a| a == "-v")),
-        _ => eprintln!("usage: gatefaith starts OUT [N] | laws STARTS OUT [--threads T] | reftraj [--gate-law]"),
+        Some("reftraj") => {
+            let p = if args.iter().any(|a| a == "--gate-law") {
+                LawP { v_eas_t: [0.0; 4], kpsi_v: 0.0, h_level: f64::INFINITY, ..law_params() }
+            } else if args.iter().any(|a| a == "--no-kpsi") {
+                LawP { kpsi_v: 0.0, ..law_params() }
+            } else {
+                law_params()
+            };
+            reftraj(p, args.iter().any(|a| a == "-v"))
+        }
+        _ => eprintln!("usage: gatefaith starts OUT [N] | laws STARTS OUT [--threads T] | reftraj [--gate-law | --no-kpsi]"),
     }
 }

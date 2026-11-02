@@ -204,8 +204,12 @@ gatefaith:
 	cmp $(GF)/rust.txt $(GF)/lean.txt && echo "laws and end-test verdicts: identical"
 	flight/target/release/gatefaith reftraj > $(GF)/ref-rust.txt
 	.lake/build/bin/gatefaith reftraj > $(GF)/ref-lean.txt
-	cmp $(GF)/ref-rust.txt $(GF)/ref-lean.txt && grep -q 2947c707944678e9 $(GF)/ref-lean.txt && grep -q dd0d6deef038f51a $(GF)/ref-lean.txt \
-	  && echo "reference trajectories: both match the spec"
+	cmp $(GF)/ref-rust.txt $(GF)/ref-lean.txt && grep -q 7e1fb4f97ce2425f $(GF)/ref-lean.txt && grep -q cb2aae7e29b013a5 $(GF)/ref-lean.txt \
+	  && echo "reference trajectories: both match the spec (speed-scheduled heading hold, starts B and C)"
+	flight/target/release/gatefaith reftraj --no-kpsi > $(GF)/ref-nokpsi.txt
+	flight/target/release/gatefaith reftraj --gate-law > $(GF)/ref-gate.txt
+	grep -q 2947c707944678e9 $(GF)/ref-nokpsi.txt && grep -q dd0d6deef038f51a $(GF)/ref-nokpsi.txt && grep -q 3e8e6a72f80e9f1b $(GF)/ref-gate.txt \
+	  && grep -q 2e6522149455aa02 $(GF)/ref-gate.txt && echo "without the schedule, and the gate's earlier law: the spec's earlier hashes"
 
 # Helix-round lab (Rust): `N [--seed K]` verified escapes from perturbed starts flown on past their verdict,
 # `trace I K ESC`, `trim` (escape-law trims, post-stall recovery), `high` (level-off ending), `why`, `scen ID`, `ep N`.

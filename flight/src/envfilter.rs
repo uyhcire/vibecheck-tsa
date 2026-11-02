@@ -128,6 +128,8 @@ pub struct LawP {
     /// end-set kind (straight, 30° and 40° helix; m/s, 0 = no terminal phase), its speed gain, α-integrator gain
     /// and gradient limits; and for every escape a level-off at `h_level` (m) with gain `k_hold` (rad/m).
     pub v_eas_t: [f64; 4],
+    /// The straight escape's heading gain scales by `max(1, v / kpsi_v)` (m/s; 0 = no scaling).
+    pub kpsi_v: f64,
     pub kv_t: f64,
     pub ki_a_t: f64,
     pub gc_lo_t: f64,
@@ -176,6 +178,7 @@ pub const LAW: LawP = LawP {
     t_pull_max: 6.0,
     gam_turn: 0.03,
     v_eas_t: [0.0; 4],
+    kpsi_v: 0.0,
     kv_t: 0.06,
     ki_a_t: 6.0,
     gc_lo_t: 0.0,
@@ -189,7 +192,7 @@ pub const LAW_CEGIS2: LawP = LawP {
     keep_bank: true,
     t_pull_min: [1.5, 1.5, 1.5, 0.0, 0.0, 1.5],
     nmax: 3.5, amax: 0.24, kv: 0.02, gc_lo: 0.05, kq: 1.2, vs: 50.0, kqf: 0.6,
-    v_eas_t: [V_EAS_T, V_EAS_T30, V_EAS_T40, V_EAS_T40], h_level: 1000.0, ..LAW };
+    v_eas_t: [V_EAS_T, V_EAS_T30, V_EAS_T40, V_EAS_T40], kpsi_v: V_EAS_T, h_level: 1000.0, ..LAW };
 
 /// Terminal equivalent-airspeed references (m/s): the straight climb's, and the helices' at the same α (the
 /// straight value times `1/√cos φ` at 0.52 and 0.7 rad), which keeps the turns clear of the post-stall branch.
@@ -379,7 +382,8 @@ impl Law {
         } else if !self.turning() {
             if p.keep_bank && esc.dir * o.phi > 0.0 { esc.dir * (o.phi.abs().min(esc.bank)) } else { 0.0 }
         } else if esc.dir == 0.0 {
-            (p.kpsi * wrap(self.psi_ref - track)).clamp(-0.15, 0.15)
+            let ks = if p.kpsi_v > 0.0 { (v / p.kpsi_v).max(1.0) } else { 1.0 };
+            (p.kpsi * ks * wrap(self.psi_ref - track)).clamp(-0.15, 0.15)
         } else {
             esc.dir * esc.bank
         };

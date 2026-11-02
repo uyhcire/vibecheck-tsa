@@ -63,6 +63,8 @@ def GC_LO_T : Float := 0.0
 def GC_HI_T : Float := 0.5
 def H_LEVEL : Float := 1000.0
 def K_HOLD : Float := 0.005
+/-- The straight escape's heading gain scales by `max(1, v / V_KPSI)` (`docs/escape-law-terminal.md`). -/
+def V_KPSI : Float := 35.2
 def F0_6 : Float := 0.6
 
 /-! The law's numeric literals as constants: a `Float` literal inside a function body is converted from decimal on
@@ -188,7 +190,7 @@ def Law.controls (l : Law) (o : FloatArray) : Surf × Law :=
       else clamp (K_STREET * wrap (l.axis - track)) (-BANK_STREET) BANK_STREET
     else if !l.turning then
       if KEEP_BANK && dir * phi > F0_0 then dir * fmin phi.abs bank else F0_0
-    else if dir == F0_0 then clamp (KPSI * wrap (l.psiRef - track)) (-F0_15) F0_15
+    else if dir == F0_0 then clamp (KPSI * fmax F1_0 (v / V_KPSI) * wrap (l.psiRef - track)) (-F0_15) F0_15
     else dir * bank
   let ephi := phiT - phi
   let (kphi, kp) := if l.esc == STREET then (ROLL_STREET_PHI, ROLL_STREET_P) else (KPHI, KP)

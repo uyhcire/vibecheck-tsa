@@ -77,7 +77,8 @@ def lawsCmd (sp out : String) : IO Unit := do
 def reftraj : IO Unit := do
   for (name, x, y, z, v, gam, psi, phi, n, thr, frames) in
       [("A", 0.0, 0.0, 150.0, 30.0, -0.1, FRAC_PI_2, 0.4, 1.0, 1.0, 2048),
-       ("B", 0.0, 0.0, 950.0, 40.0, 0.1, FRAC_PI_2, 0.0, 1.0, 1.0, 5120)] do
+       ("B", 0.0, 0.0, 950.0, 40.0, 0.1, FRAC_PI_2, 0.0, 1.0, 1.0, 5120),
+       ("C", 0.0, 0.0, 950.0, 40.0, 0.1, FRAC_PI_2, 0.3, 1.0, 1.0, 6400)] do
     let mut p := startPlane x y z v gam psi phi n thr
     let mut law := Law.new 0
     let mut h := FNV0
