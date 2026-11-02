@@ -259,7 +259,7 @@ TSVENV ?= .lake/tsvenv
 certify:
 	lake build tsmap
 	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
-	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
+	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify lateral membership_lat lateral_climb reftraj_lat; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
 
 # Energy-barrier family for level-flight terminal safety (docs/termsound/barrier.md, issue #58): sizes the region's
 # boxes and searches conditions C1-C3 adversarially on the real loop for each k; prints the theta table. K="128 512"
