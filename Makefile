@@ -216,6 +216,7 @@ help:
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
 	@echo "Checks:   make termhunt | termhunt-lean | sweepcheck   (ARGS=\"...\")"
 	@echo "Proofs:   make verify | proofs | safe-region"
+	@echo "Numerics: make certify | barrier   (K=\"128 512\")"
 	@echo "Libs:     make gate | gate-example | gate-check | filter-lib | filter-test | export"
 	@echo "Docs:     make pdf | abstractions"
 	@echo "Archive:  make experiments   (SLOW: builds and audits every project under experiments/)"
@@ -233,3 +234,14 @@ certify:
 	lake build tsmap
 	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
 	cd Tools/termsound && for s in ref cert nstep probe regime akink leveloff terminal reftraj level_param level_cert2 handover abstract abstract1s membership membership_verify; do nice -n 10 ../../$(TSVENV)/bin/python $$s.py || exit 1; done
+
+# Energy-barrier family for level-flight terminal safety (docs/termsound/barrier.md, issue #58): sizes the region's
+# boxes and searches conditions C1-C3 adversarially on the real loop for each k; prints the theta table. K="128 512"
+# picks the step counts (default 1 16 64 128 512; all five take about 40 min on 4 cores).
+K ?= 1 16 64 128 512
+.PHONY: barrier
+barrier:
+	lake build tsmap
+	@test -x $(TSVENV)/bin/python || (python3 -m venv $(TSVENV) && $(TSVENV)/bin/pip install -q numpy scipy cvxpy)
+	cd Tools/termsound && nice -n 10 ../../$(TSVENV)/bin/python barrier_run.py $(K)
+
