@@ -192,13 +192,15 @@ pub const LAW_CEGIS2: LawP = LawP {
     keep_bank: true,
     t_pull_min: [1.5, 1.5, 1.5, 0.0, 0.0, 1.5],
     nmax: 3.5, amax: 0.24, kv: 0.02, gc_lo: 0.05, kq: 1.2, vs: 50.0, kqf: 0.6,
-    v_eas_t: [V_EAS_T, V_EAS_T30, V_EAS_T40, V_EAS_T40], kpsi_v: V_EAS_T, h_level: 1000.0, ..LAW };
+    v_eas_t: V_EAS_KIND, kpsi_v: V_EAS_T, h_level: 1000.0, ..LAW };
 
 /// Terminal equivalent-airspeed references (m/s): the straight climb's, and the helices' at the same α (the
 /// straight value times `1/√cos φ` at 0.52 and 0.7 rad), which keeps the turns clear of the post-stall branch.
 pub const V_EAS_T: f64 = 35.2;
 pub const V_EAS_T30: f64 = 37.8;
 pub const V_EAS_T40: f64 = 40.3;
+/// The terminal EAS reference per end-set kind (`Law::kind`).
+pub const V_EAS_KIND: [f64; 4] = [V_EAS_T, V_EAS_T30, V_EAS_T40, V_EAS_T40];
 pub const LAW_LAWFIRST: LawP = LawP { kind: LawKind::Lawfirst, ..LAW };
 
 /// `lawfirst` `p1`, converted from raw ×2^16 units (`kI` is per 1/16 s tick there, per second here).
@@ -483,11 +485,12 @@ pub const VZ_MIN: f64 = 1.0;
 /// climb cannot set it.
 pub const VZ_SETTLED: f64 = 1.0;
 pub const GRAD_MAX: f64 = 0.11;
-/// Helix ending: lowest settled airspeed per end-set kind (m/s), above the post-stall branch (`termhunt trim`); the
-/// halves' mean airspeeds agree within `V_SETTLED`; radii and centres agree within these fractions of the radius;
-/// the annulus is widened by the airframe's half-size `E_AIR` (m).
+/// Helix ending: lowest airspeed per end-set kind (m/s), above the post-stall branch (`helixlab trim`); radii and
+/// centres agree within these fractions of the radius; the annulus is widened by the airframe's half-size `E_AIR` (m).
 pub const V_HELIX_MIN: [f64; 4] = [0.0, 37.5, 39.5, 0.0];
-pub const V_SETTLED: f64 = 1.0;
+/// Where the terminal law's turns settle relative to the true airspeed of their EAS reference (m/s): measured
+/// +0.5 to +1.0 (`helixlab trim`).
+pub const V_TRIM_BAND: [f64; 2] = [-1.0, 2.0];
 pub const R_SETTLED: f64 = 0.1;
 pub const C_SETTLED: f64 = 0.1;
 pub const E_AIR: f64 = 7.0;
@@ -882,8 +885,8 @@ fn terminal(world: &World, dir: f64, kind: usize, hist: &[Hist], margin: f64) ->
         if a.omega * want <= 0.02 || b.omega * want <= 0.02 {
             return Err(TermFail::Wobble);
         }
-        // Speed first: settled above the post-stall branch, and not climbing on airspeed.
-        if b.v_mean < V_HELIX_MIN[kind] || (a.v_mean - b.v_mean).abs() > V_SETTLED || a.de < 0.0 || b.de < 0.0 {
+        // Speed first: above the post-stall branch, and not climbing on airspeed.
+        if b.v_mean < V_HELIX_MIN[kind] || a.de < 0.0 || b.de < 0.0 {
             return Err(TermFail::Slow);
         }
         let circ = |s: &Seg| {
@@ -899,8 +902,12 @@ fn terminal(world: &World, dir: f64, kind: usize, hist: &[Hist], margin: f64) ->
         }
         // Radial slack: fit disagreement, plus outward the radius growth of a constant-EAS turn up to the top.
         let m = 5.0 + 3.0 * (d_r + d_c);
-        let gk = if e.z < top { rb } else { 0.0 };
-        let (r0, r1) = ((rb - m - E_AIR).max(0.0), rb + m + E_AIR);
+        // The airspeed is still heading for the law's trim (within `V_TRIM_BAND` of the EAS reference here), and the
+        // radius at a fixed bank goes as v²: the annulus spans the radii of that whole speed range.
+        let vt = V_EAS_KIND[kind] / (rho_of(e.z) / 1.225).sqrt();
+        let (klo, khi) = (((vt + V_TRIM_BAND[0]) / b.v_mean).powi(2).min(1.0), ((vt + V_TRIM_BAND[1]) / b.v_mean).powi(2).max(1.0));
+        let gk = if e.z < top { rb * khi } else { 0.0 };
+        let (r0, r1) = ((rb * klo - m - E_AIR).max(0.0), rb * khi + m + E_AIR);
         helix_check_annulus(world, cb, r0, r1, gk, e.z, top, margin)?;
         let r1 = if gk > 0.0 { r1 + gk * (rho_of(e.z) / rho_of(top) - 1.0) } else { r1 };
         let tail = (0..=72).map(|i| {

@@ -135,7 +135,11 @@ def GRAD_MAX : Float := 0.11
 /-- Helix ending (`V_HELIX_MIN` … `E_AIR` in Rust): lowest settled airspeed per end-set kind, airspeed agreement of
 the halves, radius and centre agreement as fractions of the radius, and the airframe half-size widening the annulus. -/
 def V_HELIX_MIN : Array Float := #[0.0, 37.5, 39.5, 0.0]
-def V_SETTLED : Float := 1.0
+/-- The terminal EAS reference per end-set kind (`Law.kind`), and where the turns settle relative to its true
+airspeed (m/s). -/
+def V_EAS_KIND : Array Float := #[35.2, 37.8, 40.3, 40.3]
+def V_TRIM_LO : Float := -1.0
+def V_TRIM_HI : Float := 2.0
 def R_SETTLED : Float := 0.1
 def C_SETTLED : Float := 0.1
 def E_AIR : Float := 7.0
@@ -259,7 +263,7 @@ def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run d
     let want := -dir
     if a.omega * want ≤ F0_02 || b.omega * want ≤ F0_02 then return false
     -- speed first: settled above the post-stall branch, and not climbing on airspeed
-    if b.vMean < V_HELIX_MIN[kind]! || (a.vMean - b.vMean).abs > V_SETTLED || a.de < F0_0 || b.de < F0_0 then
+    if b.vMean < V_HELIX_MIN[kind]! || a.de < F0_0 || b.de < F0_0 then
       return false
     let circ := fun (s : Seg) =>
       let rr := s.vh / s.omega
@@ -270,7 +274,11 @@ def terminalOK (dir : Float) (kind : Nat) (hist : Array Hist) : Bool := Id.run d
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
     if dR > R_SETTLED * rb || dC > C_SETTLED * rb then return false
     let m := F5_0 + F3_0 * (dR + dC)
-    let gk := if e.z < top then rb else F0_0
-    return helixClearAnn cbx cby (fmax (rb - m - E_AIR) F0_0) (rb + m + E_AIR) gk e.z
+    -- the airspeed is still heading for the law's trim, and the radius at a fixed bank goes as v²
+    let vt := V_EAS_KIND[kind]! / (rhoT e.z / F1_225T).sqrt
+    let klo := fmin (let q := (vt + V_TRIM_LO) / b.vMean; q * q) F1_0
+    let khi := fmax (let q := (vt + V_TRIM_HI) / b.vMean; q * q) F1_0
+    let gk := if e.z < top then rb * khi else F0_0
+    return helixClearAnn cbx cby (fmax (rb * klo - m - E_AIR) F0_0) (rb * khi + m + E_AIR) gk e.z
 
 end CityGate.Esc

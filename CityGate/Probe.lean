@@ -70,7 +70,7 @@ def terminalWork (dir : Float) (kind : Nat) (hist : Array Hist) : Bool × Nat ×
   else
     let want := -dir
     if a.omega * want ≤ 0.02 || b.omega * want ≤ 0.02 then return (false, 0, 0, 0)
-    if b.vMean < V_HELIX_MIN[kind]! || (a.vMean - b.vMean).abs > V_SETTLED || a.de < 0.0 || b.de < 0.0 then
+    if b.vMean < V_HELIX_MIN[kind]! || a.de < 0.0 || b.de < 0.0 then
       return (false, 0, 0, 0)
     let circ := fun (s : Seg) =>
       let rr := s.vh / s.omega
@@ -81,9 +81,12 @@ def terminalWork (dir : Float) (kind : Nat) (hist : Array Hist) : Bool × Nat ×
     let dC := ((cax - cbx) * (cax - cbx) + (cay - cby) * (cay - cby)).sqrt
     if dR > R_SETTLED * rb || dC > C_SETTLED * rb then return (false, 0, 0, 0)
     let m := 5.0 + 3.0 * (dR + dC)
-    let gk := if e.z < top then rb else 0.0
-    let ok := helixClearAnn cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + E_AIR) gk e.z
-    let (_, w) := helixWork cbx cby (fmax (rb - m - E_AIR) 0.0) (rb + m + E_AIR) e.z
+    let vt := V_EAS_KIND[kind]! / (rhoT e.z / F1_225T).sqrt
+    let klo := fmin (let q := (vt + V_TRIM_LO) / b.vMean; q * q) F1_0
+    let khi := fmax (let q := (vt + V_TRIM_HI) / b.vMean; q * q) F1_0
+    let gk := if e.z < top then rb * khi else 0.0
+    let ok := helixClearAnn cbx cby (fmax (rb * klo - m - E_AIR) 0.0) (rb * khi + m + E_AIR) gk e.z
+    let (_, w) := helixWork cbx cby (fmax (rb * klo - m - E_AIR) 0.0) (rb * khi + m + E_AIR) e.z
     return (ok, 2, 0, w)
 
 end CityGate.Esc

@@ -56,7 +56,7 @@ def GAM_TURN : Float := 0.03
 
 /-! Terminal phase (`docs/escape-law-terminal.md`), once the pull-up ends: equivalent-airspeed references per end-set
 kind (straight, 30° helix, 40° helix), gains and gradient limits; and the level-off at `H_LEVEL` for every escape. -/
-def V_EAS_T : Array Float := #[35.2, 37.8, 40.3, 40.3]
+def V_EAS_T : Array Float := V_EAS_KIND
 def KV_T : Float := 0.06
 def KI_A_T : Float := 6.0
 def GC_LO_T : Float := 0.0

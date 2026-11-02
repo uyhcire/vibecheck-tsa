@@ -215,14 +215,25 @@ fn why(world: &World, n: u64, seed: u64, threads: usize) {
                 .map(|esc| {
                     let r = rollout(world, &p, esc, usize::MAX);
                     let w = format!("{:?}", r.why);
-                    (esc, format!("{:?} {}", r.outcome, w.split(|c| c == ' ' || c == '{').next().unwrap_or("")))
+                    (esc, format!("{:?} {}", r.outcome, w.split(|c| c == ' ' || c == '{').next().unwrap_or("")), r.t)
                 })
                 .collect::<Vec<_>>()
         },
         |_, _| {},
     );
     let mut tally = std::collections::BTreeMap::new();
-    for (esc, k) in res.into_iter().flatten() {
+    let mut times = vec![Vec::new(); ESCAPES.len()];
+    for (esc, k, t) in res.iter().flatten() {
+        if k.starts_with("Ok") {
+            times[*esc].push(*t);
+        }
+    }
+    for (esc, v) in times.iter_mut().enumerate() {
+        v.sort_by(|a, b| a.total_cmp(b));
+        let q = |f: f64| v.get(((v.len() as f64 - 1.0) * f) as usize).copied().unwrap_or(f64::NAN);
+        println!("verdict times {:8}: n {:4} median {:5.2} p75 {:5.2} p90 {:5.2}", ESCAPES[esc].name, v.len(), q(0.5), q(0.75), q(0.9));
+    }
+    for (esc, k, _) in res.into_iter().flatten() {
         *tally.entry((ESCAPES[esc].name, k)).or_insert(0) += 1;
     }
     for ((e, k), c) in tally {
