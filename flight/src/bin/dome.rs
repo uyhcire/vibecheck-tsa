@@ -84,7 +84,7 @@ fn dome(world: &World, r: f64, m: f64) -> Vec<f32> {
                             if a > b {
                                 continue;
                             }
-                            for &h in &world.raw[y as usize * NC + a as usize..=y as usize * NC + b as usize] {
+                            for &h in &world.raw.v[y as usize * NC + a as usize..=y as usize * NC + b as usize] {
                                 mx = mx.max(h);
                             }
                         }
@@ -317,6 +317,8 @@ fn main() {
     let nchk: usize = args.iter().position(|a| a == "--check").map(|p| args[p + 1].parse().unwrap()).unwrap_or(300);
     fs::create_dir_all(&out).unwrap();
     let world = World::new(1337);
+    // The dome is computed on the default city, whose raster is the full NC x NC grid from -MAP_HALF.
+    assert!(world.raw.nx == NC && world.raw.ny == NC && world.raw.x0 == -MAP_HALF && world.raw.y0 == -MAP_HALF);
     let ceil = (top(&world) + R_BODY + MARGIN) as f32;
     println!("zTop = {:.2} m (map top {:.2} + R_BODY {} + MARGIN {})", ceil, top(&world), R_BODY, MARGIN);
     let mut report = format!("zTop = {:.2} m (map top {:.2} m + R_BODY {} m + MARGIN {} m)\n", ceil, top(&world), R_BODY, MARGIN);

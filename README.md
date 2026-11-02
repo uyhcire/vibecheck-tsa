@@ -20,6 +20,7 @@ Everything is a one-word `make` target; `make help` lists them.
 | Target | What it does |
 |---|---|
 | `make fly` / `fly-rust` / `fly-off` | The city flight demo with the Lean exact-rollout gate (the default; `fly-lean` is the same), its Rust implementation, or no filter |
+| `make fly-san-francisco` | The San Francisco map with the Rust exact-rollout gate (the Lean gate covers only the default city) |
 | `make showcase` | Tower gap with the scripted showcase pilot and the cinematic camera |
 | `make record` | Record the demo frame by frame into `OUT` (PNGs plus a per-frame clearance and camera log), deterministic; see `flight/README.md` |
 | `make proofdump` | Replay a run headless and log the gate's verified paths, failed rollouts and end sets per tick (`RUN=showcase` or `ep<N>`), for drawing over recordings |

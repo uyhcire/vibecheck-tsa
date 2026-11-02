@@ -855,7 +855,8 @@ impl App {
                 self.reset(id);
             }
         }
-        if is_key_pressed(KeyCode::Tab) {
+        // The Lean gate checks against the default city built into it (`CityGate/data`), so it never flies another map.
+        if is_key_pressed(KeyCode::Tab) && !cityflight::leangate::enabled() {
             self.switch_map = true;
         }
         if is_key_pressed(KeyCode::Y) && self.world.map == MapId::Grid {
@@ -1930,6 +1931,14 @@ async fn main() {
     };
     // The other map's scenes, parked while it is not shown (Tab builds them on first use).
     let mut parked: [Option<MapScenes>; 2] = [None, None];
+    // The Lean gate's map is the default city built into it (`CityGate/data`): on another map it would check escapes
+    // against the wrong city, so fall back to the Rust gate, which reads the map it flies.
+    #[cfg(feature = "jsb")]
+    if map != MapId::Grid && cityflight::leangate::enabled() {
+        eprintln!("--safety-filter exact-rollout-lean covers only the default city; using exact-rollout on this map");
+        cityflight::leangate::LEAN_GATE.store(false, std::sync::atomic::Ordering::Relaxed);
+        cityflight::envfilter::ENV_FILTER.store(cityflight::envfilter::parse("exact-rollout"), std::sync::atomic::Ordering::Relaxed);
+    }
     let MapScenes { world, mut scene, mut photo } = MapScenes::new(World::load(map));
     let ui = Ui {
         mono: load_font(&["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc"]),

@@ -101,6 +101,10 @@ fly-lean:
 .PHONY: fly-rust
 fly-rust:
 	$(MAKE) fly FLY_FILTER=exact-rollout
+# San Francisco (Luis Pabon's map) with the Rust exact-rollout gate: the Lean gate covers only the default city.
+.PHONY: fly-san-francisco
+fly-san-francisco:
+	$(MAKE) fly FLY_FILTER=exact-rollout ARGS="--map sf $(ARGS)"
 .PHONY: fly-off
 fly-off:
 	$(MAKE) fly ARGS="--off $(ARGS)"
@@ -216,7 +220,7 @@ experiments:
 
 .PHONY: help
 help:
-	@echo "Fly:      make fly | fly-lean | fly-rust | fly-off | showcase | profile | profile-lean   (Lean gate by default; FILTER=..., ARGS=\"...\")"
+	@echo "Fly:      make fly | fly-lean | fly-rust | fly-san-francisco | fly-off | showcase | profile | profile-lean   (Lean gate by default; FILTER=..., ARGS=\"...\")"
 	@echo "Record:   make record OUT=dir ARGS=\"--frames N --record-every K --record-scale K ...\"   (PNG frames + frames.csv)"
 	@echo "          make proofdump OUT=dir RUN=showcase|ep<N> ARGS=\"--secs S --settle-secs S\"   (the gate's verified paths and end sets per tick)"
 	@echo "Test:     make crashes | crashes-lean | adversary | harness | regimes | dome | plantcheck | termcheck | test   (N=..., OUT=...)"
