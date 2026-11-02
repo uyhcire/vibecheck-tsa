@@ -456,9 +456,9 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
       
       
     <details class="more"><summary>About this run</summary><p class="cc-text">At 50 m/s in a 35° dive at the park between the towers, the pilot's hands are off and the fly-by-wire holds the dive. The run starts 3 s before the slice's start point (<code>--lead 3</code>). The gate takes over and bottoms out <strong>0.05 m</strong> above the park at 6.90 s. The twin starts at the slice point itself, 0.5 m lower: nothing verifies, and it hits the park 1.27 s later with the filter on. The deployed gate, with its 4 m margin, accepts starts only from 4.3 m higher on this slice; from there it flies the same pull-out and bottoms out at <strong>3.87 m</strong>, a little inside its margin, because the margin is kept only at the points it checks along each rollout.</p><p class="repro">
-        <span>Zero-margin, saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,36.14,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
-        <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,35.64,50.00,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
-        <span>Deployed gate: <code>make fly ARGS="--time-cap 0 --start -360.00,260.00,40.40,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
+        <span>Zero-margin, saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,36.14,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,35.64,50.00,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
+        <span>Deployed gate: <code>make fly-rust ARGS="--time-cap 0 --start -360.00,260.00,40.40,50.00,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
       </p></details>
     </figure>
 </section>
@@ -491,8 +491,8 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
       
       
     <details class="more"><summary>About this run</summary><p class="cc-text">Drifting 10° into an 87 m tower face from 12 m away at 45 m/s. The filter rolls away into its left 40° escape, and the airframe envelope passes the glass with <strong>0.03 m</strong> to spare at 1.60 s. Half a metre closer, the twin hits the face 1.40 s in with the filter on.</p><p class="repro">
-        <span>Saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths"</code></span>
-        <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
+        <span>Saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -230.10,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --lead 0 --cinematic --cam 0 --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -229.60,265.00,56.98,45.00,0.000,80.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
       </p></details>
     </figure>
 </section>
@@ -525,8 +525,8 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
       
       
     <details class="more"><summary>About this run</summary><p class="cc-text">A 35° dive at 66.9 m/s (130 knots) toward the park between the towers, starting 3 s before the slice point. The pull-out bottoms out <strong>0.01 m</strong> above the park at 4.83 s, the tightest save on this page. The twin is 0.5 m/s faster at the slice point: no escape verifies, and it hits the ground 1.73 s after its start with the filter on. Here the limit is the escape law's 3.5 g pull, not physics.</p><p class="repro">
-        <span>Saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,66.88,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
-        <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,67.38,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
+        <span>Saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,66.88,-35.000,90.000,0.000,0.60 --lead 3 --cinematic --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -360.00,260.00,52.40,67.38,-35.000,90.000,0.000,0.60 --cinematic --paths"</code></span>
       </p></details>
     </figure>
 </section>
@@ -559,8 +559,8 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
       
       
     <details class="more"><summary>About this run</summary><p class="cc-text">Straight at an 87 m tower face across the park at 45 m/s, starting 2 s before the slice point. The filter takes over and climbs away in a 40° left bank, skimming over the roof with <strong>0.86 m</strong> to spare at 6.67 s. Half a metre further in, nothing verifies and the fallback escape, flown blind, meets the face 5.77 s after the twin's start.</p><p class="repro">
-        <span>Saved: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -399.19,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --lead 2 --cinematic --cam 0 --paths"</code></span>
-        <span>Twin: <code>make fly ARGS="--time-cap 0 --margin 0 --check-every 1 --start -398.69,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
+        <span>Saved: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -399.19,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --lead 2 --cinematic --cam 0 --paths"</code></span>
+        <span>Twin: <code>make fly-rust ARGS="--time-cap 0 --margin 0 --check-every 1 --start -398.69,295.00,57.49,45.00,0.000,0.000,0.000,0.70 --cinematic --cam 0 --paths"</code></span>
       </p></details>
     </figure>
 </section>
@@ -593,9 +593,9 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
       </ul>
       
       
-    <details class="more"><summary>About this run</summary><p class="cc-text">The scenario from the section above, flown with the deployed gate (4 m margin, the default of <code>make fly</code>) and recorded fresh. The scripted pilot holds the street centreline through both gaps, then banks hard right toward the 352 m tower and holds the bank. The filter takes over at 2.73 s, and the closest the airframe comes to anything in these 20 s is <strong>5.61 m</strong> at 5.93 s. With the filter off, the same pilot hits a building at 5.63 s.</p><p class="repro">
-        <span>Filter on: <code>make fly ARGS="--time-cap 0 --showcase --cinematic --paths"</code> (or <code>make showcase</code>)</span>
-        <span>Filter off: <code>make fly ARGS="--time-cap 0 --showcase --cinematic --paths --off"</code></span>
+    <details class="more"><summary>About this run</summary><p class="cc-text">The scenario from the section above, flown with the deployed Rust gate (4 m margin, <code>make fly-rust</code>) and recorded fresh. The scripted pilot holds the street centreline through both gaps, then banks hard right toward the 352 m tower and holds the bank. The filter takes over at 2.73 s, and the closest the airframe comes to anything in these 20 s is <strong>5.61 m</strong> at 5.93 s. With the filter off, the same pilot hits a building at 5.63 s.</p><p class="repro">
+        <span>Filter on: <code>make fly-rust ARGS="--time-cap 0 --showcase --cinematic --paths"</code> (or <code>make showcase</code>)</span>
+        <span>Filter off: <code>make fly-rust ARGS="--time-cap 0 --showcase --cinematic --paths --off"</code></span>
       </p></details>
     </figure>
 </section>
@@ -627,8 +627,8 @@ html.trisk .perf text { font-family: "Trisk", "Barlow", sans-serif; font-weight:
       
       
     <details class="more"><summary>About this run</summary><p class="cc-text">The kamikaze autopilot picks a building (or now and then a point on the ground), flies straight at it at full throttle, and picks a new target every 12 to 25 s or once it passes. This run starts at the Tower gap scenario's start, with the deployed gate. The clip is the first 24 s of the 60 s run, around its closest moment: <strong>4.04 m</strong> at 8.27 s, just outside the 4 m margin the gate keeps at the points it checks along each rollout. With the filter off, the same autopilot hits a building at 4.82 s.</p><p class="repro">
-        <span>Filter on: <code>make fly ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths"</code>; this clip is <code>--frames 1440</code> of the recording</span>
-        <span>Filter off (contact at 4.82 s): <code>make fly ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths --off"</code></span>
+        <span>Filter on: <code>make fly-rust ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths"</code>; this clip is <code>--frames 1440</code> of the recording</span>
+        <span>Filter off (contact at 4.82 s): <code>make fly-rust ARGS="--time-cap 0 --episode 1004 --cinematic --cam 0 --paths --off"</code></span>
       </p></details>
     </figure>
 </section>

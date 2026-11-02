@@ -143,7 +143,7 @@ fn check(dir: &Path) -> bool {
             }
         }
     }
-    report("2.5 m max-height raster", raster.iter().zip(&w.raw).all(|(a, b)| a.to_bits() == b.to_bits()));
+    report("2.5 m max-height raster", raster.len() == w.raw.v.len() && raster.iter().zip(&w.raw.v).all(|(a, b)| a.to_bits() == b.to_bits()));
     report("map_top", json_number(&json, "map_top").to_bits() == w.raw_top.to_bits());
     ok
 }

@@ -36,6 +36,9 @@ def RESUME_FRAMES : Nat := 256
 def HANDBACK_EXTRA : Float := 3.0
 /-- Candidates per check (CPU). -/
 def MAX_CANDS : Nat := 4
+/-- Candidates per check while committed: the committed escape continued, then fresh escapes round robin. Fewer
+bounds the slow checks, where every candidate runs to its end, at the price of later hand-backs. -/
+def MAX_CANDS_COMMITTED : Nat := 2
 
 def Ctl.fresh (pilot : Surf) (pf : Nat) (law : Law) (extra : Float) (cap : Nat) : Ctl :=
   { pilot, pf, law, lk := 0, hist := #[], psiPrev := NAN, extra, cap }
@@ -102,8 +105,8 @@ def prefDir (m : Mem) (p : Plane) (w : Ctl) : Float :=
 def Mem.checks (m : Mem) : Bool := m.frame % CHECK_EVERY == 0 && !(m.committed && m.runFrames < HOLD_FRAMES)
 
 /-- `Gate::candidate_laws`: the committed escape continued (or, shortly after a hand-back, the resumed witness),
-then fresh escapes round the list from the start, those turning the preferred way first. Returns the laws and
-how many are fresh. -/
+then fresh escapes round the list from the start, those turning the preferred way first; at most `MAX_CANDS`, or
+`MAX_CANDS_COMMITTED` while committed. Returns the laws and how many are fresh. -/
 def candidateLaws (m : Mem) (p : Plane) (w : Ctl) : List Law × Nat :=
   let wl := w.law
   let first := if m.committed || wl.t == 0.0 || m.sinceHandback < RESUME_FRAMES then [wl] else []
@@ -112,7 +115,7 @@ def candidateLaws (m : Mem) (p : Plane) (w : Ctl) : List Law × Nat :=
   let order := (List.range N_ESC).map fun i => (start + i) % N_ESC
   let ordered := order.filter (fun e => ESC_DIR[e]! * pref ≥ 0.0) ++ order.filter (fun e => !(ESC_DIR[e]! * pref ≥ 0.0))
   let fresh := (ordered.filter fun e => !first.any fun l => l.t == 0.0 && l.esc == e).map Law.new
-  let laws := (first ++ fresh).take MAX_CANDS
+  let laws := (first ++ fresh).take (if m.committed then MAX_CANDS_COMMITTED else MAX_CANDS)
   (laws, laws.length - first.length)
 
 def proposeC (m : Mem) (p : Plane) (w : Ctl) (u : Surf) : List Ctl :=

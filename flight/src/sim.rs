@@ -7,17 +7,26 @@ use crate::model::*;
 use crate::world::*;
 use std::f64::consts::PI;
 
+pub const WIND_SPEED: f64 = 7.0;
+/// Gust envelope per axis (m/s): horizontal, vertical.
+pub const GUST_XY: f64 = 2.5;
+pub const GUST_Z: f64 = 0.5;
+
 #[derive(Clone, Copy, Debug)]
 pub struct SimCfg {
     pub filter_on: bool,
     pub filter: FilterCfg,
-    pub mismatch: bool,
+    /// Steady wind with bounded gusts (the filter knows the steady wind and
+    /// the gust envelope).
+    pub wind: bool,
+    /// A weaker, slower aircraft than the filter's model (not known to it).
+    pub model_error: bool,
     pub seed: u64,
 }
 
 impl Default for SimCfg {
     fn default() -> Self {
-        SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, mismatch: false, seed: 1 }
+        SimCfg { filter_on: true, filter: FilterCfg { phase: Phase::P1, robust: false }, wind: false, model_error: false, seed: 1 }
     }
 }
 
@@ -32,7 +41,6 @@ pub struct Sim<'w> {
     pub wind: [f64; 3],
     wind_mean: [f64; 3],
     gust: [f64; 3],
-    pub wind_est: [f64; 3],
     rng: Rng,
     pub crashed: bool,
     pub crash_clear: f64,
@@ -73,8 +81,8 @@ impl<'w> Sim<'w> {
     pub fn new(world: &'w World, s0: State, cfg: SimCfg) -> Sim<'w> {
         let mut rng = Rng::new(cfg.seed ^ 0x51u64);
         let wa = rng.range(0.0, 2.0 * PI);
-        let ws = if cfg.mismatch { 7.0 } else { 0.0 };
-        let prm_true = if cfg.mismatch { Params::mismatch() } else { Params::nominal() };
+        let ws = if cfg.wind { WIND_SPEED } else { 0.0 };
+        let prm_true = if cfg.model_error { Params::mismatch() } else { Params::nominal() };
         let prm_ctrl = if cfg.filter.robust { Params::mismatch() } else { Params::nominal() };
         let wind_mean = [ws * wa.cos(), ws * wa.sin(), 0.0];
         let mut sim = Sim {
@@ -88,7 +96,6 @@ impl<'w> Sim<'w> {
             wind: wind_mean,
             wind_mean,
             gust: [0.0; 3],
-            wind_est: if cfg.filter.robust { wind_mean } else { [0.0; 3] },
             rng,
             crashed: false,
             crash_clear: 0.0,
@@ -151,10 +158,22 @@ impl<'w> Sim<'w> {
         Pred {
             world: self.world,
             prm: self.prm_ctrl,
-            wind: if self.cfg.filter.robust { self.wind_est } else { [0.0; 3] },
+            wind: self.wind_mean,
             robust: self.cfg.filter.robust,
             swept: true,
             accept: true,
+            gust: self.gust_env().0,
+            gust_z: self.gust_env().1,
+        }
+    }
+
+    /// Gust envelope the filter is certified for: max horizontal and
+    /// vertical deviation of the wind from its steady value.
+    pub fn gust_env(&self) -> (f64, f64) {
+        if self.cfg.wind {
+            (GUST_XY * std::f64::consts::SQRT_2, GUST_Z)
+        } else {
+            (0.0, 0.0)
         }
     }
 
@@ -180,21 +199,21 @@ impl<'w> Sim<'w> {
         self.k as f64 * DT
     }
 
+    /// Steady wind plus gusts: a random (Ornstein-Uhlenbeck) process clipped
+    /// to the envelope, per axis.
     fn update_wind(&mut self) {
-        if !self.cfg.mismatch {
+        if !self.cfg.wind {
             self.wind = [0.0; 3];
             return;
         }
         let tau = 4.0;
-        let sig = [2.0, 2.0, 0.8];
+        let sig = [1.5, 1.5, 0.5];
+        let lim = [GUST_XY, GUST_XY, GUST_Z];
         for a in 0..3 {
             let dw = (self.rng.f() - 0.5) * 3.4641; // unit variance
             self.gust[a] += -self.gust[a] / tau * DT_F + sig[a] * (2.0 * DT_F / tau).sqrt() * dw;
+            self.gust[a] = self.gust[a].clamp(-lim[a], lim[a]);
             self.wind[a] = self.wind_mean[a] + self.gust[a];
-        }
-        let a = DT_F / 5.0;
-        for i in 0..3 {
-            self.wind_est[i] += (self.wind[i] - self.wind_est[i]) * a;
         }
     }
 
@@ -244,8 +263,8 @@ impl<'w> Sim<'w> {
             CmdSrc::FollowPlan => match self.fs.plan {
                 Some(pl) if self.k < pl.hold_end => pl.hold,
                 Some(pl) => {
-                    let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
-                    esc_law(&self.prm_ctrl, &self.s, pl.esc, (self.k - pl.hold_end) as f64 * DT, psi0).cmd
+                    let e = pl.eref.unwrap_or_else(|| self.pred().esc_ref(&self.s, pl.esc));
+                    esc_law(&self.prm_ctrl, &self.s, pl.esc, (self.k - pl.hold_end) as f64 * DT, &e, &self.wind).cmd
                 }
                 None => u_p,
             },
@@ -393,17 +412,13 @@ impl<'w> Sim<'w> {
         if self.jsb.is_some() {
             let u = match src {
                 CmdSrc::Const(u) => u,
+                // As on the point-mass plant: the escape follows the ground path the filter verified.
                 CmdSrc::FollowPlan => match self.fs.plan {
-                    Some(mut pl) => {
-                        pl.begin_step(self.k, &self.s);
-                        self.fs.plan = Some(pl);
-                        if self.k < pl.hold_end {
-                            pl.hold
-                        } else {
-                            let te = (self.k - pl.hold_end) as f64 * DT;
-                            let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
-                            esc_law(&self.prm_ctrl, &self.s, pl.esc, te, psi0).cmd
-                        }
+                    Some(pl) if self.k < pl.hold_end => pl.hold,
+                    Some(pl) => {
+                        let te = (self.k - pl.hold_end) as f64 * DT;
+                        let e = pl.eref.unwrap_or_else(|| self.pred().esc_ref(&self.s, pl.esc));
+                        esc_law(&self.prm_ctrl, &self.s, pl.esc, te, &e, &wind).cmd
                     }
                     None => u_p,
                 },
@@ -417,17 +432,15 @@ impl<'w> Sim<'w> {
         match src {
             CmdSrc::Const(u) => rk4(&prm, &mut self.s, DT, &wind, |_, _| u),
             CmdSrc::FollowPlan => {
-                if let Some(mut pl) = self.fs.plan {
-                    pl.begin_step(self.k, &self.s);
-                    self.fs.plan = Some(pl);
+                if let Some(pl) = self.fs.plan {
                     if self.k < pl.hold_end {
                         let u = pl.hold;
                         rk4(&prm, &mut self.s, DT, &wind, |_, _| u);
                     } else {
                         let te = (self.k - pl.hold_end) as f64 * DT;
                         let pc = self.prm_ctrl;
-                        let psi0 = pl.psi0.unwrap_or(self.s[PSI]);
-                        rk4(&prm, &mut self.s, DT, &wind, |st, off| esc_law(&pc, st, pl.esc, te + off, psi0).cmd);
+                        let e = pl.eref.unwrap_or_else(|| self.pred().esc_ref(&self.s, pl.esc));
+                        rk4(&prm, &mut self.s, DT, &wind, |st, off| esc_law(&pc, st, pl.esc, te + off, &e, &wind).cmd);
                     }
                 } else {
                     rk4(&prm, &mut self.s, DT, &wind, |_, _| u_p);
@@ -439,12 +452,6 @@ impl<'w> Sim<'w> {
 
     fn after_step(&mut self) {
         self.k += 1;
-        // Keep the plan's escape heading reference once the hold elapses
-        // even while flying the pilot's command (so a later commit is exact).
-        if let Some(mut pl) = self.fs.plan {
-            pl.begin_step(self.k, &self.s);
-            self.fs.plan = Some(pl);
-        }
         let c = self.world.true_clearance([self.s[X], self.s[Y], self.s[Z]]);
         self.true_clear = c;
         self.min_true_clear = self.min_true_clear.min(c);
@@ -458,11 +465,20 @@ impl<'w> Sim<'w> {
 // ---------------------------------------------------------------- starts
 
 fn safe_h(world: &World, s: &State) -> f64 {
-    let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true };
+    let pred = Pred { world, prm: Params::nominal(), wind: [0.0; 3], robust: false, swept: true, accept: true, gust: 0.0, gust_z: 0.0 };
     pred.best(s, None, &ESC_ORDER, f64::INFINITY).0
 }
 
 pub const SCENARIOS: [&str; 5] = ["Tower run", "Dive", "Ridge", "Slow and low", "Tower gap"];
+pub const SF_SCENARIOS: [&str; 4] = ["Salesforce run", "Dive", "Nob Hill", "Slow and low"];
+
+/// Scenario names on a map.
+pub fn scenario_names(map: MapId) -> &'static [&'static str] {
+    match map {
+        MapId::Grid => &SCENARIOS,
+        MapId::SanFrancisco => &SF_SCENARIOS,
+    }
+}
 
 /// Tower gap: the 28 m street `x = street_x(GAP_STREET)`, flown north. It runs between the 261 m and 292 m
 /// towers of block row 9, crosses the avenue `y = 0`, then passes the 235 m and 352 m towers of row 10
@@ -556,6 +572,9 @@ impl Drawn {
 /// Deterministic scenario starts, each searched so that a verified escape
 /// exists at spawn (inside the safe set).
 pub fn scenario_start(world: &World, id: usize) -> State {
+    if world.map == MapId::SanFrancisco {
+        return sf_scenario_start(world, id);
+    }
     let tc = world.tallest_center();
     match id {
         // 60 m up a street, aimed at the tallest tower.
@@ -641,13 +660,109 @@ pub fn scenario_start(world: &World, id: usize) -> State {
     }
 }
 
+/// San Francisco scenarios: the same four ideas on real geometry.
+fn sf_scenario_start(world: &World, id: usize) -> State {
+    let tc = world.tallest_center();
+    let ok = |s: &State, need: f64, room: f64| safe_h(world, s) >= need && world.true_clearance([s[X], s[Y], s[Z]]) > room;
+    match id {
+        // 60 m up Mission Street, aimed at Salesforce Tower (1st & Mission).
+        0 => {
+            if let Some(l) = world.street_line("Mission Street") {
+                let (c, sn) = (l.dir.cos(), l.dir.sin());
+                let along = (tc[0] - l.p0[0]) * c + (tc[1] - l.p0[1]) * sn;
+                for need in [45.0, 25.0, 5.0] {
+                    for d in (500..1800).step_by(25) {
+                        let a = along - d as f64;
+                        if a < 0.0 {
+                            break;
+                        }
+                        let (x, y) = (l.p0[0] + a * c, l.p0[1] + a * sn);
+                        let z = world.terrain(x, y) + 60.0;
+                        let s = trimmed(x, y, z, 50.0, 0.0, (tc[1] - y).atan2(tc[0] - x), 0.64);
+                        if ok(&s, need, 20.0) {
+                            return s;
+                        }
+                    }
+                }
+            }
+            trimmed(tc[0] - 1200.0, tc[1] - 1200.0, 260.0, 50.0, 0.0, PI / 4.0, 0.64)
+        }
+        // 700 m above downtown, diving at 30 deg at the tower.
+        1 => {
+            let (x, y) = (tc[0] - 900.0, tc[1] - 300.0);
+            let z = world.terrain(tc[0], tc[1]) + 700.0;
+            trimmed(x, y, z, 50.0, -30f64.to_radians(), (tc[1] - y).atan2(tc[0] - x), 0.64)
+        }
+        // 50 m above the street, heading up Nob Hill from below: of 16
+        // approach bearings, the safe start that faces the most climb.
+        2 => {
+            let top = world.hilltop_near([-800.0, 200.0], 400.0);
+            let mut best: Option<(f64, State)> = None;
+            for k in 0..16 {
+                let b = k as f64 * PI / 8.0;
+                for d in (700..1300).step_by(50) {
+                    let (x, y) = (top[0] + d as f64 * b.cos(), top[1] + d as f64 * b.sin());
+                    let g = world.terrain(x, y);
+                    let s = trimmed(x, y, g + 50.0, 50.0, 0.0, b + PI, 0.64);
+                    if ok(&s, 5.0, 15.0) {
+                        let climb = top[2] - g;
+                        if best.as_ref().map_or(true, |bb| climb > bb.0) {
+                            best = Some((climb, s));
+                        }
+                        break;
+                    }
+                }
+            }
+            best.map(|b| b.1).unwrap_or_else(|| trimmed(top[0], top[1] - 1000.0, 120.0, 50.0, 0.0, PI / 2.0, 0.64))
+        }
+        // 40 m up at 1.3x stall, along a street among mid-rises: the
+        // densest safe spot of points every 120 m along streets 600-1500 m
+        // from downtown.
+        _ => {
+            let v = 1.3 * V_STALL;
+            let mut best: Option<(f64, State)> = None;
+            for st in world.streets.iter().filter(|s| s.is_surface()) {
+                for w in st.pts.windows(2) {
+                    let (dx, dy) = (w[1][0] - w[0][0], w[1][1] - w[0][1]);
+                    let len = (dx * dx + dy * dy).sqrt();
+                    let mut a = 60.0;
+                    while a < len {
+                        let (x, y) = (w[0][0] + dx * a / len, w[0][1] + dy * a / len);
+                        a += 120.0;
+                        let r = ((x - tc[0]).powi(2) + (y - tc[1]).powi(2)).sqrt();
+                        let g = world.terrain(x, y);
+                        if !(600.0..1500.0).contains(&r) || world.surface(x, y) > g + 1.0 {
+                            continue;
+                        }
+                        let mut dens = 0.0;
+                        for i in -6..=6 {
+                            for j in -6..=6 {
+                                dens += world.surface(x + i as f64 * 15.0, y + j as f64 * 15.0) - g;
+                            }
+                        }
+                        if best.as_ref().map_or(false, |b| dens <= b.0) {
+                            continue;
+                        }
+                        let s = trimmed(x, y, g + 40.0, v, 0.0, dy.atan2(dx), 0.5);
+                        if ok(&s, 3.0, 0.0) {
+                            best = Some((dens, s));
+                        }
+                    }
+                }
+            }
+            best.map(|b| b.1).unwrap_or_else(|| trimmed(-900.0, -900.0, 120.0, v, 0.0, 0.0, 0.5))
+        }
+    }
+}
+
 /// Random start inside the safe set (rejection sampled, deterministic).
 pub fn random_start(world: &World, rng: &mut Rng) -> State {
     loop {
+        // Mostly the downtown core; otherwise anywhere at least 700 m inside the map.
         let (x, y) = if rng.chance(0.65) {
             (rng.range(-1250.0, 1250.0), rng.range(-1250.0, 1250.0))
         } else {
-            (rng.range(-2300.0, 2300.0), rng.range(-2300.0, 2300.0))
+            (rng.range(world.x0 + 700.0, world.x1 - 700.0), rng.range(world.y0 + 700.0, world.y1 - 700.0))
         };
         let agl = rng.range(40f64.ln(), 400f64.ln()).exp();
         let mut top = 0f64;
